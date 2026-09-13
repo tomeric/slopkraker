@@ -29,7 +29,21 @@ class ApplicationSystemTestCase < ActionDispatch::SystemTestCase
     @machine_lock = lock
   end
 
+  # The lock only keeps other suites away. A dev server left running in this worktree
+  # steals CPU just as effectively, and the physics assertions fail in the same
+  # hard-to-read way -- so say so rather than letting it look like a real regression.
+  def self.warn_about_dev_server
+    port = Rails.root.join(".dev-port")
+    return unless port.exist?
+
+    running = system("lsof", "-ti", ":#{port.read.strip}", out: File::NULL, err: File::NULL)
+    return unless running
+
+    puts "== A dev server is running on port #{port.read.strip}. Physics timings will be noisy. =="
+  end
+
   acquire_machine_lock
+  warn_about_dev_server
 
   # Headless Chrome has no GPU, so WebGL needs SwiftShader explicitly or the canvas
   # silently fails to acquire a context and the engine never boots.

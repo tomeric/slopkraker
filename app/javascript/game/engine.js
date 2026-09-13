@@ -19,6 +19,7 @@ import { DamageGizmos } from "game/render/damage_gizmos"
 import { HitMarkers } from "game/render/hit_markers"
 import { Interpolator, createEntry, savePrevious, readBack } from "game/sim/interpolator"
 import { BlastWave } from "game/blast_wave"
+import { SpatialGrid } from "game/sim/spatial_grid"
 import { Telemetry } from "game/telemetry"
 
 const MAX_FRAME_TIME = 0.25
@@ -72,6 +73,7 @@ export class GameEngine {
     this.props = props
 
     this.arenaGroup = buildArenaView(this.scene, this.spec.arena)
+    this.propGrid = new SpatialGrid({ cellSize: 5 })
     this.trackProps()
 
     this.eventQueue = new RAPIER.EventQueue(true)
@@ -98,12 +100,14 @@ export class GameEngine {
         // list means the next readBack() calls translation() on freed wasm memory, which
         // traps and poisons the whole Rapier instance.
         this.interpolator.untrack(prop.body)
+        this.propGrid.remove(prop)
       }
     })
     this.blast = new BlastWave({
       props: this.props,
       destruction: this.destruction,
-      projectiles: this.projectiles
+      projectiles: this.projectiles,
+      grid: this.propGrid
     })
 
     this.hud = new Hud(this.root)
@@ -220,7 +224,11 @@ export class GameEngine {
       const mesh = this.arenaGroup.getObjectByName(prop.spec.name)
       if (!mesh) continue
       prop.mesh = mesh
-      this.interpolator.track({ body: prop.body, mesh })
+      // Held onto so a blast can read where the prop is without asking wasm: the
+      // interpolator has already read this body's transform once this step.
+      prop.entry = this.interpolator.track({ body: prop.body, mesh })
+      // Dynamic: props get knocked about, so the grid re-seats them as they move.
+      this.propGrid.insert(prop, mesh.position.x, mesh.position.y, mesh.position.z, { dynamic: true })
     }
   }
 
@@ -506,6 +514,7 @@ export class GameEngine {
     this.renderer?.dispose()
     this.renderer?.forceContextLoss()
     this.interpolator.clear()
+    this.propGrid?.clear()
     if (window.__arena === this.stats) delete window.__arena
   }
 }

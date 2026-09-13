@@ -1,46 +1,67 @@
 import { explosionForce } from "game/damage"
 
+// Re-sweep once the shell has grown by this share of its final radius. The shell only
+// grows and each target is caught at most once, so sweeping less often cannot change what
+// a blast does -- explosionForce is a function of distance, not of time, so a target
+// caught a tick later takes exactly the damage it would have taken a tick earlier. See
+// the note above explosionRadius in damage.js, which makes the same argument for the
+// easing curve.
+const SWEEP_GROWTH = 0.08
+
 // What an expanding explosion does to the world. The Explosions class owns what a blast
 // *is* -- its radius over time, its shell, its readout; this owns what it *does*.
 //
 // Lives beside destruction.js rather than inside it until that file splits, at which
 // point both move into destruction/.
-//
-// Each target is caught once, on the frame the shell reaches it, and the further out it
-// is the weaker what arrives -- the same falloff a one-shot blast query gave, now spread
-// over the expansion. The caller's `hit` set is what makes "once" true across frames.
 export class BlastWave {
-  constructor({ props, destruction, projectiles }) {
+  constructor({ props, destruction, projectiles, grid }) {
     this.props = props
     this.destruction = destruction
     this.projectiles = projectiles
+    this.grid = grid
+    this.positionOf = (prop) => prop.entry?.currPos
   }
 
   apply(explosion, vehicle) {
     const { spec, at, damage, hit, radius } = explosion
 
-    this.sweepProps(spec, at, damage, hit, radius)
+    // Rockets and the vehicle are checked every step. Both move fast enough that catching
+    // them a tick late would change what a blast chains into, and there are never more
+    // than a handful of them, so there is nothing to save here anyway.
     this.chainRockets(at, hit, radius)
     this.shoveVehicle(spec, at, damage, hit, radius, vehicle)
+
+    const sweptTo = explosion.sweptRadius || 0
+    if (sweptTo >= spec.radius) return
+    if (radius < spec.radius && radius - sweptTo < spec.radius * SWEEP_GROWTH) return
+
+    // Props are knocked about by what hits them, so their cached positions have to catch
+    // up before the sweep trusts them. Cheap: the positions come from the interpolator's
+    // readback, so this never crosses into wasm.
+    this.grid.refreshDynamic(this.positionOf)
+    this.sweepProps(spec, at, damage, hit, radius, sweptTo)
+    explosion.sweptRadius = radius
   }
 
-  sweepProps(spec, at, damage, hit, radius) {
-    for (const prop of this.props) {
-      if (prop.broken || hit.has(prop)) continue
+  // Everything the shell has reached but not yet caught, and the further out it is the
+  // weaker what arrives -- the same falloff a one-shot blast query gave, now spread over
+  // the expansion.
+  sweepProps(spec, at, damage, hit, radius, sweptTo) {
+    this.grid.forEachInAnnulus(at.x, at.z, sweptTo, radius, (prop, px, py, pz) => {
+      if (prop.broken || hit.has(prop)) return
 
-      const t = prop.body.translation()
-      const dx = t.x - at.x, dy = t.y - at.y, dz = t.z - at.z
+      const dx = px - at.x, dy = py - at.y, dz = pz - at.z
       const distance = Math.hypot(dx, dy, dz)
-      if (distance > radius) continue
+      if (distance > radius) return
 
       hit.add(prop)
       const falloff = explosionForce(spec, distance)
       this.destruction.apply(prop, damage * falloff)
       // The blast may have just destroyed it; its body is gone.
-      if (prop.broken) continue
+      if (prop.broken) return
 
       push(prop.body, dx, dy, dz, distance, falloff * damage * spec.prop_push, spec.prop_lift, 0.4)
-    }
+    })
   }
 
   // A rocket caught in a blast goes off with it, so a burst chains rather than trickling
