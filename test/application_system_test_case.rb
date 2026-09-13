@@ -7,6 +7,30 @@ class ApplicationSystemTestCase < ActionDispatch::SystemTestCase
   # serially even though the model tests parallelise fine.
   parallelize(workers: 1)
 
+  # That reasoning does not stop at the edge of this checkout. Several agents work this
+  # repo at once in parallel worktrees, and two suites running concurrently starve each
+  # other's render loop exactly as two workers would -- except the failures surface as
+  # flaky physics assertions rather than as anything that looks like contention. The lock
+  # lives outside every worktree, so whichever checkout starts first holds it and the rest
+  # queue behind it.
+  SYSTEM_TEST_LOCK = File.join(Dir.home, ".carnavalskraker", "system-tests.lock")
+
+  def self.acquire_machine_lock
+    FileUtils.mkdir_p(File.dirname(SYSTEM_TEST_LOCK))
+    lock = File.open(SYSTEM_TEST_LOCK, File::CREAT | File::RDWR, 0o644)
+
+    unless lock.flock(File::LOCK_EX | File::LOCK_NB)
+      puts "== Waiting for the system-test lock (another worktree is running the suite) =="
+      lock.flock(File::LOCK_EX)
+    end
+
+    # Held for the life of the process. The File must stay referenced: letting it be
+    # collected closes the descriptor, which releases the lock while the suite runs on.
+    @machine_lock = lock
+  end
+
+  acquire_machine_lock
+
   # Headless Chrome has no GPU, so WebGL needs SwiftShader explicitly or the canvas
   # silently fails to acquire a context and the engine never boots.
   driven_by :selenium, using: :headless_chrome, screen_size: [ 1400, 900 ] do |options|

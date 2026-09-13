@@ -1,2 +1,49 @@
 #!/usr/bin/env ruby
-exec "./bin/rails", "server", *ARGV
+
+# Several agents work this repo at once in parallel git worktrees, so a fixed 3000 would
+# collide the moment two of them start a server. Resolve a port in this order:
+#
+#   1. an explicit -p/--port flag, or PORT in the environment -- always wins
+#   2. the port this worktree settled on last time, recorded in .dev-port
+#   3. the first free port in the 31xx band, which is then recorded
+#
+# Step 2 is what keeps a worktree's URL stable across restarts; step 3 is what keeps two
+# worktrees off each other. 3001 is already taken by another app on this machine, so the
+# band deliberately starts above it.
+require "socket"
+
+PORT_FILE = File.expand_path("../.dev-port", __dir__)
+PORT_RANGE = (3100..3189)
+
+def available?(port)
+  TCPServer.new("127.0.0.1", port).close
+  true
+rescue Errno::EADDRINUSE, Errno::EACCES
+  false
+end
+
+def remembered_port
+  return nil unless File.exist?(PORT_FILE)
+
+  port = File.read(PORT_FILE).strip.to_i
+  port.positive? ? port : nil
+end
+
+def resolve_port
+  return nil if ENV["PORT"] || ARGV.grep(/\A(-p|--port)/).any?
+
+  if (port = remembered_port)
+    return port if available?(port)
+    warn "== Port #{port} is busy; picking another =="
+  end
+
+  PORT_RANGE.find { |candidate| available?(candidate) }.tap do |port|
+    abort "No free port in #{PORT_RANGE}. Is every worktree running a server?" unless port
+    File.write(PORT_FILE, port.to_s)
+  end
+end
+
+port = resolve_port
+puts "== http://localhost:#{port} ==" if port
+
+exec "./bin/rails", "server", *(port ? [ "-p", port.to_s ] : []), *ARGV

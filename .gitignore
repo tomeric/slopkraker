@@ -33,3 +33,9 @@
 # Ignore key files for decrypting credentials and more.
 /config/*.key
 
+# Generated world geometry: chunk and terrain payloads are built on demand and are
+# reproducible from the seed, so they are cache, not source.
+/public/worlds
+
+# The dev server port this worktree settled on. See bin/dev.
+/.dev-port
