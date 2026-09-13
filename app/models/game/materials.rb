@@ -25,7 +25,7 @@ module Game
         health_per_m2: 62.0, density: 2400.0, armour: 14.0,
         multipliers: { impact: 0.7, blast: 1.25, slam: 1.2 },
         fracture: { method: "voronoi", mode: "3D", fragments: 24, impact_radius: 0.35 },
-        friction: 0.95
+        friction: 0.95, roughness: 0.95
       ),
 
       # Interior partitions. Barely structural, and it should feel that way to drive
@@ -58,7 +58,8 @@ module Game
         structural_weight: 0.0,
         multipliers: { impact: 3.0, blast: 2.5, blade: 2.0, bull_bar: 2.0, slam: 2.0 },
         fracture: { method: "voronoi", mode: "2.5D", fragments: 22, project_along_normal: true },
-        friction: 0.35, restitution: 0.1
+        friction: 0.35, restitution: 0.1,
+        opacity: 0.3, metalness: 0.1, roughness: 0.08
       ),
 
       # Shears flat off a roof. 3D voronoi on something this thin would give absurd cubes.
@@ -78,7 +79,8 @@ module Game
         health_per_m2: 140.0, density: 7800.0, armour: 30.0,
         multipliers: { impact: 0.5, blast: 0.8 },
         fracture: { method: "none", fragments: 0 },
-        friction: 0.6, restitution: 0.2
+        friction: 0.6, restitution: 0.2,
+        metalness: 0.85, roughness: 0.35
       ),
 
       # A hole that is already there: a doorway, the clipped corner of a gable. It occupies

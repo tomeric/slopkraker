@@ -68,6 +68,15 @@ module Game
         patch ? Materials.fetch(patch.material) : material
       end
 
+      # Every material that appears anywhere on this surface.
+      def materials
+        ([ material ] + patches.map { |patch| Materials.fetch(patch.material) }).uniq(&:name)
+      end
+
+      def per_material
+        materials.to_h { |m| [ m.name.to_s, yield(m) ] }
+      end
+
       def with_offset(offset)
         self.class.new(
           kind: kind, storey: storey, material: material, origin: origin, u: u, v: v,
@@ -91,10 +100,13 @@ module Game
           rows: rows,
           t: thickness,
           off: piece_offset,
-          # Per cell, worked out once here rather than repeated for every cell on the wire.
-          hp: material.health_for(cell_area, thickness),
-          kg: material.mass_for(cell_area, thickness),
-          str: material.structural_weight,
+          # Per cell, per material -- not per surface. A window is a glass cell in a brick
+          # wall, and giving it the wall's health would make it as hard to break as the
+          # wall, which is the opposite of the point. Keyed by name and covering the
+          # surface's own material plus every material any patch introduces.
+          hp: per_material { |m| m.health_for(cell_area, thickness) },
+          kg: per_material { |m| m.mass_for(cell_area, thickness) },
+          str: per_material(&:structural_weight),
           patches: patches.map(&:to_spec)
         }
       end

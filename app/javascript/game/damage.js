@@ -24,6 +24,19 @@ function multiplierFor(part, state) {
   return part.damage_multiplier
 }
 
+// Which kind of damage a part deals, for materials that care. A blade shears timber, a
+// bull bar sweeps glass away, a slam drives straight down through a roof -- and concrete
+// shrugs all three off. Anything without an opinion is a plain impact.
+const PART_KINDS = {
+  bulldozer_blade: "blade",
+  bull_bar: "bull_bar",
+  slam_plate: "slam"
+}
+
+export function partKind(part) {
+  return (part && PART_KINDS[part.kind]) || "impact"
+}
+
 // Mirrors Part#armed? and its overrides.
 export function partArmed(part, state = {}) {
   switch (part.kind) {

@@ -37,6 +37,9 @@ export class Telemetry {
       explosions: 0, explosionReadout: [],
       debris: 0, broken: 0, hitMarkers: 0, damage: [], lastDamage: 0,
 
+      // Buildings: how much of the world is still standing.
+      pieces: 0, piecesStanding: 0, piecesBroken: 0, buildings: [],
+
       vehicle: null, muted: false
     }
 
@@ -47,7 +50,7 @@ export class Telemetry {
 
   update({
     vehicle, vehicleKey, entity, camera, projectiles, explosions,
-    destruction, hitMarkers, damageGizmos, audio, input, fallSpeed
+    destruction, hitMarkers, damageGizmos, audio, input, fallSpeed, buildings
   }) {
     const stats = this.stats
 
@@ -109,6 +112,13 @@ export class Telemetry {
     stats.debris = destruction.debris.length
     stats.hitMarkers = hitMarkers.live.length
     if (damageGizmos) stats.damage = damageGizmos.readout
+
+    if (buildings) {
+      stats.pieces = buildings.pieceCount
+      stats.piecesStanding = buildings.standingCount
+      stats.piecesBroken = buildings.brokenCount
+      stats.buildings = buildings.readout()
+    }
 
     stats.audio = {
       enabled: audio.engine.enabled,

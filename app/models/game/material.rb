@@ -14,11 +14,13 @@ module Game
     KINDS = %i[impact blast blade bull_bar slam].freeze
 
     attr_reader :name, :health_per_m2, :density, :armour, :structural_weight,
-                :multipliers, :fracture, :colour, :friction, :restitution
+                :multipliers, :fracture, :colour, :friction, :restitution,
+                :opacity, :metalness, :roughness
 
     def initialize(name:, health_per_m2:, density:, colour:,
                    armour: 0.0, structural_weight: 1.0, multipliers: {}, fracture: {},
-                   friction: 0.8, restitution: 0.05)
+                   friction: 0.8, restitution: 0.05,
+                   opacity: 1.0, metalness: 0.05, roughness: 0.85)
       @name = name.to_sym
       @health_per_m2 = health_per_m2.to_f
       @density = density.to_f
@@ -29,6 +31,12 @@ module Game
       @colour = colour
       @friction = friction.to_f
       @restitution = restitution.to_f
+      # How it looks, which is tuning like everything else here. A pane that is not
+      # see-through is not a pane, and a hole in a wall only reads as one if you can see
+      # through it into the room behind.
+      @opacity = opacity.to_f
+      @metalness = metalness.to_f
+      @roughness = roughness.to_f
       freeze
     end
 
@@ -71,7 +79,10 @@ module Game
         fracture: fracture,
         colour: colour,
         friction: friction,
-        restitution: restitution
+        restitution: restitution,
+        opacity: opacity,
+        metalness: metalness,
+        roughness: roughness
       }
     end
   end

@@ -10,7 +10,7 @@ import { InputManager } from "game/input/input_manager"
 import { Hud } from "game/hud"
 import { Projectiles } from "game/projectiles"
 import { Destruction } from "game/destruction"
-import { resolveDamage, explosionRadius, explosionForce } from "game/damage"
+import { resolveDamage, partKind, explosionRadius, explosionForce } from "game/damage"
 import { Explosions } from "game/explosions"
 import { VehicleAudio } from "game/audio/vehicle_audio"
 import { ControlsOverlay } from "game/controls_overlay"
@@ -20,6 +20,7 @@ import { HitMarkers } from "game/render/hit_markers"
 import { Interpolator, createEntry, savePrevious, readBack } from "game/sim/interpolator"
 import { BlastWave } from "game/blast_wave"
 import { SpatialGrid } from "game/sim/spatial_grid"
+import { Buildings } from "game/world/buildings"
 import { Telemetry } from "game/telemetry"
 
 const MAX_FRAME_TIME = 0.25
@@ -75,6 +76,11 @@ export class GameEngine {
     this.arenaGroup = buildArenaView(this.scene, this.spec.arena)
     this.propGrid = new SpatialGrid({ cellSize: 5 })
     this.trackProps()
+
+    this.buildings = new Buildings({
+      RAPIER, world, scene: this.scene, spec: this.spec,
+      materials: this.spec.materials, colliderIndex: this.colliderIndex
+    })
 
     this.eventQueue = new RAPIER.EventQueue(true)
     this.hitMarkers = new HitMarkers(this.scene, this.spec.rules.damage_flash)
@@ -133,6 +139,25 @@ export class GameEngine {
     // the parity test has to be able to reach them.
     window.__explosionRadius = explosionRadius
     window.__explosionForce = explosionForce
+
+    // Destruction is testable without driving into anything. Aiming a car at a wall and
+    // hoping is where most of this suite's flakiness comes from, and none of what is worth
+    // asserting about a break needs a collision to have caused it.
+    window.__arenaBreak = (piece, buildingId) => this.buildings?.find(buildingId)?.break(piece)
+    window.__arenaRestore = (piece, buildingId) => this.buildings?.find(buildingId)?.restore(piece)
+    window.__arenaDamagePiece = (piece, amount, buildingId) =>
+      this.buildings?.find(buildingId)?.damage(piece, amount)
+    window.__arenaPieceState = (piece, buildingId) => {
+      const building = this.buildings?.find(buildingId)
+      if (!building) return null
+      return {
+        material: building.material[piece],
+        standing: building.standing(piece),
+        health: building.health[piece],
+        maxHealth: building.maxHealth[piece]
+      }
+    }
+    window.__arenaDraws = () => this.renderer.info.render.calls
 
     this.running = true
     this.lastFrame = performance.now()
@@ -362,6 +387,22 @@ export class GameEngine {
       const attacker = a.owner ? a : b.owner ? b : null
       if (!attacker) return
       const target = attacker === a ? b : a
+      if (!target.destructible) return
+
+      const label = attacker.name.replace(/_/g, " ").toUpperCase()
+
+      // A building piece knows what it is made of, so what it is made of gets a say.
+      if (target.kind === "piece") {
+        if (!target.building.standing(target.piece)) return
+
+        const damage = resolveDamage({
+          rules, part: attacker.part, speed: this.impactSpeed, state,
+          material: target.building.materialSpec(target.piece), kind: partKind(attacker.part)
+        })
+        if (damage > 0) pending.push({ piece: target, damage, key: attacker.name, label })
+        return
+      }
+
       if (!target.prop || target.prop.broken) return
 
       const damage = resolveDamage({
@@ -376,6 +417,11 @@ export class GameEngine {
     })
 
     for (const impact of pending) {
+      if (impact.piece) {
+        this.damagePiece(impact)
+        continue
+      }
+
       // Read the position BEFORE applying damage: a fatal hit frees the prop's body, and
       // touching it afterwards reaches into released wasm memory.
       const at = impact.prop.body.translation()
@@ -390,6 +436,19 @@ export class GameEngine {
       this.hitMarkers.add(where, impact.damage, impact.label)
     }
     pending.length = 0
+  }
+
+  // A piece is a fixed collider that is never freed, so unlike a prop there is nothing to
+  // read before the damage lands and nothing to be careful about afterwards.
+  damagePiece({ piece, damage, key, label }) {
+    const { building, piece: index } = piece
+    const at = building.colliders[index].translation()
+
+    building.damage(index, damage)
+    this.stats.lastDamage = Math.round(damage)
+    this.audio?.impact(Math.min(damage / 120, 1))
+    this.damageGizmos?.registerHit(key, damage)
+    this.hitMarkers.add(new THREE.Vector3(at.x, at.y + 1.0, at.z), damage, label)
   }
 
   // Everything a conditional part needs to decide whether its bonus applies. The vehicle
@@ -458,7 +517,8 @@ export class GameEngine {
         damageGizmos: this.damageGizmos,
         audio: this.audio,
         input,
-        fallSpeed: this.fallSpeed
+        fallSpeed: this.fallSpeed,
+        buildings: this.buildings
       })
       // A rising fired count is the cleanest signal that a rocket left the rail.
       if (this.projectiles.fired > this.lastRocketCount) {
@@ -507,6 +567,7 @@ export class GameEngine {
     this.hitMarkers?.dispose()
     this.projectiles?.dispose()
     this.destruction?.dispose()
+    this.buildings?.dispose(this.colliderIndex)
     this.eventQueue?.free()
     this.world?.free()
 
