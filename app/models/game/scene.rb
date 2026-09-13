@@ -10,13 +10,14 @@ module Game
   # Nothing here touches the database. A World builds a Scene; a Scene never looks a
   # World up.
   class Scene
-    attr_reader :name, :gravity, :bodies, :props, :spawns, :bounds
+    attr_reader :name, :gravity, :bodies, :props, :buildings, :spawns, :bounds
 
-    def initialize(name:, gravity:, bodies: [], props: [], spawns: [], bounds: nil)
+    def initialize(name:, gravity:, bodies: [], props: [], buildings: [], spawns: [], bounds: nil)
       @name = name
       @gravity = gravity
       @bodies = bodies
       @props = props
+      @buildings = buildings
       @spawns = spawns
       @bounds = bounds
     end
@@ -28,6 +29,9 @@ module Game
         bounds: bounds,
         bodies: bodies.map(&:to_spec),
         props: props.map(&:to_spec),
+        # Surfaces, not pieces. Twenty or so of these describe what would otherwise be
+        # two hundred and fifty boxes, and the client expands the grid itself.
+        buildings: buildings,
         spawns: spawns.map(&:to_spec)
       }
     end

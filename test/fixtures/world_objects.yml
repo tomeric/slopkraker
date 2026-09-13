@@ -88,3 +88,36 @@ targets_pillar:
     health: 200.0
     debris_count: 8
     colour: "#9aa0a6"
+
+# An 8 x 10m two-storey gabled house, off to the right of the spawn so it can be driven
+# at from the front. Brick walls on a concrete plinth, glass windows under steel lintels,
+# a timber door, a timber deck over a concrete slab, plaster partitions and a tiled roof:
+# every material in the table, in one building.
+#
+# piece_count and storey_count are what the server bounds-checks a reported piece index
+# against, so they are stored rather than derived per request. A test asserts they match
+# what the generator actually produces -- if they drift, a real index would be rejected or
+# a bogus one accepted.
+targets_house:
+  world: targets
+  kind: building
+  name: house
+  cx: 0
+  cz: 0
+  x: 20.0
+  y: 0.0
+  z: 8.0
+  yaw: 0.0
+  radius: 13.0
+  piece_count: 248
+  storey_count: 2
+  recipe:
+    kind: building
+    footprint: [ [ 0, 0 ], [ 8, 0 ], [ 8, 10 ], [ 0, 10 ] ]
+    storeys: 2
+    storey_height: 3.0
+    eaves: 6.0
+    ridge: 8.5
+    roof: gable
+    cell: 1.5
+    seed: 7

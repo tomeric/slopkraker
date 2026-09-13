@@ -57,6 +57,7 @@ class World < ApplicationRecord
       bounds: bounds,
       bodies: world_objects.where(kind: "static").order(:id).map(&:to_static_body),
       props: world_objects.where(kind: "prop").order(:id).map(&:to_prop),
+      buildings: world_objects.where(kind: "building").order(:id).map(&:to_building),
       spawns: spawn_points
     )
   end

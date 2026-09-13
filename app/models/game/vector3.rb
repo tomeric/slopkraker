@@ -18,6 +18,30 @@ module Game
       @z = z.to_f
     end
 
+    def +(other) = self.class.new(x + other.x, y + other.y, z + other.z)
+    def -(other) = self.class.new(x - other.x, y - other.y, z - other.z)
+    def *(scalar) = self.class.new(x * scalar, y * scalar, z * scalar)
+
+    def length = Math.sqrt(x * x + y * y + z * z)
+
+    # A zero vector has no direction, so there is nothing to normalise it to. Returning it
+    # unchanged keeps a degenerate surface degenerate rather than turning it into NaN,
+    # which would propagate silently into geometry the client then fails to draw.
+    def normalised
+      magnitude = length
+      magnitude.zero? ? self : self * (1.0 / magnitude)
+    end
+
+    def cross(other)
+      self.class.new(
+        y * other.z - z * other.y,
+        z * other.x - x * other.z,
+        x * other.y - y * other.x
+      )
+    end
+
+    def dot(other) = x * other.x + y * other.y + z * other.z
+
     def to_a
       [ x, y, z ]
     end

@@ -20,6 +20,22 @@ class WorldObject < ApplicationRecord
 
   def building? = kind == "building"
 
+  # Generated on demand and memoised. A building's pieces are never stored -- generating
+  # is deterministic, so they can be rebuilt identically whenever they are wanted, which
+  # is what keeps a thousand buildings a thousand rows rather than a quarter of a million.
+  def surface_set
+    @surface_set ||= Game::Building::Generator.call(recipe)
+  end
+
+  def to_building
+    {
+      id: id,
+      name: name,
+      o: position.to_a,
+      yaw: yaw
+    }.merge(surface_set.to_spec)
+  end
+
   # `kind` says how a thing is stored and simulated; `recipe["kind"]` says what it is --
   # ground, wall, crate, pillar. The client uses the latter to pick a colour, decide
   # whether to cast a shadow and label a hit, so the two taxonomies are deliberately
