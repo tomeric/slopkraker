@@ -2,19 +2,25 @@ import * as THREE from "three"
 import { rocketGroups } from "game/physics/groups"
 import { rocketDamage } from "game/damage"
 import { createLabel, drawLabel, disposeLabel, wireBox, ARMED_COLOUR } from "game/render/gizmo_label"
+import { RocketPlume } from "game/render/rocket_plume"
 
-// Rockets leave the rail slowly and wind up under their own thrust, so a shot with room
-// to run lands far harder than one fired point blank. They detonate on contact or when
-// their lifetime runs out, and carry whatever damage their speed was worth at that moment.
+// Rockets fly two arcs. They lob out of the launcher unpowered, giving up speed to drag
+// and arcing under most of a gravity; near the apex the motor lights, and from there they
+// accelerate hard while the arc flattens right out. A shot with room to run therefore
+// lands far harder than one fired point blank.
+//
+// They detonate on contact or when their lifetime runs out, and carry whatever damage
+// their speed was worth at that moment.
 //
 // With the debug overlay on, each live rocket wears its own hitbox and damage readout.
 export class Projectiles {
-  constructor({ RAPIER, world, scene, colliderIndex, onDetonate }) {
+  constructor({ RAPIER, world, scene, colliderIndex, onDetonate, onIgnite }) {
     this.RAPIER = RAPIER
     this.world = world
     this.scene = scene
     this.colliderIndex = colliderIndex
     this.onDetonate = onDetonate || (() => {})
+    this.onIgnite = onIgnite || (() => {})
     this.live = []
     this.fired = 0
     this.debugVisible = true
@@ -34,7 +40,7 @@ export class Projectiles {
           inheritedVelocity.y + direction.y * spec.launch_speed,
           inheritedVelocity.z + direction.z * spec.launch_speed
         )
-        .setGravityScale(spec.gravity_scale)
+        .setGravityScale(spec.flight.coast.gravity_scale)
         .setCcdEnabled(true)
         .setAngularDamping(4)
     )
@@ -59,6 +65,8 @@ export class Projectiles {
 
     const rocket = {
       spec, body, collider, mesh, life: 0, owner, dead: false,
+      phase: "coast", speed: spec.launch_speed,
+      plume: new RocketPlume(this.scene, mesh, spec),
       damage: rocketDamage(spec, spec.launch_speed),
       ...this.buildGizmo(spec)
     }
@@ -95,23 +103,60 @@ export class Projectiles {
         continue
       }
 
-      this.accelerate(rocket, dt)
+      if (rocket.phase === "coast") this.coast(rocket, dt)
+      else this.accelerate(rocket, dt)
     }
+  }
+
+  // Unpowered: bleeding speed to drag and arcing under most of a gravity.
+  //
+  // The motor lights just BEFORE the apex -- as the climb decays to ignite_climb, while
+  // the rocket is still rising. Waiting for the apex itself does not work: thrust only
+  // rescales the heading the rocket already has, so a rocket that has levelled off is
+  // flying flat a metre above the ground and the first thing gravity does is tip that
+  // heading into the dirt.
+  //
+  // Bounded at both ends. Never before min_time, because fired down a slope it is already
+  // falling on the very first frame, which would light the motor instantly and collapse
+  // the two arcs back into one. Never later than max_time, because fired from a
+  // fast-moving buggy the inherited velocity can mean the apex never arrives at all.
+  coast(rocket, dt) {
+    const coast = rocket.spec.flight.coast
+    const v = rocket.body.linvel()
+    const speed = Math.hypot(v.x, v.y, v.z)
+
+    if (speed > 0.01) {
+      const target = Math.max(speed - coast.drag * dt, 0)
+      this.rescale(rocket, v, target / speed, target)
+    }
+
+    if (rocket.life < coast.min_time) return
+    // Scaling by a positive number cannot change how fast it is climbing relative to the
+    // threshold in any way that matters here, so the pre-scale v is fine to read.
+    if (v.y > coast.ignite_climb && rocket.life < coast.max_time) return
+
+    rocket.phase = "thrust"
+    rocket.body.setGravityScale(rocket.spec.flight.thrust.gravity_scale, true)
+    this.onIgnite(rocket)
   }
 
   // Thrust along its own heading, capped at the spec's top speed.
   accelerate(rocket, dt) {
-    const spec = rocket.spec
+    const thrust = rocket.spec.flight.thrust
     const v = rocket.body.linvel()
     const speed = Math.hypot(v.x, v.y, v.z)
     if (speed < 0.01) return
 
-    const target = Math.min(speed + spec.acceleration * dt, spec.max_speed)
-    const scale = target / speed
-    rocket.body.setLinvel({ x: v.x * scale, y: v.y * scale, z: v.z * scale }, true)
+    const target = Math.min(speed + thrust.acceleration * dt, thrust.max_speed)
+    this.rescale(rocket, v, target / speed, target)
+  }
 
-    rocket.damage = rocketDamage(spec, target)
-    rocket.speed = target
+  // Both phases only ever change how fast the rocket is going, never which way it points,
+  // so they share the same rescale -- and damage tracks the new speed either way.
+  rescale(rocket, v, scale, speed) {
+    rocket.body.setLinvel({ x: v.x * scale, y: v.y * scale, z: v.z * scale }, true)
+    rocket.speed = speed
+    rocket.damage = rocketDamage(rocket.spec, speed)
   }
 
   markDead(rocket) {
@@ -124,6 +169,8 @@ export class Projectiles {
 
     this.colliderIndex.delete(rocket.collider.handle)
     this.world.removeRigidBody(rocket.body)
+    rocket.thrustVoice?.stop()
+    rocket.plume.dispose()
     rocket.mesh.removeFromParent()
     rocket.box.removeFromParent()
     rocket.label.sprite.removeFromParent()
@@ -133,7 +180,7 @@ export class Projectiles {
     this.onDetonate(at, rocket.spec, rocket.damage)
   }
 
-  sync() {
+  sync(dt) {
     for (const rocket of this.live) {
       const t = rocket.body.translation()
       rocket.mesh.position.set(t.x, t.y, t.z)
@@ -141,6 +188,8 @@ export class Projectiles {
       // Point the rocket along its own velocity so it noses over through the arc.
       const v = rocket.body.linvel()
       if (v.x || v.y || v.z) rocket.mesh.lookAt(t.x + v.x, t.y + v.y, t.z + v.z)
+
+      rocket.plume.update(dt, rocket.mesh.position, rocket.phase === "thrust")
 
       rocket.box.visible = this.debugVisible
       rocket.label.sprite.visible = this.debugVisible
@@ -162,6 +211,8 @@ export class Projectiles {
   dispose() {
     for (const rocket of this.live) {
       this.world.removeRigidBody(rocket.body)
+      rocket.thrustVoice?.stop()
+      rocket.plume.dispose()
       rocket.mesh.removeFromParent()
       rocket.box.removeFromParent()
       rocket.label.sprite.removeFromParent()

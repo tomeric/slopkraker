@@ -66,6 +66,11 @@ module Game
             min_turn_rate: 0.40,
             max_turn_rate: 1.05,
             steer_arc_bounds: 0.75,
+            # Floor and ceiling on the trimmed result, as fractions of the pedal range: the
+            # floor stops a held stick opening the arc out to a near-straight line, the
+            # ceiling stops it winding down to a spin.
+            arc_floor_scale: 0.50,
+            arc_ceiling_scale: 1.75,
             # How far the nose is cocked ahead of the direction of travel. This is the
             # part you can see: without it the car slides but never looks sideways.
             min_angle: 0.30,
@@ -217,7 +222,9 @@ module Game
 
       def self.audio
         {
-          engine: { idle_hz: 48.0, max_hz: 260.0, voices: 3, detune: 7.0, gain: 0.26, lowpass_hz: 1200.0 },
+          # Pitched down and pulled well back: the engine never stops, so it sets the floor
+          # everything else has to clear.
+          engine: { idle_hz: 34.0, max_hz: 175.0, voices: 3, detune: 7.0, gain: 0.13, lowpass_hz: 800.0 },
           turbo: { gain: 0.2, sweep_hz: [ 260.0, 2400.0 ] },
           jets: { gain: 0.34, band_hz: 380.0, q: 0.8 },
           impact: { gain: 0.6, band_hz: 220.0 },

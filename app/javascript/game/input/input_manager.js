@@ -27,12 +27,20 @@ export class InputManager {
     state.slidePressed = false
     state.turbo = false
     state.action = false
+    state.actionPressed = false
 
     for (const source of this.sources) source.apply(state)
 
     // Debug/test hook: lets a script drive the vehicle directly, bypassing the jitter of
     // synthetic key events. Also what a replay or demo mode would use.
-    if (window.__arenaInput) Object.assign(state, window.__arenaInput)
+    if (window.__arenaInput) {
+      Object.assign(state, window.__arenaInput)
+      // Press flags are edges, not levels, and the hook is re-applied every frame -- so
+      // leaving them set would hold the trigger down. Consuming them keeps a scripted
+      // press faithful to a real one.
+      delete window.__arenaInput.slidePressed
+      delete window.__arenaInput.actionPressed
+    }
 
     // A NaN here reaches the solver and corrupts the whole simulation silently.
     state.throttle = finite(state.throttle)

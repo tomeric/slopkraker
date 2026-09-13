@@ -117,6 +117,33 @@ class DrivingTest < ApplicationSystemTestCase
       "stick trim is too weak: #{wide.round(2)} rad/s wide vs #{tight.round(2)} rad/s tight"
   end
 
+  # The floor is what stops a held stick opening the arc out to a near-straight line. It is
+  # the client honouring a number Ruby set, so it is measured against the shipped spec
+  # rather than a constant here that could quietly drift out of step with it.
+  test "leaning out of the corner opens the arc to the floor the spec sets" do
+    slide = buggy_slide_spec
+    floor = slide["min_turn_rate"] * slide["arc_floor_scale"]
+
+    measured = drift_turn_rate(steer_trim: -1, throttle: 1, brake: 0, vehicle: "buggy")
+
+    assert_in_delta floor, measured, 0.02,
+      "expected the arc to open out to the spec floor of #{floor.round(3)} rad/s, " \
+      "got #{measured.round(3)}"
+  end
+
+  # Unclamped, leaning on the stick is worth exactly (1 + steer_arc_bounds) on the turn
+  # rate, so this reads back whether the stick has the authority the spec grants it.
+  test "leaning into the corner tightens the arc by the trim the spec grants" do
+    bounds = buggy_slide_spec["steer_arc_bounds"]
+
+    pedals = drift_turn_rate(steer_trim: 0, throttle: 0, brake: 1, vehicle: "buggy")
+    stick = drift_turn_rate(steer_trim: 1, throttle: 0, brake: 1, vehicle: "buggy")
+
+    assert_in_delta 1 + bounds, stick / pedals, 0.05,
+      "stick trim was worth #{(stick / pedals).round(2)}x the pedals, " \
+      "spec grants #{(1 + bounds).round(2)}x"
+  end
+
   # Trail braking: weight moves forward under the brakes and the nose bites, so the same
   # steering input carries the car round a tighter circle.
   test "braking while turning tightens the turn circle" do
@@ -242,6 +269,13 @@ class DrivingTest < ApplicationSystemTestCase
   end
 
   private
+    def buggy_slide_spec
+      page.evaluate_script(<<~JS)
+        JSON.parse(document.querySelector('[data-arena-target="spec"]').textContent)
+          .vehicles.buggy.slide
+      JS
+    end
+
     def telemetry
       page.evaluate_script("window.__arena")
     end
@@ -286,9 +320,11 @@ class DrivingTest < ApplicationSystemTestCase
       samples.min
     end
 
-    # `steer_trim` is relative to the drift direction: +1 leans into the corner.
-    def drift_turn_rate(steer_trim:, throttle:, brake:)
-      visit root_path
+    # `steer_trim` is relative to the drift direction: +1 leans into the corner. The arc
+    # is tuned per vehicle, so which one is driving matters: root_path alone boots the
+    # monster truck.
+    def drift_turn_rate(steer_trim:, throttle:, brake:, vehicle: nil)
+      visit(vehicle ? root_path(params: { vehicle: vehicle }) : root_path)
       wait_for { page.evaluate_script("!!(window.__arena && window.__arena.ready)") }
       settle
 

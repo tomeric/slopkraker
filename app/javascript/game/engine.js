@@ -10,7 +10,8 @@ import { InputManager } from "game/input/input_manager"
 import { Hud } from "game/hud"
 import { Projectiles } from "game/projectiles"
 import { Destruction } from "game/destruction"
-import { resolveDamage } from "game/damage"
+import { resolveDamage, explosionRadius, explosionForce } from "game/damage"
+import { Explosions } from "game/explosions"
 import { VehicleAudio } from "game/audio/vehicle_audio"
 import { ControlsOverlay } from "game/controls_overlay"
 import { DebugGizmos } from "game/render/debug_gizmos"
@@ -44,7 +45,7 @@ export class GameEngine {
     this.stats = {
       ready: false, frames: 0, steps: 0, bodies: 0, fps: 0,
       grounded: 0, speed: 0, planarSpeed: 0, turbo: 1, steer: 0, slip: 0, slipAngle: 0,
-      rockets: 0, rocketsFired: 0, rocketReadout: [], debris: 0, hitMarkers: 0, muted: false, drifting: false, slamming: false, slamTime: 0, driftGrace: 0, driftTime: 0, driftAngle: 0, driftTarget: 0, driftTurnRate: 0, yawRate: 0, pitchRate: 0, damage: [], driftDir: 0, yaw: 0, forward: [ 0, 0, 1 ], boostCharged: false, boosting: false, throttle: 0, turboOn: false, fallSpeed: 0, verticalSpeed: 0, camRight: [ 1, 0, 0 ], explosions: 0, broken: 0, jets: 0, lastDamage: 0,
+      rockets: 0, rocketsFired: 0, rocketReadout: [], debris: 0, hitMarkers: 0, muted: false, drifting: false, slamming: false, slamTime: 0, driftGrace: 0, driftTime: 0, driftAngle: 0, driftTarget: 0, driftTurnRate: 0, bullBar: null, explosionReadout: [], yawRate: 0, pitchRate: 0, damage: [], driftDir: 0, yaw: 0, forward: [ 0, 0, 1 ], boostCharged: false, boosting: false, throttle: 0, turboOn: false, fallSpeed: 0, verticalSpeed: 0, camRight: [ 1, 0, 0 ], explosions: 0, broken: 0, jets: 0, lastDamage: 0,
       x: 0, y: 0, z: 0, upDot: 1, vehicle: null, error: null
     }
   }
@@ -78,7 +79,16 @@ export class GameEngine {
 
     this.projectiles = new Projectiles({
       RAPIER, world, scene: this.scene, colliderIndex: this.colliderIndex,
-      onDetonate: (at, spec, damage) => this.explode(at, spec, damage)
+      onDetonate: (at, spec, damage) => this.explode(at, spec, damage),
+      onIgnite: (rocket) => {
+        this.audio?.rocketIgnited()
+        // Held until the rocket dies; projectiles.js stops it on detonation.
+        rocket.thrustVoice = this.audio?.rocketThrust()
+      }
+    })
+    this.explosions = new Explosions({
+      scene: this.scene,
+      onWave: (explosion) => this.blastWave(explosion)
     })
     this.destruction = new Destruction({
       RAPIER, world, scene: this.scene, colliderIndex: this.colliderIndex,
@@ -110,6 +120,10 @@ export class GameEngine {
     window.__arena = this.stats
     window.__arenaDebugVisible = this.gizmos.visible
     window.__arenaMasterGain = () => this.audio?.engine?.master?.gain?.value ?? null
+    // Same reasoning as the gain hook: the blast curves are a port of the Ruby model and
+    // the parity test has to be able to reach them.
+    window.__explosionRadius = explosionRadius
+    window.__explosionForce = explosionForce
 
     this.running = true
     this.lastFrame = performance.now()
@@ -240,6 +254,7 @@ export class GameEngine {
       this.gizmos.toggle()
       if (this.damageGizmos) this.damageGizmos.visible = this.gizmos.visible
       this.projectiles.debugVisible = this.gizmos.visible
+      this.explosions.debugVisible = this.gizmos.visible
       window.__arenaDebugVisible = this.gizmos.visible
     window.__arenaMasterGain = () => this.audio?.engine?.master?.gain?.value ?? null
     }
@@ -303,6 +318,7 @@ export class GameEngine {
     this.stats.steps += 1
     this.handleContacts()
     this.projectiles.update(dt)
+    this.explosions.update(dt)
     this.destruction.update(dt)
     this.hitMarkers.update(dt)
 
@@ -377,60 +393,88 @@ export class GameEngine {
     pending.length = 0
   }
 
-  // Everything a conditional part needs to decide whether its bonus applies.
+  // Everything a conditional part needs to decide whether its bonus applies. The vehicle
+  // owns it: the bull bar's own collider reads the same answer to decide how far to swing
+  // out, and the three must not be able to disagree.
   damageState() {
-    if (!this.vehicle) return {}
-
-    return {
-      drifting: this.vehicle.drifting,
-      slip_angle: this.vehicle.slipAngle(),
-      drift_grace: this.vehicle.driftGrace,
-      slamming: this.vehicle.slamming,
-      fall_speed: this.vehicle.body.linvel().y
-    }
+    return this.vehicle ? this.vehicle.damageState() : {}
   }
 
+  // A rocket landing leaves an explosion behind rather than resolving in a single frame.
+  // The object owns its own radius and lifetime; blastWave below is what it does to the
+  // world as that radius grows.
   explode(at, spec, damage) {
     this.stats.explosions += 1
     this.hitMarkers?.add(at, damage)
+    this.audio?.explosion(Math.min(damage / 160, 1))
     this.stats.lastExplosion = { x: +at.x.toFixed(1), y: +at.y.toFixed(1), z: +at.z.toFixed(1) }
 
+    this.explosions.spawn({ at, spec: spec.explosion, damage })
+  }
+
+  // Everything the shell has reached but not yet caught. A target is damaged once, on the
+  // frame the wave arrives, and the further out it is the weaker what reaches it -- which
+  // is the same falloff a one-shot blast query gave, now spread over the expansion.
+  blastWave(explosion) {
+    const { spec, at, damage, hit, radius } = explosion
 
     for (const prop of this.props) {
-      if (prop.broken) continue
+      if (prop.broken || hit.has(prop)) continue
       const t = prop.body.translation()
       const dx = t.x - at.x, dy = t.y - at.y, dz = t.z - at.z
       const distance = Math.hypot(dx, dy, dz)
-      if (distance > spec.blast_radius) continue
+      if (distance > radius) continue
 
-      const falloff = 1 - distance / spec.blast_radius
+      hit.add(prop)
+      const falloff = explosionForce(spec, distance)
       this.destruction.apply(prop, damage * falloff)
       // The blast may have just destroyed it; its body is gone.
       if (prop.broken) continue
 
-      const push = falloff * damage * 0.9
+      const push = falloff * damage * spec.prop_push
       const inverse = 1 / Math.max(distance, 0.4)
       prop.body.applyImpulse(
-        { x: dx * inverse * push, y: (dy * inverse + 0.6) * push, z: dz * inverse * push },
+        {
+          x: dx * inverse * push,
+          y: (dy * inverse + spec.prop_lift) * push,
+          z: dz * inverse * push
+        },
         true
       )
     }
 
-    // Blasts shove the vehicle too -- rocket-jumping off your own shot is a feature.
-    if (this.vehicle) {
-      const t = this.vehicle.body.translation()
-      const dx = t.x - at.x, dy = t.y - at.y, dz = t.z - at.z
-      const distance = Math.hypot(dx, dy, dz)
-      if (distance <= spec.blast_radius) {
-        const falloff = 1 - distance / spec.blast_radius
-        const push = falloff * damage * 2.2
-        const inverse = 1 / Math.max(distance, 0.6)
-        this.vehicle.body.applyImpulse(
-          { x: dx * inverse * push, y: (dy * inverse + 0.8) * push, z: dz * inverse * push },
-          true
-        )
-      }
+    // A rocket caught in a blast goes off with it, so a burst chains rather than
+    // trickling into the scenery one at a time. It dies here and detonates on the next
+    // projectile update, which is also what keeps the chain from recursing mid-frame.
+    for (const rocket of this.projectiles.live) {
+      if (rocket.dead || hit.has(rocket)) continue
+      const t = rocket.body.translation()
+      if (Math.hypot(t.x - at.x, t.y - at.y, t.z - at.z) > radius) continue
+
+      hit.add(rocket)
+      this.projectiles.markDead(rocket)
     }
+
+    // Blasts shove the vehicle too -- rocket-jumping off your own shot is a feature.
+    if (!this.vehicle || hit.has(this.vehicle)) return
+
+    const t = this.vehicle.body.translation()
+    const dx = t.x - at.x, dy = t.y - at.y, dz = t.z - at.z
+    const distance = Math.hypot(dx, dy, dz)
+    if (distance > radius) return
+
+    hit.add(this.vehicle)
+    const falloff = explosionForce(spec, distance)
+    const push = falloff * damage * spec.vehicle_push
+    const inverse = 1 / Math.max(distance, 0.6)
+    this.vehicle.body.applyImpulse(
+      {
+        x: dx * inverse * push,
+        y: (dy * inverse + spec.vehicle_lift) * push,
+        z: dz * inverse * push
+      },
+      true
+    )
   }
 
   untrack(body) {
@@ -459,10 +503,13 @@ export class GameEngine {
       // Wheels are read live, never interpolated: suspension travel and steer angle are
       // exactly what the player reads as responsiveness.
       entity.view.syncWheels(this.vehicle.controller)
+      // Same reasoning: the bar's reach is read live, never interpolated.
+      entity.view.syncBullBar(this.vehicle.bullBarBox())
       this.gizmos.update(this.vehicle, entity.renderPos)
       this.damageGizmos?.update(frameTime, this.vehicle)
       if (this.damageGizmos) this.stats.damage = this.damageGizmos.readout
-      this.projectiles.sync()
+      this.projectiles.sync(frameTime)
+      this.explosions.sync()
       this.destruction.sync()
 
       this.chaseCamera.update(
@@ -494,8 +541,10 @@ export class GameEngine {
       stats.rockets = this.projectiles.live.length
       stats.rocketsFired = this.projectiles.fired
       stats.rocketReadout = this.projectiles.live.map((r) => ({
-        damage: Math.round(r.damage), speed: Math.round(r.speed || r.spec.launch_speed)
+        damage: Math.round(r.damage), speed: Math.round(r.speed || r.spec.launch_speed),
+        phase: r.phase
       }))
+      stats.explosionReadout = this.explosions.readout()
       stats.debris = this.destruction.debris.length
       stats.hitMarkers = this.hitMarkers.live.length
       stats.jets = this.vehicle.jetThrottle || 0
@@ -510,6 +559,7 @@ export class GameEngine {
       stats.driftAngle = this.vehicle.driftAngle
       stats.driftTarget = this.vehicle.driftTarget
       stats.driftTurnRate = this.vehicle.driftTurnRate
+      stats.bullBar = this.vehicle.bullBarBox()
       stats.yawRate = this.vehicle.body.angvel().y
       stats.pitchRate = this.vehicle._right.dot(
         new THREE.Vector3(this.vehicle.body.angvel().x, this.vehicle.body.angvel().y, this.vehicle.body.angvel().z)

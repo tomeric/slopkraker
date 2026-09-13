@@ -49,6 +49,7 @@ export class KeyboardSource {
     if (this.tapped("slide")) input.slidePressed = true
     if (this.held("turbo")) input.turbo = true
     if (this.held("action")) input.action = true
+    if (this.tapped("action")) input.actionPressed = true
 
     if (this.tapped("respawn")) input.respawn = true
     if (this.tapped("camera_recentre")) input.cameraRecentre = true

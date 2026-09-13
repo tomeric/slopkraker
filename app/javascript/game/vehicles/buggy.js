@@ -3,6 +3,10 @@ import { Vehicle } from "game/vehicles/vehicle"
 
 // Action key fires a rocket from the launcher muzzle in a shallow upward arc, inheriting
 // the buggy's own velocity. The turbo bar is the ammo supply.
+//
+// Fired on the press edge, not while held: leaning on the trigger emptied a full bar in
+// a second. The cooldown still applies, so hammering the key faster than it allows is
+// refused too.
 export class Buggy extends Vehicle {
   constructor(options) {
     super(options)
@@ -12,12 +16,13 @@ export class Buggy extends Vehicle {
 
     this._muzzle = new THREE.Vector3()
     this._direction = new THREE.Vector3()
+    this._recoil = new THREE.Vector3()
     this._inherited = { x: 0, y: 0, z: 0 }
   }
 
   updateAction(dt, input) {
     this.sinceFired += dt
-    if (!input.action || !this.launcher || !this.projectiles) return
+    if (!input.actionPressed || !this.launcher || !this.projectiles) return
     if (this.sinceFired < this.launcher.cooldown) return
     if (!this.turboBar.draw(this.launcher.ammo_cost)) return
 
@@ -51,5 +56,11 @@ export class Buggy extends Vehicle {
       inheritedVelocity: this._inherited,
       owner: "local"
     })
+
+    // The shot pushes back, along the shot rather than along the chassis -- so firing
+    // while sideways in a drift shoves you sideways, and firing while running flat out
+    // costs a little speed. Queued, because updateVehicle would discard it outright.
+    this._recoil.copy(this._direction).multiplyScalar(-this.launcher.recoil)
+    this.queueImpulse(this._recoil)
   }
 }

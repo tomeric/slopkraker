@@ -36,16 +36,42 @@ export class VehicleView {
   buildPart(part) {
     const [w, h, d] = part.size
     const colour = part.kind === "jump_jets" ? "#3b4554" : "#cfd6de"
-    const mesh = new THREE.Mesh(
-      new THREE.BoxGeometry(w, h, d),
-      new THREE.MeshStandardMaterial({ color: colour, roughness: 0.35, metalness: 0.6 })
-    )
+    const material = new THREE.MeshStandardMaterial({ color: colour, roughness: 0.35, metalness: 0.6 })
+    const bar = part.spikes ? spikedBar(part, material) : null
+    const mesh = bar ? bar.group : new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material)
+
     const [x, y, z] = part.offset
     mesh.position.set(x, y, z)
-    mesh.castShadow = true
     mesh.name = part.name
+    // traverse rather than a bare assignment: a spiked bar is a group, and castShadow on
+    // a group is ignored.
+    mesh.traverse((node) => { node.castShadow = true })
     this.group.add(mesh)
-    return { part, mesh }
+    return { part, mesh, bar }
+  }
+
+  // The bull bar's hitbox swings out while the car is sliding. The spikes telescope out
+  // with it, to exactly the reach the collider has, so the bar you can see is the bar you
+  // are actually swinging -- otherwise the extra reach is an invisible rule.
+  //
+  // The solid section is left alone and the spikes do all the travelling: they grow out of
+  // the bar rather than the whole bar stretching.
+  syncBullBar(live) {
+    const entry = this.parts.find(({ bar }) => bar)
+    if (!entry || !live) return
+
+    const { bar } = entry
+    const length = Math.max(live.halfWidth - bar.width / 2, 0)
+
+    for (const { mesh, side } of bar.spikes) {
+      // The cone was built along +Y and turned a quarter circle, so its own Y is the
+      // direction it points.
+      mesh.scale.y = length / bar.spikeLength
+      mesh.position.x = side * (bar.width / 2 + length / 2)
+    }
+
+    bar.box.scale.z = (live.halfDepth * 2) / bar.depth
+    entry.mesh.position.z = live.z
   }
 
   buildWheel(wheel) {
@@ -99,4 +125,31 @@ export class VehicleView {
   dispose() {
     this.group.removeFromParent()
   }
+}
+
+// The bar plus a tapered spike at each end, drawn to the same total width the collider
+// has: Ruby narrows the solid section by exactly what the spikes add back on, so what you
+// see is what the hitbox covers.
+//
+// ConeGeometry points up the +Y axis with its apex at the top, so a quarter turn about Z
+// aims it out along the bar -- negative for the driver's right (+X), positive for the left.
+function spikedBar(part, material) {
+  const [, h, d] = part.size
+  const { length, radius, bar_width: width } = part.spikes
+
+  const group = new THREE.Group()
+  const box = new THREE.Mesh(new THREE.BoxGeometry(width, h, d), material)
+  group.add(box)
+
+  const spikes = [ -1, 1 ].map((side) => {
+    const mesh = new THREE.Mesh(new THREE.ConeGeometry(radius, length, 12), material)
+    mesh.rotation.z = (-side * Math.PI) / 2
+    mesh.position.x = side * (width / 2 + length / 2)
+    group.add(mesh)
+    return { mesh, side }
+  })
+
+  // The resting dimensions are kept so syncBullBar can scale against them rather than
+  // against whatever it left behind last frame.
+  return { group, box, spikes, width, depth: d, spikeLength: length }
 }

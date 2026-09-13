@@ -10,7 +10,7 @@ class ImpactPartsTest < ApplicationSystemTestCase
   test "a rocket leaves the rail slowly and picks up speed" do
     boot("buggy")
 
-    drive(action: true)
+    fire_once
     wait_for(message: "no rocket in flight") { rockets.any? }
     launch = rockets.first
     release_action
@@ -25,7 +25,7 @@ class ImpactPartsTest < ApplicationSystemTestCase
   test "a rocket is worth more damage the faster it is travelling" do
     boot("buggy")
 
-    drive(action: true)
+    fire_once
     wait_for(message: "no rocket in flight") { rockets.any? }
     launch = rockets.first
     release_action
@@ -44,9 +44,11 @@ class ImpactPartsTest < ApplicationSystemTestCase
         .vehicles.buggy.parts.find((p) => p.kind === "rocket_launcher").rocket
     JS
 
-    drive(action: true)
-    sleep 0.5
-    release_action
+    # Several shots, so there is always one in the air to sample.
+    fire_once
+    sleep 0.3
+    fire_once
+    sleep 0.3
 
     samples = []
     8.times { sleep 0.2; samples.concat(rockets.map { |r| r["damage"] }) }
@@ -55,6 +57,134 @@ class ImpactPartsTest < ApplicationSystemTestCase
     samples.each do |damage|
       assert_operator damage, :>=, spec["minimum_damage"].floor
       assert_operator damage, :<=, spec["max_damage"].ceil
+    end
+  end
+
+  # --- one press, one rocket ---------------------------------------------------
+  #
+  # Driven through real key events rather than the scripted hook: whether a held key
+  # repeats is exactly what the binding layer decides, so the hook would prove nothing.
+
+  test "holding the fire key launches exactly one rocket" do
+    boot("buggy")
+    before = telemetry["rocketsFired"]
+
+    page.driver.browser.action.key_down("e").perform
+    sleep 0.9
+    page.driver.browser.action.key_up("e").perform
+
+    assert_equal before + 1, telemetry["rocketsFired"],
+      "holding the trigger should not empty the bar"
+  end
+
+  test "pressing the fire key again launches another rocket" do
+    boot("buggy")
+    before = telemetry["rocketsFired"]
+
+    2.times do
+      page.driver.browser.action.key_down("e").perform
+      sleep 0.06
+      page.driver.browser.action.key_up("e").perform
+      sleep 0.3
+    end
+
+    assert_equal before + 2, telemetry["rocketsFired"]
+  end
+
+  # --- the rocket flies two arcs -----------------------------------------------
+  #
+  # Sampled from inside the page: the coast is over in a few hundred milliseconds, which a
+  # Selenium poll would step straight over.
+
+  test "a rocket sheds speed as it coasts, then winds up once it lights" do
+    boot("buggy")
+    watch_rocket
+    fire_once
+    sleep 1.4
+    seen = stop_watching_rocket
+
+    assert_operator seen["slowest"], :<, seen["launch"] - 1.0,
+      "the rocket never gave up any speed while coasting " \
+      "(left at #{seen["launch"]}, slowest #{seen["slowest"]})"
+    assert_operator seen["fastest"], :>, seen["launch"] + 5.0,
+      "the rocket never wound up after ignition (peaked at #{seen["fastest"]})"
+  end
+
+  # The coast only lasts about 190ms and the readout refreshes once a frame, which headless
+  # runs stretch to 60ms and more -- so the coast is sometimes not witnessed at all. What
+  # can be asserted reliably is that the order never reverses: once the motor is lit it
+  # stays lit. That the coast happens at all is what the speed test above measures, by
+  # sampling continuously rather than by catching a label.
+  test "a rocket never drops back to coasting once its thrusters are lit" do
+    boot("buggy")
+    watch_rocket
+    fire_once
+    sleep 1.4
+    seen = stop_watching_rocket
+
+    assert_includes seen["phases"], "thrust", "the rocket never lit its thrusters"
+    assert_equal seen["phases"].uniq, seen["phases"], "the rocket flapped between phases"
+    assert_equal [ "coast", "thrust" ], (seen["phases"] | [ "coast", "thrust" ]),
+      "phases came out in the wrong order: #{seen["phases"].inspect}"
+  end
+
+  # Shot into nothing, a rocket has to destroy itself rather than fly forever.
+  test "a rocket does not linger in the air forever" do
+    boot("buggy")
+    lifetime = page.evaluate_script(<<~JS)
+      JSON.parse(document.querySelector('[data-arena-target="spec"]').textContent)
+        .vehicles.buggy.parts.find((p) => p.kind === "rocket_launcher").rocket.lifetime
+    JS
+
+    fire_once
+    wait_for(message: "a rocket never got into the air") { telemetry["rockets"].positive? }
+    wait_for(timeout: lifetime + 2, message: "a rocket never came down") do
+      telemetry["rockets"].zero?
+    end
+
+    assert_equal 0, telemetry["rockets"]
+  end
+
+  # --- the blast expands -------------------------------------------------------
+
+  test "an explosion clears itself up once it has finished expanding" do
+    boot("buggy")
+    fire_once
+
+    wait_for(timeout: 8, message: "no explosion ever appeared") { blasts.any? }
+    wait_for(timeout: 4, message: "the explosion hung around forever") { blasts.empty? }
+
+    assert_empty blasts
+  end
+
+  # damage.js claims to be a faithful port of the Ruby rules. Nothing checked that until
+  # now, so the blast curves at least are held to it.
+  test "the client works the blast out exactly as Ruby does" do
+    boot("buggy")
+    blast = rocket_spec["explosion"]
+
+    samples = [ 0.0, 0.05, 0.11, 0.22, 1.0 ].map do |elapsed|
+      page.evaluate_script(<<~JS, blast, elapsed)
+        window.__explosionRadius(arguments[0], arguments[1])
+      JS
+    end
+    expected = [ 0.0, 0.05, 0.11, 0.22, 1.0 ].map { |t| ruby_explosion(blast).radius_at(t) }
+
+    samples.each_with_index do |value, i|
+      assert_in_delta expected[i], value, 1e-6, "radius at sample #{i}"
+    end
+  end
+
+  test "the client works blast falloff out exactly as Ruby does" do
+    boot("buggy")
+    blast = rocket_spec["explosion"]
+
+    [ 0.0, 1.0, 2.25, 4.5, 9.0 ].each do |distance|
+      actual = page.evaluate_script(<<~JS, blast, distance)
+        window.__explosionForce(arguments[0], arguments[1])
+      JS
+      assert_in_delta ruby_explosion(blast).force_at(distance), actual, 1e-6,
+        "falloff at #{distance}m"
     end
   end
 
@@ -100,6 +230,12 @@ class ImpactPartsTest < ApplicationSystemTestCase
     assert_operator retained, :>, 0, "retain should be tweakable and non-zero"
     assert_operator retained, :<, 1.0, "a full second of grace would be absurd"
   end
+
+  # --- the bull bar swings out mid-slide ---------------------------------------
+  #
+  # Lining the bar up is the skill; catching the prop once you have should not come down
+  # to centimetres. The box read back here comes from Rapier itself, not from what the
+  # client meant to set, so a box that never made it into the physics fails.
 
   # --- monster truck slam -------------------------------------------------------
 
@@ -195,6 +331,60 @@ class ImpactPartsTest < ApplicationSystemTestCase
       sleep 0.8
     end
 
+    # One shot, then the trigger released so only a single rocket is in the air.
+    def rocket_spec
+      page.evaluate_script(<<~JS)
+        JSON.parse(document.querySelector('[data-arena-target="spec"]').textContent)
+          .vehicles.buggy.parts.find((p) => p.kind === "rocket_launcher").rocket
+      JS
+    end
+
+    # The same model the server built, rebuilt from the spec the client was handed.
+    # vehicle_push is derived rather than given, so it is not a constructor argument.
+    def ruby_explosion(blast)
+      Game::Explosion.new(**blast.symbolize_keys.slice(
+        :radius, :expand_time, :linger, :prop_push, :prop_lift, :vehicle_share,
+        :vehicle_lift, :colour
+      ))
+    end
+
+    def blasts
+      telemetry["explosionReadout"] || []
+    end
+
+    # One press, which is one rocket: the hook consumes press flags, so it cannot repeat.
+    def fire_once
+      drive(action_pressed: true)
+    end
+
+    # The rocket readout, polled inside the page at 5ms so the short coast is not missed.
+    def watch_rocket
+      page.execute_script(<<~JS)
+        window.__rocketWatch = {
+          launch: null, slowest: Infinity, fastest: 0,
+          phases: [], bornAt: null, ignitedAt: null
+        }
+        window.__rocketTimer = setInterval(() => {
+          const r = ((window.__arena || {}).rocketReadout || [])[0]
+          if (!r) return
+          const w = window.__rocketWatch
+          const now = performance.now() / 1000
+          if (w.bornAt === null) { w.bornAt = now; w.launch = r.speed }
+          if (w.phases[w.phases.length - 1] !== r.phase) w.phases.push(r.phase)
+          if (r.phase === "thrust" && w.ignitedAt === null) w.ignitedAt = now
+          // Only the coast can slow it down; once lit it only climbs.
+          if (w.ignitedAt === null) w.slowest = Math.min(w.slowest, r.speed)
+          w.fastest = Math.max(w.fastest, r.speed)
+        }, 5)
+      JS
+    end
+
+    def stop_watching_rocket
+      seen = page.evaluate_script("window.__rocketWatch")
+      page.execute_script("clearInterval(window.__rocketTimer)")
+      seen
+    end
+
     def telemetry
       page.evaluate_script("window.__arena")
     end
@@ -246,11 +436,12 @@ class ImpactPartsTest < ApplicationSystemTestCase
       seen
     end
 
-    def drive(throttle: 0, brake: 0, steer: 0, slide: false, turbo: false, action: false, hop: false)
-      page.execute_script(<<~JS, throttle, brake, steer, slide, turbo, action, hop)
+    def drive(throttle: 0, brake: 0, steer: 0, slide: false, turbo: false, action: false,
+              action_pressed: false, hop: false)
+      page.execute_script(<<~JS, throttle, brake, steer, slide, turbo, action, hop, action_pressed)
         window.__arenaInput = { throttle: arguments[0], brake: arguments[1], steer: arguments[2],
           slide: arguments[3], turbo: arguments[4], action: arguments[5],
-          slidePressed: arguments[6], pitch: 0 }
+          slidePressed: arguments[6], pitch: 0, actionPressed: arguments[7] }
       JS
     end
 

@@ -59,9 +59,7 @@ class DamageOverlayTest < ApplicationSystemTestCase
     rolling = entry("BULL BAR")
     assert_not rolling["armed"], "the bull bar should be idle while rolling straight"
 
-    drive(throttle: 1, steer: 1, slide: true, hop: true)
-    sleep 0.1
-    drive(throttle: 1, steer: 1, slide: true)
+    commit_to_a_drift
     wait_for(timeout: 8, message: "bull bar never armed in a drift") { entry("BULL BAR")["armed"] }
 
     assert_operator entry("BULL BAR")["damage"], :>, rolling["damage"],
@@ -95,6 +93,13 @@ class DamageOverlayTest < ApplicationSystemTestCase
 
     def entry(label)
       readout.find { |e| e["label"] == label } || flunk("no hitbox labelled #{label}")
+    end
+
+    # Up to speed, then hop into a committed right-hand drift and hold it.
+    def commit_to_a_drift
+      drive(throttle: 1, steer: 1, slide: true, hop: true)
+      sleep 0.1
+      drive(throttle: 1, steer: 1, slide: true)
     end
 
     def drive(throttle: 0, brake: 0, steer: 0, slide: false, turbo: false, action: false, hop: false)

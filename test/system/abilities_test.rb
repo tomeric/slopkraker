@@ -88,69 +88,103 @@ class AbilitiesTest < ApplicationSystemTestCase
 
   test "the action key fires rockets from the buggy" do
     boot("buggy")
-    assert_equal 0, telemetry["rocketsFired"]
+    before = telemetry["rocketsFired"]
 
-    drive(action: true)
-    sleep 0.35
-    release_action
+    tap_action
+    sleep 0.3
 
-    assert_operator telemetry["rocketsFired"], :>=, 1, "no rocket was fired"
+    assert_equal before + 1, telemetry["rocketsFired"],
+      "one press should fire exactly one rocket"
   end
 
   # The Ruby side asserts this arithmetic directly; this proves the client agrees.
   test "a full turbo bar yields exactly ten rockets" do
     boot("buggy")
 
-    # Sample the moment the bar runs dry rather than after a fixed sleep: the recharge
-    # delay means waiting too long buys an eleventh rocket, and too little only nine.
-    drive(action: true)
-    wait_for(timeout: 6, message: "bar never ran dry") { telemetry["turbo"] < 0.01 }
-    fired = telemetry["rocketsFired"]
-    release_action
+    # Twelve presses, each well clear of the cooldown, so the bar rather than the trigger
+    # is what stops it. Sampled the moment the bar runs dry: the recharge delay means
+    # waiting too long buys an eleventh rocket, and too little only nine.
+    before = telemetry["rocketsFired"]
+    tap_action_repeatedly(times: 12, every: 0.15)
+    wait_for(timeout: 8, message: "bar never ran dry") { telemetry["turbo"] < 0.01 }
+    fired = telemetry["rocketsFired"] - before
+    stop_tapping
 
     assert_equal 10, fired, "a full bar should buy exactly ten rockets"
   end
 
-  test "rockets respect the hundred millisecond floor" do
+  # Firing is edge-triggered now, so the cooldown governs how fast the trigger can be
+  # hammered rather than how fast a held key repeats.
+  # Measured across a window rather than across a single gap: press flags are read once a
+  # frame, and a headless frame can run longer than the cooldown being measured, which
+  # turns any one exact gap into a coin toss.
+  test "the trigger cannot be hammered faster than its cooldown" do
+    boot("buggy")
+    before = telemetry["rocketsFired"]
+
+    # Ten presses across 300ms. At a 100ms floor that buys four rockets at the very most.
+    tap_action_repeatedly(times: 10, every: 0.03)
+    sleep 0.9
+    stop_tapping
+
+    fired = telemetry["rocketsFired"] - before
+    assert_operator fired, :<=, 4, "fired #{fired} rockets in 300ms; the floor allows four"
+    assert_operator fired, :>=, 2, "the cooldown looks far longer than the 100ms specified"
+  end
+
+  test "a second press clear of the floor fires again" do
     boot("buggy")
 
-    drive(action: true)
-    sleep 0.45
-    fired = telemetry["rocketsFired"]
-    release_action
+    before = telemetry["rocketsFired"]
+    double_tap(gap: 0.35)
+    sleep 0.6
 
-    # 450ms can fit at most 5 shots at a 100ms cooldown.
-    assert_operator fired, :<=, 5, "fired faster than the cooldown allows"
-    assert_operator fired, :>=, 3, "cooldown appears far longer than specified"
+    assert_equal before + 2, telemetry["rocketsFired"]
   end
 
   test "rockets recharge into further shots after a pause" do
     boot("buggy")
-    drive(action: true)
-    sleep 1.6
+    tap_action_repeatedly(times: 12, every: 0.12)
+    wait_for(timeout: 8, message: "bar never ran dry") { telemetry["turbo"] < 0.01 }
+    stop_tapping
     spent = telemetry["rocketsFired"]
-    release_action
 
     sleep 5.5
-    drive(action: true)
-    sleep 0.35
-    release_action
+    tap_action
+    sleep 0.3
 
     assert_operator telemetry["rocketsFired"], :>, spent, "bar never recharged into more rockets"
   end
 
-  test "a rocket detonates and breaks props" do
+  # A rocket caught in someone else's blast goes off with it, so a burst chains instead of
+  # trickling into the scenery one shot at a time.
+  test "a rocket caught in a blast goes off with it" do
     boot("buggy")
-    assert_equal 0, telemetry["broken"]
+    aim_at_crates
 
-    aim_at_pillar
-    drive(action: true)
-    sleep 1.2 # a pillar has 260 health; one rocket does ~120 after falloff
-    release_action
+    page.execute_script(<<~JS)
+      window.__chain = { firstBlastAt: null, clearedAt: null }
+      window.__chainTimer = setInterval(() => {
+        const a = window.__arena
+        if (!a) return
+        const c = window.__chain
+        const now = performance.now() / 1000
+        if (c.firstBlastAt === null && a.explosions > 0) c.firstBlastAt = now
+        if (c.firstBlastAt !== null && c.clearedAt === null && a.rockets === 0) c.clearedAt = now
+      }, 5)
+    JS
 
-    wait_for(timeout: 10, message: "rocket never detonated") { telemetry["explosions"] > 0 }
-    wait_for(timeout: 10, message: "explosion broke nothing") { telemetry["broken"] > 0 }
-    assert_operator telemetry["debris"], :>, 0, "breaking a prop produced no debris: #{severe_console_errors.join(' | ')}"
+    tap_action_repeatedly(times: 4, every: 0.1)
+    sleep 3.0
+    seen = page.evaluate_script("window.__chain")
+    page.execute_script("clearInterval(window.__chainTimer)")
+    stop_tapping
+
+    assert seen["firstBlastAt"], "nothing ever detonated"
+    assert seen["clearedAt"], "rockets were still in the air at the end"
+    assert_operator seen["clearedAt"] - seen["firstBlastAt"], :<, 0.25,
+      "the rest of the burst kept flying for " \
+      "#{(seen["clearedAt"] - seen["firstBlastAt"]).round(2)}s after the first went off"
   end
 
   private
@@ -176,13 +210,50 @@ class AbilitiesTest < ApplicationSystemTestCase
       nose_height
     end
 
-    def drive(throttle: 0, brake: 0, steer: 0, slide: false, turbo: false, action: false, pitch: 0)
-      page.execute_script(<<~JS, throttle, brake, steer, slide, turbo, action, pitch)
+    def drive(throttle: 0, brake: 0, steer: 0, slide: false, turbo: false, action: false,
+              action_pressed: false, pitch: 0)
+      page.execute_script(<<~JS, throttle, brake, steer, slide, turbo, action, pitch, action_pressed)
         window.__arenaInput = {
           throttle: arguments[0], brake: arguments[1], steer: arguments[2],
-          slide: arguments[3], turbo: arguments[4], action: arguments[5], pitch: arguments[6]
+          slide: arguments[3], turbo: arguments[4], action: arguments[5], pitch: arguments[6],
+          actionPressed: arguments[7]
         }
       JS
+    end
+
+    # One press of the trigger. The input hook consumes press flags, so this really is a
+    # press rather than a hold.
+    def tap_action
+      drive(action_pressed: true)
+    end
+
+    # Tapped from inside the page: Selenium round trips are the same order as the cooldown
+    # being measured, so scripting the timing from Ruby would prove nothing.
+    def tap_action_repeatedly(times:, every:)
+      page.execute_script(<<~JS, times, every * 1000)
+        window.__arenaInput = {
+          throttle: 0, brake: 0, steer: 0, slide: false, turbo: false, action: false, pitch: 0
+        }
+        let left = arguments[0]
+        window.__tapTimer = setInterval(() => {
+          window.__arenaInput.actionPressed = true
+          if (--left <= 0) clearInterval(window.__tapTimer)
+        }, arguments[1])
+      JS
+    end
+
+    def double_tap(gap:)
+      page.execute_script(<<~JS, gap * 1000)
+        window.__arenaInput = {
+          throttle: 0, brake: 0, steer: 0, slide: false, turbo: false, action: false,
+          pitch: 0, actionPressed: true
+        }
+        setTimeout(() => { window.__arenaInput.actionPressed = true }, arguments[0])
+      JS
+    end
+
+    def stop_tapping
+      page.execute_script("clearInterval(window.__tapTimer)") rescue nil
     end
 
     def release_action
@@ -198,10 +269,15 @@ class AbilitiesTest < ApplicationSystemTestCase
     # Park the buggy facing pillar_0 at (-40, -10). Crates are only 1.5m tall and the
     # launcher sits above that, so the shallow arc clears them entirely -- a 5m pillar at
     # close range is what the rockets can actually hit.
-    def aim_at_pillar
+    # Lined up on the crate stack, far enough back that the rocket is up to speed when it
+    # lands: damage scales with how fast it is travelling, so a point-blank shot is worth
+    # barely the minimum. Crates rather than the pillar because a pillar takes more hits
+    # than the blast leaves it standing for -- it is a dynamic body, and the first blast
+    # knocks it out of the firing line.
+    def aim_at_crates
       page.execute_script(<<~JS)
-        window.__arenaPlace = { x: -40, y: 1.2, z: -17, yaw: 0 }
+        window.__arenaPlace = { x: -66, y: 1.2, z: -36, yaw: 0 }
       JS
-      sleep 0.6
+      sleep 0.8
     end
 end

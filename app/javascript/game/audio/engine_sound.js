@@ -73,8 +73,11 @@ export class EngineSound {
       spec.lowpass_hz * (0.55 + 0.45 * this.revs), now, 0.05
     )
 
-    // Quieter off the throttle and quieter still in the air, where there is no load.
-    const load = 0.35 + 0.65 * throttle
+    // Silent parked with the throttle shut. A constant drone under everything else is
+    // exactly what makes engine noise grating, and it was burying the rocket. It comes up
+    // with the throttle or with road speed, whichever is doing more, and stays quieter in
+    // the air where there is no load.
+    const load = Math.min(Math.max(throttle, normalised * 1.3), 1)
     const airborne = grounded === 0 ? 0.75 : 1
     this.nodes.output.gain.setTargetAtTime(spec.gain * load * airborne, now, 0.05)
   }

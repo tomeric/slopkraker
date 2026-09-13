@@ -37,6 +37,32 @@ class AudioTest < ApplicationSystemTestCase
     assert_empty severe_console_errors
   end
 
+  # Both new voices are built on the fly out of oscillators and filters, so the thing worth
+  # guarding is that firing and detonating actually run that code without throwing. How
+  # they sound stays a human judgement.
+  test "firing and detonating with audio running raises no console errors" do
+    boot("buggy")
+    gesture
+    wait_for { telemetry["audio"]["state"] == "running" }
+
+    page.execute_script(<<~JS)
+      window.__arenaInput = {
+        throttle: 0, brake: 0, steer: 0, slide: false, turbo: false, action: false, pitch: 0
+      }
+      let left = 4
+      window.__fireTimer = setInterval(() => {
+        window.__arenaInput.actionPressed = true
+        if (--left <= 0) clearInterval(window.__fireTimer)
+      }, 250)
+    JS
+
+    wait_for(timeout: 10, message: "nothing ever detonated") { telemetry["explosions"] > 0 }
+    sleep 1.0
+    page.execute_script("clearInterval(window.__fireTimer); window.__arenaInput = null")
+
+    assert_empty severe_console_errors
+  end
+
   private
     def boot(vehicle)
       visit root_path(params: { vehicle: vehicle })

@@ -52,6 +52,19 @@ export class VehicleAudio {
     if (this.spec.rocket) this.oneShots.fire(this.spec.rocket)
   }
 
+  rocketIgnited() {
+    if (this.spec.ignition) this.oneShots.ignite(this.spec.ignition)
+  }
+
+  // Returns a handle the caller must stop; null when the rocket has no thrust voice.
+  rocketThrust() {
+    return this.spec.thrust ? this.oneShots.thrust(this.spec.thrust) : null
+  }
+
+  explosion(intensity) {
+    if (this.spec.explosion) this.oneShots.blast(this.spec.explosion, intensity)
+  }
+
   impact(intensity) {
     if (this.spec.impact) this.oneShots.knock(this.spec.impact, intensity)
   }

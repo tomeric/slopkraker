@@ -141,6 +141,127 @@ export class OneShots {
   }
 
   // Impacts and landings scale with how hard the hit was.
+  // The motor catching: noise swept UPWARD through a bandpass with a short attack. The
+  // launch thump sweeps down, so a single shot reads as two distinct events rather than
+  // as the same sound played twice.
+  ignite(spec) {
+    if (!this.ctx) return
+    const ctx = this.ctx
+    const now = ctx.currentTime
+    const [from, to] = spec.sweep_hz
+
+    const burst = ctx.createGain()
+    // Ramped up from near-silence rather than set: an exponential ramp cannot start at 0.
+    burst.gain.setValueAtTime(0.0001, now)
+    burst.gain.exponentialRampToValueAtTime(spec.gain, now + 0.06)
+    burst.gain.exponentialRampToValueAtTime(0.0001, now + 0.45)
+    burst.connect(this.destination)
+
+    const filter = ctx.createBiquadFilter()
+    filter.type = "bandpass"
+    filter.frequency.setValueAtTime(from, now)
+    filter.frequency.exponentialRampToValueAtTime(to, now + 0.45)
+    // Wide rather than narrow: a tight band whistles, and what this wants is body.
+    filter.Q.value = 1.0
+    filter.connect(burst)
+
+    const source = noiseSource(ctx, { loop: false })
+    source.connect(filter)
+    source.start(now)
+    source.stop(now + 0.6)
+
+    // A low swell under the hiss. Without it the sweep is all air and no motor -- this is
+    // the part you feel rather than hear.
+    const body = ctx.createOscillator()
+    body.type = "sawtooth"
+    body.frequency.setValueAtTime(from * 0.32, now)
+    body.frequency.exponentialRampToValueAtTime(from * 0.75, now + 0.35)
+    const bodyGain = ctx.createGain()
+    bodyGain.gain.setValueAtTime(0.0001, now)
+    bodyGain.gain.exponentialRampToValueAtTime(spec.gain * 0.45, now + 0.08)
+    bodyGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.5)
+
+    const warmth = ctx.createBiquadFilter()
+    warmth.type = "lowpass"
+    warmth.frequency.value = 900
+    body.connect(warmth).connect(bodyGain).connect(this.destination)
+    body.start(now)
+    body.stop(now + 0.55)
+  }
+
+  // The motor burning, held for as long as it burns -- unlike everything else here, which
+  // is a one-shot. The caller keeps the handle and stops it when the rocket dies, so a
+  // rocket cannot leave its own thrust hanging in the mix after it has gone.
+  //
+  // Deliberately one voice and not two: a low oscillator under the hiss read as a separate
+  // sound playing alongside it rather than as body underneath it.
+  thrust(spec) {
+    if (!this.ctx) return null
+    const ctx = this.ctx
+    const now = ctx.currentTime
+
+    const hiss = ctx.createGain()
+    hiss.gain.setValueAtTime(0.0001, now)
+    hiss.gain.exponentialRampToValueAtTime(spec.gain, now + 0.08)
+    hiss.connect(this.destination)
+
+    const filter = ctx.createBiquadFilter()
+    filter.type = "bandpass"
+    filter.frequency.value = spec.band_hz
+    filter.Q.value = 0.6
+    filter.connect(hiss)
+
+    const source = noiseSource(ctx, { loop: true })
+    source.connect(filter)
+    source.start(now)
+
+    return {
+      stop() {
+        const t = ctx.currentTime
+        hiss.gain.cancelScheduledValues(t)
+        hiss.gain.setValueAtTime(Math.max(hiss.gain.value, 0.0001), t)
+        hiss.gain.exponentialRampToValueAtTime(0.0001, t + 0.12)
+        source.stop(t + 0.15)
+      }
+    }
+  }
+
+  // Bigger and longer than a knock: a crack of noise collapsing into a low boom. Scaled by
+  // how much the blast was worth, so a glancing one does not sound like a direct hit.
+  blast(spec, intensity = 1) {
+    if (!this.ctx) return
+    const ctx = this.ctx
+    const now = ctx.currentTime
+    const level = spec.gain * Math.min(Math.max(intensity, 0.25), 1)
+
+    const crack = ctx.createGain()
+    crack.gain.setValueAtTime(level, now)
+    crack.gain.exponentialRampToValueAtTime(0.0001, now + 0.6)
+    crack.connect(this.destination)
+
+    const filter = ctx.createBiquadFilter()
+    filter.type = "lowpass"
+    filter.frequency.setValueAtTime(2600, now)
+    filter.frequency.exponentialRampToValueAtTime(180, now + 0.5)
+    filter.connect(crack)
+
+    const source = noiseSource(ctx, { loop: false })
+    source.connect(filter)
+    source.start(now)
+    source.stop(now + 0.65)
+
+    const boom = ctx.createOscillator()
+    boom.type = "sine"
+    boom.frequency.setValueAtTime(spec.boom_hz, now)
+    boom.frequency.exponentialRampToValueAtTime(spec.boom_hz * 0.35, now + 0.5)
+    const boomGain = ctx.createGain()
+    boomGain.gain.setValueAtTime(level * 1.1, now)
+    boomGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.55)
+    boom.connect(boomGain).connect(this.destination)
+    boom.start(now)
+    boom.stop(now + 0.6)
+  }
+
   knock(spec, intensity) {
     if (!this.ctx || intensity <= 0) return
     const ctx = this.ctx
