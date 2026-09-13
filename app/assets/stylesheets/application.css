@@ -207,3 +207,91 @@ kbd {
   font: inherit;
   font-size: 11px;
 }
+
+/* --- the world chooser ------------------------------------------------------
+   Shown when the URL names no world, so a bare visit offers the choice rather
+   than guessing one. The body is overflow:hidden for the canvas, so this scrolls
+   itself. */
+
+.chooser {
+  position: fixed;
+  inset: 0;
+  overflow-y: auto;
+  padding: 48px 24px;
+  display: grid;
+  align-content: start;
+  justify-items: center;
+  gap: 28px;
+}
+
+.chooser__head { text-align: center; }
+
+.chooser__title {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+
+.chooser__blurb { margin: 6px 0 0; opacity: 0.6; }
+
+.chooser__note {
+  margin: 0;
+  padding: 10px 16px;
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+}
+
+.chooser__note code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  opacity: 0.85;
+}
+
+.chooser__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  width: min(100%, 720px);
+}
+
+.world {
+  padding: 18px 20px;
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  display: grid;
+  gap: 4px;
+  align-content: start;
+}
+
+.world__name { margin: 0; font-size: 17px; font-weight: 600; }
+
+.world__summary { margin: 0; opacity: 0.7; }
+
+.world__size {
+  margin: 0;
+  opacity: 0.45;
+  font-variant-numeric: tabular-nums;
+}
+
+.world__go { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+
+.world__button {
+  padding: 7px 14px;
+  border: 1px solid var(--edge);
+  border-radius: 7px;
+  color: var(--ink);
+  text-decoration: none;
+  transition: border-color 120ms, background-color 120ms;
+}
+
+.world__button:hover,
+.world__button:focus-visible {
+  background: rgba(242, 192, 20, 0.12);
+  border-color: var(--accent);
+}

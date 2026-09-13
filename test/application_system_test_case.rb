@@ -73,6 +73,16 @@ class ApplicationSystemTestCase < ActionDispatch::SystemTestCase
     rescue StandardError
       nil
     end
+    # Same reasoning, for the console. The browser log is cumulative across the session,
+    # so an error one test provoked deliberately -- a 404 from asking for a world that is
+    # not there -- is still buffered when a later test asserts the console is clean, and
+    # fails it for something it never did. Draining here is what makes that assertion mean
+    # "this test was clean".
+    begin
+      page.driver.browser.logs.get(:browser)
+    rescue StandardError
+      nil
+    end
   end
 
   # Every test says which world it needs. A test about steering wants flat ground and

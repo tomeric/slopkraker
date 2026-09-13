@@ -1,0 +1,37 @@
+<% content_for :title, "Carnavalskraker — pick a world" %>
+
+<div class="chooser">
+  <header class="chooser__head">
+    <h1 class="chooser__title">Carnavalskraker</h1>
+    <p class="chooser__blurb">Pick somewhere to drive.</p>
+  </header>
+
+  <% if @unknown.present? %>
+    <p class="chooser__note" role="alert">
+      There is no world called <strong><%= @unknown %></strong>.
+    </p>
+  <% end %>
+
+  <% if @worlds.any? %>
+    <ul class="chooser__list">
+      <% @worlds.each do |world| %>
+        <li class="world">
+          <h2 class="world__name"><%= world.name %></h2>
+          <p class="world__summary"><%= world.summary %></p>
+          <p class="world__size"><%= world.extent.map(&:to_i).join("m × ") %>m</p>
+
+          <div class="world__go">
+            <%= link_to "Monster truck", root_path(world: world.slug, vehicle: "monster_truck"),
+                        class: "world__button" %>
+            <%= link_to "Buggy", root_path(world: world.slug, vehicle: "buggy"),
+                        class: "world__button" %>
+          </div>
+        </li>
+      <% end %>
+    </ul>
+  <% else %>
+    <p class="chooser__note">
+      No worlds yet. Run <code>bin/rails db:seed</code> to build them.
+    </p>
+  <% end %>
+</div>

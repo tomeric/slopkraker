@@ -29,6 +29,17 @@ class World < ApplicationRecord
     tile_size / chunk_size
   end
 
+  # What is in here, in the world's own words: "ground, 3 crates, a pillar". Reads from
+  # the objects rather than from a description someone has to remember to update.
+  def summary
+    # Fixed geometry first, then what can be broken -- "ground, 3 crates, pillar" rather
+    # than whatever order the rows happen to come back in.
+    counts = world_objects.order(kind: :desc, name: :asc).map(&:role).tally
+    return "empty" if counts.empty?
+
+    counts.map { |role, count| count > 1 ? "#{count} #{role}s" : role }.join(", ")
+  end
+
   # `bounds` is [min_x, min_z, max_x, max_z] in game metres -- the hard edges of the
   # world, beyond which nothing can travel.
   def extent
