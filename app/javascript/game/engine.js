@@ -45,7 +45,7 @@ export class GameEngine {
     this.stats = {
       ready: false, frames: 0, steps: 0, bodies: 0, fps: 0,
       grounded: 0, speed: 0, planarSpeed: 0, turbo: 1, steer: 0, slip: 0, slipAngle: 0,
-      rockets: 0, rocketsFired: 0, rocketReadout: [], debris: 0, hitMarkers: 0, muted: false, drifting: false, slamming: false, slamTime: 0, driftGrace: 0, driftTime: 0, driftAngle: 0, driftTarget: 0, driftTurnRate: 0, bullBar: null, explosionReadout: [], yawRate: 0, pitchRate: 0, damage: [], driftDir: 0, yaw: 0, forward: [ 0, 0, 1 ], boostCharged: false, boosting: false, throttle: 0, turboOn: false, fallSpeed: 0, verticalSpeed: 0, camRight: [ 1, 0, 0 ], explosions: 0, broken: 0, jets: 0, lastDamage: 0,
+      rockets: 0, rocketsFired: 0, rocketReadout: [], debris: 0, hitMarkers: 0, muted: false, drifting: false, slamming: false, slamTime: 0, slamThrust: 0, boosters: [], driftGrace: 0, driftTime: 0, driftAngle: 0, driftTarget: 0, driftTurnRate: 0, bullBar: null, explosionReadout: [], yawRate: 0, pitchRate: 0, damage: [], driftDir: 0, yaw: 0, forward: [ 0, 0, 1 ], boostCharged: false, boosting: false, throttle: 0, turboOn: false, fallSpeed: 0, verticalSpeed: 0, camRight: [ 1, 0, 0 ], explosions: 0, broken: 0, jets: 0, lastDamage: 0,
       x: 0, y: 0, z: 0, upDot: 1, vehicle: null, error: null
     }
   }
@@ -505,6 +505,9 @@ export class GameEngine {
       entity.view.syncWheels(this.vehicle.controller)
       // Same reasoning: the bar's reach is read live, never interpolated.
       entity.view.syncBullBar(this.vehicle.bullBarBox())
+      // Flames ease on the wall clock, like the plume and the damage gizmos, not on the
+      // fixed step -- they are decoration, and should not stutter when substeps do.
+      entity.view.syncBoosters(this.vehicle.boosterState?.(), frameTime)
       this.gizmos.update(this.vehicle, entity.renderPos)
       this.damageGizmos?.update(frameTime, this.vehicle)
       if (this.damageGizmos) this.stats.damage = this.damageGizmos.readout
@@ -551,6 +554,8 @@ export class GameEngine {
       stats.drifting = this.vehicle.drifting
       stats.slamming = this.vehicle.slamming
       stats.slamTime = this.vehicle.slamTime
+      stats.slamThrust = this.vehicle.slamThrust || 0
+      stats.boosters = entity.view.boosterReadout
       stats.driftGrace = this.vehicle.driftGrace
       stats.yaw = Math.atan2(this.vehicle._forward.x, this.vehicle._forward.z)
       // Spawns follow the track heading, so "forward" is not a world axis.

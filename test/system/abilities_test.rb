@@ -3,6 +3,14 @@ require "application_system_test_case"
 # The action key: jump jets on the truck, rockets on the buggy. Plus the damage the
 # blade, bull bar and rockets actually do.
 class AbilitiesTest < ApplicationSystemTestCase
+  LIFT = %w[ front_left front_right rear_left rear_right ].freeze
+
+  # Roll authority is strong: 11_000 against ~876 kg m^2 spins the truck up to the
+  # max_angular_speed cap in about a third of a second, and past the cap updateAirControl
+  # stops applying torque -- so the boosters correctly fall back towards an even burn.
+  # Read the mapping before that, while the roll is still being commanded.
+  ROLL_SETTLE = 0.2
+
   teardown { stop_driving }
 
   # --- Monster truck: jump jets -------------------------------------------------
@@ -82,6 +90,110 @@ class AbilitiesTest < ApplicationSystemTestCase
     drive(action: true, brake: 1)
     sleep 0.8
     assert_in_delta level, nose_height, 0.15, "brake tilted the car in the air"
+  end
+
+  # --- Monster truck: boosters --------------------------------------------------
+
+  # The boosters are the readout for an attitude the driver otherwise cannot see, so what
+  # matters is not that they light but WHICH light. A nozzle underneath pushes its corner
+  # UP, so the side that has to rise is the side that burns -- bank left and the RIGHT
+  # boosters carry it. Mirror the mapping and every one of these still lights something;
+  # only the sides swap. Hence asserting corners by name.
+
+  test "jetting with the stick centred burns all four lift boosters evenly" do
+    boot("monster_truck")
+    airborne_nose
+
+    lit = boosters
+    LIFT.each { assert_operator lit[_1], :>, 0.8, "#{_1} was not burning" }
+    assert_in_delta lit["front_left"], lit["front_right"], 0.05, "the truck is burning lopsided"
+    assert_in_delta lit["front_left"], lit["rear_left"], 0.05, "the truck is burning lopsided"
+    assert_equal 0, lit["slam"], "the roof booster fired without a slam"
+  end
+
+  test "banking left burns the right boosters and darkens the left" do
+    boot("monster_truck")
+    airborne_nose
+
+    drive(action: true, steer: -1)
+    sleep ROLL_SETTLE
+
+    lit = boosters
+    assert_lit lit, on: %w[ front_right rear_right ], off: %w[ front_left rear_left ]
+  end
+
+  test "banking right burns the left boosters" do
+    boot("monster_truck")
+    airborne_nose
+
+    drive(action: true, steer: 1)
+    sleep ROLL_SETTLE
+
+    lit = boosters
+    assert_lit lit, on: %w[ front_left rear_left ], off: %w[ front_right rear_right ]
+  end
+
+  test "dropping the nose burns the rear boosters" do
+    boot("monster_truck")
+    airborne_nose
+
+    drive(action: true, pitch: 1)
+    sleep 0.45
+
+    lit = boosters
+    assert_lit lit, on: %w[ rear_left rear_right ], off: %w[ front_left front_right ]
+  end
+
+  test "raising the nose burns the front boosters" do
+    boot("monster_truck")
+    airborne_nose
+
+    drive(action: true, pitch: -1)
+    sleep 0.45
+
+    lit = boosters
+    assert_lit lit, on: %w[ front_left front_right ], off: %w[ rear_left rear_right ]
+  end
+
+  # The base gate: bias trims a burn, it must never create one.
+  test "the stick lights nothing while the jets are off" do
+    boot("monster_truck")
+    airborne_nose
+
+    drive(steer: 1, pitch: -1)
+    sleep 0.45
+
+    assert_equal 0, telemetry["jets"], "the jets were still burning"
+    lit = boosters
+    LIFT.each { assert_operator lit[_1], :<, 0.05, "#{_1} burned with the jets off" }
+  end
+
+  test "slamming fires the roof booster and cuts the lift boosters" do
+    boot("monster_truck")
+    jet_high
+
+    # The thruster cannot point both ways: committing to a slam cuts the jets.
+    drive(slide: true)
+    wait_for(timeout: 5, message: "never committed to a slam") { telemetry["slamming"] }
+    sleep 0.25
+
+    lit = boosters
+    assert telemetry["slamming"], "landed before the slam could be read"
+    assert_operator lit["slam"], :>, 0.2, "the roof booster did not fire on a slam"
+    LIFT.each { assert_operator lit[_1], :<, 0.1, "#{_1} burned during a slam" }
+  end
+
+  test "the roof booster ramps with how long the slam is held" do
+    boot("monster_truck")
+    jet_high
+
+    drive(slide: true)
+    wait_for(timeout: 5, message: "never committed to a slam") { telemetry["slamming"] }
+    sleep 0.1
+    early = boosters["slam"]
+
+    assert_operator peak_slam_booster(from: early), :>, early + 0.05,
+      "the roof booster sat at #{early.round(2)} instead of ramping"
   end
 
   # --- Buggy: rockets -----------------------------------------------------------
@@ -198,8 +310,41 @@ class AbilitiesTest < ApplicationSystemTestCase
       page.evaluate_script("window.__arena")
     end
 
+    # Which corners are burning. Reported together: a mirrored mapping still lights two of
+    # the four, so a bare "front_left was out" says nothing about which way round it went.
+    def assert_lit(lit, on:, off:)
+      readout = LIFT.map { "#{_1} #{lit[_1].round(2)}" }.join(", ")
+      on.each { assert_operator lit[_1], :>, 0.8, "#{_1} should be burning -- #{readout}" }
+      off.each { assert_operator lit[_1], :<, 0.2, "#{_1} should be out -- #{readout}" }
+    end
+
+    # Booster intensity by nozzle name, 0..1.
+    def boosters
+      telemetry["boosters"].to_h { [ _1["name"], _1["intensity"] ] }
+    end
+
     def nose_height
       telemetry["forward"][1]
+    end
+
+    # Jets up and holds there a while. A slam started just above the floor is over before
+    # anything can be read off it.
+    def jet_high(seconds: 1.4)
+      drive(action: true)
+      wait_for(timeout: 6, message: "never left the ground") { telemetry["grounded"] == 0 }
+      sleep seconds
+    end
+
+    # The strongest reading the roof booster reaches before the truck lands. A slam ends on
+    # touchdown, so sleeping through it and taking one reading measures the decay instead.
+    def peak_slam_booster(from:, timeout: 5)
+      peak = from
+      deadline = Time.now + timeout
+      while telemetry["slamming"] && Time.now < deadline
+        peak = [ peak, boosters["slam"] ].max
+        sleep 0.05
+      end
+      peak
     end
 
     # Get airborne on the jets and settle, then report the level nose attitude.

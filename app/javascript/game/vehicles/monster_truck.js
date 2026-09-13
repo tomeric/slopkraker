@@ -12,6 +12,19 @@ export class MonsterTruck extends Vehicle {
     this.jets = this.spec.parts.find((part) => part.kind === "jump_jets")
     this.jetThrottle = 0
     this.airTime = 0
+    this.slamThrust = 0
+  }
+
+  // What the boosters render. Kept here rather than in the view so the flames can only
+  // ever show thrust the truck is actually producing.
+  boosterState() {
+    const max = this.spec.slam?.max_thrust || 0
+    return {
+      lift: this.jetThrottle,
+      slam: max > 0 ? this.slamThrust / max : 0,
+      roll: this.airRoll,
+      pitch: this.airPitch
+    }
   }
 
   updateAction(dt, input, grounded) {
@@ -47,6 +60,7 @@ export class MonsterTruck extends Vehicle {
     if (!slam || grounded > 0 || !input.slide || !upright || this.airTime < slam.engage_delay) {
       this.slamming = false
       this.slamTime = 0
+      this.slamThrust = 0
       return
     }
 
@@ -57,5 +71,7 @@ export class MonsterTruck extends Vehicle {
     this._torque.copy(this._up).multiplyScalar(-thrust * dt)
     this.body.applyImpulse(this._torque, true)
     this.slamming = true
+    // Kept so the roof booster can ramp with the hold; nothing else reads it.
+    this.slamThrust = thrust
   }
 }

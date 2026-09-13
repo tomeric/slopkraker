@@ -8,6 +8,14 @@ module Game
       TRACK = 0.95
       AXLE_HEIGHT = -0.20
 
+      # Booster nozzles. Inboard of the tyres -- their inner face sits at
+      # TRACK - width/2 = 0.725 -- and just below the slam plate, so they read as firing
+      # through it. The roof nozzle is the same thruster pointed the other way.
+      NOZZLE_TRACK = 0.52
+      NOZZLE_REACH = 1.42
+      NOZZLE_DROP = -0.56
+      NOZZLE_RADIUS = 0.15
+
       def self.build
         Vehicle.new(
           key: :monster_truck,
@@ -161,7 +169,9 @@ module Game
               offset: Vector3.new(0.0, -0.1, -2.0),
               size: Vector3.new(0.5, 0.5, 0.7),
               thrust: 42_000.0,
-              drain_rate: 40.0
+              drain_rate: 40.0,
+              flame: flame,
+              nozzles: nozzles
             )
           ],
           camera: camera,
@@ -198,6 +208,62 @@ module Game
             slides: slides
           )
         end
+      end
+
+      # The boosters that make the burn legible. The bias signs encode the chassis axes --
+      # +X is the driver's LEFT, and a nozzle underneath pushes its own corner UP -- so the
+      # side that has to RISE is the side that burns. Parts::JumpJets carries the
+      # derivation; MonsterTruckTest pins it.
+      def self.nozzles
+        corners = [
+          [ "front_left",   1,  1 ],
+          [ "front_right", -1,  1 ],
+          [ "rear_left",    1, -1 ],
+          [ "rear_right",  -1, -1 ]
+        ].map do |name, side, nose|
+          {
+            name: name,
+            group: "lift",
+            offset: Vector3.new(side * NOZZLE_TRACK, NOZZLE_DROP, nose * NOZZLE_REACH),
+            direction: Vector3.new(0.0, -1.0, 0.0),
+            radius: NOZZLE_RADIUS,
+            flame_length: 0.5,
+            # Steering right lifts the left side, so +X burns as input.steer goes positive.
+            roll_bias: side.to_f,
+            # input.pitch is +1 nose-down, which raises the tail, so -Z burns.
+            pitch_bias: -nose.to_f
+          }
+        end
+
+        corners + [ {
+          name: "slam",
+          group: "slam",
+          offset: Vector3.new(0.0, 0.62, -0.30),
+          direction: Vector3.new(0.0, 1.0, 0.0),
+          radius: 0.19,
+          flame_length: 0.6,
+          # A slam holds Slide, which is exactly what switches air control off, so there is
+          # no attitude left for the roof nozzle to report.
+          roll_bias: 0.0,
+          pitch_bias: 0.0
+        } ]
+      end
+
+      def self.flame
+        {
+          core_colour: "#ffd066",
+          glow_colour: "#ff8a3d",
+          # How fast a nozzle chases its target brightness, 1/s. Snapping makes the rig
+          # strobe every time the stick crosses centre.
+          response: 16.0,
+          # 1.0 spends the full range on the stick: the dark side goes right out, which is
+          # what makes the attitude readable at a glance.
+          tilt_authority: 1.0,
+          # Length and opacity jitter, as fractions of the resting flame.
+          flicker: [ 0.78, 1.22 ],
+          opacity: [ 0.72, 1.0 ],
+          glow_scale: 1.7
+        }
       end
 
       def self.camera

@@ -71,6 +71,9 @@ export class Vehicle {
     this.driftGraceDuration = spec.parts.find((p) => p.kind === "bull_bar")?.retain || 0
     this.slamming = false
     this.slamTime = 0
+    // What updateAirControl actually did this frame, not what the stick asked for.
+    this.airRoll = 0
+    this.airPitch = 0
     this.prevSlip = 0
     this.slipRate = 0
 
@@ -514,7 +517,14 @@ export class Vehicle {
     this.body.applyTorqueImpulse(this._torque, true)
   }
 
+  // airRoll/airPitch record the torque that was actually applied, and are what the booster
+  // flames read. Every gate below -- grounded, sliding, spun out -- can leave the stick
+  // hard over while nothing at all happens to the chassis, so a view deriving tilt from
+  // raw input would light boosters for a roll the truck is not performing.
   updateAirControl(dt, input, grounded) {
+    this.airRoll = 0
+    this.airPitch = 0
+
     if (grounded > 0) return
     // While the slide button is held, steering means "set up a drift", not "bank the
     // car". Without this the hop and the air roll fight each other and it flips.
@@ -530,6 +540,7 @@ export class Vehicle {
     if (input.steer !== 0) {
       this._torque.copy(this._forward).multiplyScalar(input.steer * ac.roll_torque * dt)
       this.body.applyTorqueImpulse(this._torque, true)
+      this.airRoll = input.steer
     }
 
     // Pitch comes from its own stick axis, never from the pedals: throttle and brake
@@ -538,6 +549,7 @@ export class Vehicle {
       // _right is -X, so a negative rotation about it drops the nose.
       this._torque.copy(this._right).multiplyScalar(-input.pitch * ac.pitch_torque * dt)
       this.body.applyTorqueImpulse(this._torque, true)
+      this.airPitch = input.pitch
     }
   }
 

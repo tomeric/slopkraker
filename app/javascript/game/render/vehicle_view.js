@@ -1,4 +1,5 @@
 import * as THREE from "three"
+import { Boosters } from "game/render/boosters"
 
 // Meshes built from the Ruby spec. Wheel transforms are read straight from Rapier each
 // render frame -- never interpolated, because suspension travel and steering angle are
@@ -29,6 +30,12 @@ export class VehicleView {
 
     this.parts = spec.parts.map((part) => this.buildPart(part))
     this.wheels = spec.wheels.map((wheel) => this.buildWheel(wheel))
+
+    // Parented to the same group as everything else, so the flames ride the interpolated
+    // chassis transform for free -- and work unchanged for remote cars, which reuse this
+    // view. Only the truck has jets; the buggy leaves this null.
+    const jets = spec.parts.find((part) => part.kind === "jump_jets")
+    this.boosters = jets?.nozzles?.length ? new Boosters(this.group, jets) : null
 
     scene.add(this.group)
   }
@@ -72,6 +79,16 @@ export class VehicleView {
 
     bar.box.scale.z = (live.halfDepth * 2) / bar.depth
     entry.mesh.position.z = live.z
+  }
+
+  // Read live like the wheels: the flames are the readout for an attitude the driver is
+  // flying right now, so interpolating them would report it a frame late.
+  syncBoosters(state, dt) {
+    this.boosters?.update(dt, state)
+  }
+
+  get boosterReadout() {
+    return this.boosters?.readout || []
   }
 
   buildWheel(wheel) {
@@ -123,6 +140,7 @@ export class VehicleView {
   }
 
   dispose() {
+    this.boosters?.dispose()
     this.group.removeFromParent()
   }
 }
@@ -132,7 +150,8 @@ export class VehicleView {
 // see is what the hitbox covers.
 //
 // ConeGeometry points up the +Y axis with its apex at the top, so a quarter turn about Z
-// aims it out along the bar -- negative for the driver's right (+X), positive for the left.
+// aims it out along the bar -- negative for +X, positive for -X. Note +X is the driver's
+// LEFT: forward is +Z and up is +Y, so right = forward x up = -X (see vehicle.js).
 function spikedBar(part, material) {
   const [, h, d] = part.size
   const { length, radius, bar_width: width } = part.spikes
