@@ -157,7 +157,7 @@ module Game
             Parts::BulldozerBlade.new(
               offset: Vector3.new(0.0, -0.12, 2.25),
               size: Vector3.new(2.6, 0.9, 0.3),
-              damage_multiplier: 2.5
+              damage_multiplier: 5.0
             ),
             Parts::SlamPlate.new(
               offset: Vector3.new(0.0, -0.42, 0.0),

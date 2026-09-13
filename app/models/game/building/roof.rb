@@ -13,6 +13,9 @@ module Game
     module Roof
       THICKNESS = 0.2
       GABLE_THICKNESS = 0.3
+      # Real eaves hang past the wall, and here it does a second job: the gable behind is
+      # a stair of whole cells, and an overhang is what hides the last step of it.
+      OVERHANG = 0.4
       EAST = Vector3.new(1, 0, 0)
       SOUTH = Vector3.new(0, 0, 1)
       UP = Vector3.new(0, 1, 0)
@@ -62,14 +65,19 @@ module Game
             Vector3.new(0.0, recipe.rise, side * run)
           end
 
+          # Started half an overhang back along its own run and made that much longer at
+          # each end, so the roof projects past both gables.
+          span = ridge_length + OVERHANG * 2
+          eave = (along_z ? SOUTH : EAST) * OVERHANG
+
           Surface.new(
             kind: :roof, storey: recipe.storeys,
             material: Materials.fetch(:roof_tile),
-            origin: origin,
+            origin: origin - eave,
             u: along_z ? SOUTH : EAST,
             v: up_slope.normalised,
-            width: ridge_length, height: slope,
-            cols: Walls.cells(ridge_length, recipe.cell),
+            width: span, height: slope,
+            cols: Walls.cells(span, recipe.cell),
             rows: Walls.cells(slope, recipe.cell),
             thickness: THICKNESS
           )
@@ -99,20 +107,26 @@ module Game
             width: span, height: recipe.rise,
             cols: cols, rows: rows,
             thickness: GABLE_THICKNESS,
-            patches: clip(cols, rows)
+            patches: clip(cols, rows),
+            seed: recipe.seed
           )
         end
       end
 
-      # Everything above the pitch line becomes void. Judged at the cell's own centre, so
-      # the triangle comes out as a clean stair rather than with slivers hanging off it.
+      # Everything above the pitch line becomes void.
+      #
+      # Judged against the cell's TOP edge, not its centre. A cell kept because its middle
+      # was under the roof still stands half a cell proud of it, and a row of those reads
+      # as teeth along the ridge -- which is exactly what it looked like. Testing the top
+      # means a kept cell is always wholly beneath the roof; the small step it leaves under
+      # the slope is what the eaves overhang is there to cover.
       def self.clip(cols, rows)
         cols.times.flat_map do |col|
           across = (col + 0.5) / cols
           line = 1.0 - (2.0 * across - 1.0).abs
 
           rows.times.filter_map do |row|
-            next if line > row.to_f / rows
+            next if line >= (row + 1).to_f / rows
 
             Surface::Patch.new(col0: col, row0: row, col1: col, row1: row, material: :void)
           end

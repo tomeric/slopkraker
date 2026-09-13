@@ -41,11 +41,14 @@ module Game
           # whose hardness exceeds what a car can deliver is permanently immune, which a
           # player cannot tell apart from a bug.
           minimum_fraction: 0.1,
-          # What a hit does to the cells around the one it landed on. Without this a
-          # lethal impact takes out exactly one 1.5m panel and leaves a nick, which reads
-          # as a car bouncing off a wall rather than going through it. With it, one good
-          # hit opens something you can drive into.
-          spread: 0.7
+          # What a hit does to the cells around the one it landed on. Without it a lethal
+          # impact takes out one panel and leaves a nick, which reads as a car bouncing off
+          # a wall rather than going through it.
+          #
+          # Lower than it was, because a hit now takes a whole block rather than a cell and
+          # the block was already doing most of this work. At the old value one impact
+          # cleared five blocks, which is most of a wall.
+          spread: 0.45
         },
         impact_force_threshold: 2000.0,
         # How long the debug overlay holds a hit readout before returning to live values.

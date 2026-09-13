@@ -73,7 +73,8 @@ module Game
           height: recipe.storey_height,
           cols: Walls.cells(span, recipe.cell),
           rows: Walls.cells(recipe.storey_height, recipe.cell),
-          thickness: PARTITION_THICKNESS
+          thickness: PARTITION_THICKNESS,
+          seed: recipe.seed
         )
       end
     end

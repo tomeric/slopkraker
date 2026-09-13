@@ -1,6 +1,6 @@
 import * as THREE from "three"
 import { loadRapier } from "game/rapier"
-import { createRenderer, createScene, createCamera, disposeScene } from "game/render/scene"
+import { createRenderer, createScene, createCamera, disposeScene, qualityFor } from "game/render/scene"
 import { buildArenaView } from "game/render/arena_view"
 import { createPhysicsWorld } from "game/physics/world"
 import { buildVehicle, vehicleKeys } from "game/vehicles"
@@ -30,13 +30,15 @@ const SCRATCH_AWAY = new THREE.Vector3()
 // specifies regardless of display refresh; meshes are interpolated between the last two
 // physics states so a 60Hz display still looks smooth at 120Hz physics.
 export class GameEngine {
-  constructor({ canvas, root, spec, vehicleKey, playerId, match, onStatus, onMuteChange }) {
+  constructor({ canvas, root, spec, vehicleKey, playerId, match, quality, onStatus, onMuteChange }) {
     this.canvas = canvas
     this.root = root || canvas.parentElement
     this.spec = spec
     this.playerId = playerId
     this.match = match
     this.vehicleKey = vehicleKey || "monster_truck"
+    this.qualityName = quality || "high"
+    this.quality = qualityFor(quality)
     this.onStatus = onStatus || (() => {})
     this.onMuteChange = onMuteChange || (() => {})
     this.running = false
@@ -62,8 +64,8 @@ export class GameEngine {
     this.fixedDt = 1 / this.spec.rules.physics_hz
     this.maxSubsteps = this.spec.rules.max_substeps
 
-    this.renderer = createRenderer(this.canvas)
-    const { scene, sun } = createScene()
+    this.renderer = createRenderer(this.canvas, this.quality)
+    const { scene, sun } = createScene(this.quality)
     this.scene = scene
     this.sun = sun
     this.camera = createCamera(this.aspect())
@@ -161,7 +163,12 @@ export class GameEngine {
         maxHealth: building.maxHealth[piece]
       }
     }
+    // Which cells share a fate with this one. A hit takes the block, not the cell, so a
+    // test asserting "one break removed one piece" would be asserting the old behaviour.
+    window.__arenaPieceBlock = (piece, buildingId) =>
+      this.buildings?.find(buildingId)?.block(piece) ?? []
     window.__arenaDraws = () => this.renderer.info.render.calls
+    window.__arenaQuality = this.qualityName
 
     this.running = true
     this.lastFrame = performance.now()

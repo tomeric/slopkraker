@@ -229,7 +229,7 @@ module Game
           # inside the shell is already comfortably past dying, so raising the number
           # changes nothing you can see -- widening the shell is what turns a hole into a
           # crater.
-          radius: 5.0,
+          radius: 2.5,
           expand_time: 0.22,
           linger: 0.20,
           prop_push: 1.15,

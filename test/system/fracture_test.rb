@@ -19,12 +19,20 @@ class FractureTest < ApplicationSystemTestCase
 
   # The whole reason for a fracture library rather than one debris shape: a pane comes
   # apart into a shower and a brick panel into a handful of lumps.
+  #
+  # Measured per CELL, not per break. Brick is tiled into blocks, so breaking one piece
+  # takes two or three cells with it and throws more fragments in total while throwing
+  # fewer each. Glass is never blocked -- a pane is a pane -- so it is always one cell.
   test "glass shatters into more pieces than brick" do
-    brick = shards_from(first_piece_of("brick"))
+    piece = first_piece_of("brick")
+    cells = page.evaluate_script("window.__arenaPieceBlock(#{piece})").length
+    brick = shards_from(piece) / cells.to_f
+
     reload
     glass = shards_from(first_piece_of("glass"))
 
-    assert_operator glass, :>, brick, "glass should come apart further than brick"
+    assert_operator glass, :>, brick,
+      "a pane should come apart further than a brick panel (#{glass} vs #{brick.round(1)} per cell)"
   end
 
   test "shards clear themselves up" do

@@ -1,12 +1,13 @@
 require "test_helper"
 
 class Game::Building::GeneratorTest < ActiveSupport::TestCase
-  # The worked example: an 8 x 10m two-storey gabled house at a 1.5m cell.
+  # The worked example, and deliberately the same building the targets fixture seeds: one
+  # canonical house rather than a test house and a real house that can drift apart.
   def house(**overrides)
     Game::Building::Generator.call({
-      footprint: [ [ 0, 0 ], [ 8, 0 ], [ 8, 10 ], [ 0, 10 ] ],
-      storeys: 2, storey_height: 3.0, eaves: 6.0, ridge: 8.5,
-      roof: "gable", cell: 1.5, seed: 7
+      footprint: [ [ 0, 0 ], [ 12, 0 ], [ 12, 15 ], [ 0, 15 ] ],
+      storeys: 3, storey_height: 3.0, eaves: 9.0, ridge: 12.75,
+      roof: "gable", cell: 1.0, seed: 7
     }.merge(overrides))
   end
 
@@ -16,14 +17,15 @@ class Game::Building::GeneratorTest < ActiveSupport::TestCase
   test "the worked example generates exactly what it is supposed to" do
     set = house
 
-    assert_equal 16, set.surfaces.length
-    assert_equal 248, set.piece_count
-    assert_equal 2, set.storey_count
+    assert_equal 22, set.surfaces.length
+    assert_equal 1454, set.piece_count
+    assert_equal 3, set.storey_count
 
-    assert_equal %i[wall wall wall wall wall wall wall wall
-                    floor floor partition partition roof roof gable gable],
+    assert_equal %i[wall wall wall wall wall wall wall wall wall wall wall wall
+                    floor floor floor partition partition partition roof roof gable gable],
                  set.surfaces.map(&:kind)
-    assert_equal [ 0, 10, 20, 34, 48, 58, 68, 82, 96, 131, 166, 176, 186, 207, 228, 238 ],
+    assert_equal [ 0, 36, 72, 108, 153, 198, 243, 279, 315, 351, 396, 441,
+                   486, 666, 846, 1026, 1062, 1098, 1134, 1246, 1358, 1406 ],
                  set.surfaces.map(&:piece_offset)
   end
 
@@ -58,16 +60,16 @@ class Game::Building::GeneratorTest < ActiveSupport::TestCase
   # clipped corner is a real index holding void. If openings removed indices instead, both
   # Ruby and JavaScript would have to cull identically forever.
   test "openings and clipping never remove a piece index" do
-    with_openings = house(seed: 7)
-    bare = house(seed: 7, storeys: 2)
+    set = house
+    patched = set.surfaces.select { |surface| surface.patches.any? }
 
-    assert_equal bare.piece_count, with_openings.piece_count
-
-    walls = with_openings.surfaces.select { |s| s.kind == :wall }
-    assert(walls.any? { |s| s.patches.any? }, "the example should have openings at all")
-    walls.each do |surface|
-      assert_equal surface.cols * surface.rows, surface.piece_count
+    assert_not_empty patched, "the example should have openings and clipping at all"
+    # Every surface holds exactly its grid, patches or not. A door, a window and a clipped
+    # gable corner all occupy an index; only what is drawn there changes.
+    set.surfaces.each do |surface|
+      assert_equal surface.cols * surface.rows, surface.piece_count, surface.kind
     end
+    assert_equal set.surfaces.sum { |s| s.cols * s.rows }, set.piece_count
   end
 
   test "a gable is clipped with void rather than by shrinking its grid" do
@@ -79,7 +81,19 @@ class Game::Building::GeneratorTest < ActiveSupport::TestCase
       voids = gable.patches.select { |p| p.material == :void }
       assert_not_empty voids, "the corners above the pitch should be void"
       # The apex column stays: a gable with nothing at the top is not a gable.
-      assert_equal :brick, gable.material_at(gable.rows - 1, gable.cols / 2).name
+      assert_equal :brick, gable.material_at(gable.rows - 2, gable.cols / 2).name
+    end
+
+    # Judged on the cell's top edge rather than its centre, so no kept cell stands proud
+    # of the roof. Judged on the centre, the ridge grew a row of teeth.
+    test_gable = gables.first
+    test_gable.cols.times do |col|
+      across = (col + 0.5) / test_gable.cols
+      line = 1.0 - (2.0 * across - 1.0).abs
+      kept = (0...test_gable.rows).count { |row| test_gable.material_at(row, col).name != :void }
+
+      assert_operator kept.to_f / test_gable.rows, :<=, line + 1e-9,
+        "column #{col} stands above the pitch"
     end
   end
 
@@ -104,22 +118,34 @@ class Game::Building::GeneratorTest < ActiveSupport::TestCase
     assert_equal Game::Materials.names.sort, used.sort
   end
 
-  test "the front door is timber, on the ground floor, with a lintel over it" do
+  # Wide and tall enough to drive through, which is the whole point of a hollow building,
+  # and spanned by the one piece of steel in the house. A lintel over a single 1m window
+  # was just a dark square in the middle of a wall.
+  test "the front door is a timber opening under a steel lintel" do
     front = house.surfaces.first
 
     assert_equal :wall, front.kind
     assert_equal 0, front.storey
-    door = (0...front.cols).find { |col| front.material_at(0, col).name == :timber }
-    assert door, "the ground floor of the first wall should have a door"
-    assert_equal :steel, front.material_at(1, door).name, "a lintel belongs above an opening"
+
+    door = (0...front.cols).select { |col| front.material_at(0, col).name == :timber }
+    assert_equal 3, door.length, "a door you cannot drive through is a wall"
+    assert_equal door, door.first.upto(door.last).to_a, "the door should be contiguous"
+
+    door.each do |col|
+      assert_equal :timber, front.material_at(1, col).name, "the door is two courses tall"
+      assert_equal :steel, front.material_at(2, col).name, "a lintel spans the opening"
+    end
   end
 
-  test "windows are glass and sit on the floor of their storey" do
+  # A window on the floor is what a two-row storey forces. Three rows is what buys it a
+  # sill to stand on, and is the reason the grid got finer.
+  test "windows sit a course above the floor" do
     wall = house.surfaces.find { |s| s.kind == :wall && s.storey == 1 }
-    glass = (0...wall.cols).select { |col| wall.material_at(0, col).name == :glass }
 
-    assert_not_empty glass
-    glass.each { |col| assert_equal :steel, wall.material_at(1, col).name }
+    assert_equal 3, wall.rows
+    assert_not_empty (0...wall.cols).select { |col| wall.material_at(1, col).name == :glass }
+    assert_empty (0...wall.cols).select { |col| wall.material_at(0, col).name == :glass },
+                 "nothing should be glazed at floor level"
   end
 
   test "a flat roof is one deck rather than two slopes and two ends" do
@@ -133,8 +159,8 @@ class Game::Building::GeneratorTest < ActiveSupport::TestCase
   test "storeys each get a deck and a partition" do
     set = house
 
-    assert_equal 2, set.surfaces.count { |s| s.kind == :floor }
-    assert_equal 2, set.surfaces.count { |s| s.kind == :partition }
+    assert_equal 3, set.surfaces.count { |s| s.kind == :floor }
+    assert_equal 3, set.surfaces.count { |s| s.kind == :partition }
     assert_equal :concrete, set.surfaces.find { |s| s.kind == :floor }.material.name,
                  "the ground slab should be the last thing to give"
   end

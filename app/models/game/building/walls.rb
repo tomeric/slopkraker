@@ -35,7 +35,8 @@ module Game
           cols: cols,
           rows: rows,
           thickness: THICKNESS,
-          patches: openings.for_wall(edge: edge, storey: storey, cols: cols, rows: rows)
+          patches: openings.for_wall(edge: edge, storey: storey, cols: cols, rows: rows),
+          seed: recipe.seed
         )
       end
 

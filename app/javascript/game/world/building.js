@@ -49,6 +49,10 @@ export class Building {
     // Which surface each piece belongs to, so a hit can find the cells around it. -1 for
     // an index nothing was built at.
     this.surfaceOf = new Int32Array(count).fill(-1)
+    // Which cells break together. -1 for a cell that is its own piece -- a roof tile, a
+    // floor slab, anything the generator left on the plain grid.
+    this.blockOf = new Int32Array(count).fill(-1)
+    this.blockCells = []
 
     this.build(RAPIER, colliderIndex)
   }
@@ -73,10 +77,14 @@ export class Building {
 
   build(RAPIER, colliderIndex) {
     const surfaceIndex = new Map(this.spec.surfaces.map((surface, i) => [ surface, i ]))
+    // Block ids are local to their surface, so they are rebased onto a building-wide id
+    // as each surface is walked.
+    const blockBase = new Map()
 
     eachBuildingCell(this.spec, (index, name, matrix, surface) => {
       this.material[index] = name
       this.surfaceOf[index] = surfaceIndex.get(surface)
+      this.assignBlock(index, surface, blockBase)
 
       // A doorway. It holds an index so the arithmetic stays uniform, and nothing else.
       if (name === "void") {
@@ -126,6 +134,26 @@ export class Building {
       building: this, piece: index
     })
     return collider
+  }
+
+  assignBlock(index, surface, blockBase) {
+    if (!surface.blocks) return
+
+    const local = surface.blocks[index - surface.off]
+    if (local === undefined || local === null) return
+
+    if (!blockBase.has(surface)) blockBase.set(surface, this.blockCells.length)
+    const id = blockBase.get(surface) + local
+
+    while (this.blockCells.length <= id) this.blockCells.push([])
+    this.blockCells[id].push(index)
+    this.blockOf[index] = id
+  }
+
+  // Every cell that shares this one's fate, itself included.
+  block(index) {
+    const id = this.blockOf[index]
+    return id < 0 ? SINGLE_CELL(index) : this.blockCells[id]
   }
 
   // The handle a blast holds onto. Built once per piece and kept, so a blast query hands
@@ -181,6 +209,15 @@ export class Building {
       for (const near of this.neighbours(index)) this.damage(near, raw * spread, kind, 0, away)
     }
 
+    // The whole block takes the hit, not just the cell that was touched. That is what
+    // makes a hole follow a shape instead of a square -- and since every cell of a block
+    // is the same material with the same health, they come away together.
+    let broke = false
+    for (const cell of this.block(index)) broke = this.damageCell(cell, raw, kind, away) || broke
+    return broke
+  }
+
+  damageCell(index, raw, kind, away) {
     if (!this.standing(index)) return false
 
     const amount = absorb(raw, this.materialSpec(index), kind, this.rules)
@@ -192,11 +229,19 @@ export class Building {
       return false
     }
 
-    this.break(index, away)
+    this.breakCell(index, away)
     return true
   }
 
+  // Breaks the whole block, so the hooks and the server both address a piece the way a
+  // hit does.
   break(index, away = null) {
+    let broke = false
+    for (const cell of this.block(index)) broke = this.breakCell(cell, away) || broke
+    return broke
+  }
+
+  breakCell(index, away = null) {
     if (!this.standing(index)) return false
 
     this.state[index] = BROKEN
@@ -213,6 +258,12 @@ export class Building {
   }
 
   restore(index) {
+    let restored = false
+    for (const cell of this.block(index)) restored = this.restoreCell(cell) || restored
+    return restored
+  }
+
+  restoreCell(index) {
     if (this.state[index] !== BROKEN) return false
 
     this.state[index] = INTACT
@@ -248,6 +299,10 @@ export class Building {
     this.colliders.length = 0
   }
 }
+
+// Allocated per call rather than kept, because the caller iterates it and a shared
+// array would be overwritten by a nested break.
+const SINGLE_CELL = (index) => [ index ]
 
 const POSITION = new THREE.Vector3()
 const ROTATION = new THREE.Quaternion()

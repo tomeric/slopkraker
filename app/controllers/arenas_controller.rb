@@ -9,6 +9,9 @@ class ArenasController < ApplicationController
     @world = Game::Spec.for(@world_record)
     @player_id = (session[:player_id] ||= SecureRandom.uuid)
     @match = params[:match].presence || ArenaChannel::DEFAULT_MATCH
+    # How hard the browser is asked to work. Not game tuning -- the simulation is the same
+    # either way -- so it stays a URL parameter rather than entering the spec.
+    @quality = params[:quality].presence
   end
 
   private

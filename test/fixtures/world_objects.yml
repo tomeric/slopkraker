@@ -109,7 +109,7 @@ targets_house:
   z: 8.0
   yaw: 0.0
   radius: 20.0
-  piece_count: 652
+  piece_count: 1454
   storey_count: 3
   recipe:
     kind: building
@@ -119,5 +119,5 @@ targets_house:
     eaves: 9.0
     ridge: 12.75
     roof: gable
-    cell: 1.5
+    cell: 1.0
     seed: 7

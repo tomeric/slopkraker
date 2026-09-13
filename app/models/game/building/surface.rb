@@ -20,10 +20,10 @@ module Game
       KINDS = %i[wall partition floor roof gable].freeze
 
       attr_reader :kind, :storey, :material, :origin, :u, :v, :normal,
-                  :width, :height, :cols, :rows, :thickness, :patches, :piece_offset
+                  :width, :height, :cols, :rows, :thickness, :patches, :piece_offset, :seed
 
       def initialize(kind:, storey:, material:, origin:, u:, v:, width:, height:,
-                     cols:, rows:, thickness:, patches: [], piece_offset: 0)
+                     cols:, rows:, thickness:, patches: [], piece_offset: 0, seed: 0)
         @kind = kind
         @storey = storey
         @material = material
@@ -38,6 +38,7 @@ module Game
         @thickness = thickness.to_f
         @patches = patches
         @piece_offset = piece_offset
+        @seed = seed
       end
 
       def piece_count = cols * rows
@@ -81,8 +82,15 @@ module Game
         self.class.new(
           kind: kind, storey: storey, material: material, origin: origin, u: u, v: v,
           width: width, height: height, cols: cols, rows: rows, thickness: thickness,
-          patches: patches, piece_offset: offset
+          patches: patches, piece_offset: offset, seed: seed
         )
+      end
+
+      # Which cells break together. Worked out after the offset is known, because the
+      # tiling is seeded from it -- two surfaces with identical grids should not come out
+      # with identical blocks.
+      def blocks
+        @blocks ||= Blocks.tile(self, seed: seed)
       end
 
       def to_spec
@@ -107,6 +115,8 @@ module Game
           hp: per_material { |m| m.health_for(cell_area, thickness) },
           kg: per_material { |m| m.mass_for(cell_area, thickness) },
           str: per_material(&:structural_weight),
+          # One block id per cell, row-major, or absent where the plain grid is right.
+          blocks: blocks,
           patches: patches.map(&:to_spec)
         }
       end

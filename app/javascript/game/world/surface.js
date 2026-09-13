@@ -20,7 +20,6 @@ const n = new THREE.Vector3()
 const position = new THREE.Vector3()
 const scale = new THREE.Vector3()
 const matrix = new THREE.Matrix4()
-
 // Walked backwards, because the last patch covering a cell wins -- a lintel laid over a
 // window opening has to read as the lintel.
 export function materialAt(surface, row, col) {
@@ -44,6 +43,13 @@ export function cellSize(surface) {
 // which is the correct inverse-transpose only while the matrix carries no shear. Scaling
 // before rotating introduces exactly that shear, and the lighting goes subtly wrong in a
 // way that is very hard to attribute later.
+// Cells sit flush: exactly coplanar, exactly abutting, all the same size.
+//
+// They did not, for a while. Each was nudged out of plane, rolled a couple of degrees and
+// given its own shade, to stop a wall reading as graph paper -- and the result read as a
+// patchwork of separate boxes stacked against each other, which is worse. A wall is one
+// object that happens to be destructible; the irregularity belongs in how it comes APART,
+// which is what the block tiling is for, not in how it looks standing up.
 export function cellMatrix(surface, row, col, target, origin) {
   const width = surface.w / surface.cols
   const height = surface.h / surface.rows

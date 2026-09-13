@@ -1,17 +1,16 @@
 module Game
   module Building
-    # Where the windows and the door go, and what sits above them.
+    # Where the windows and the door go.
     #
-    # Openings are whole cells. A window is one cell of glass, a door one cell of timber,
-    # and the cell directly above each is a steel lintel -- which is both what a real wall
-    # has there and a cheap way of making the grid read as architecture rather than as a
-    # grid. Sub-cell openings would mean clipping polygons identically in Ruby and in
-    # JavaScript; the sibling map app needs six hundred lines of Sutherland-Hodgman for
-    # exactly that, and this deliberately does not.
+    # Openings are whole cells, so the grid decides what a window can be. Sub-cell openings
+    # would mean clipping polygons identically in Ruby and in JavaScript; the sibling map
+    # app needs six hundred lines of Sutherland-Hodgman for exactly that, and this
+    # deliberately does not.
     #
-    # The consequence to accept: a 1.5m cell means a 1.5m door. At this scale the whole
-    # building is an approximation, and a door you can drive a buggy through is arguably
-    # the point.
+    # Which means the cell size is an architectural decision. At 1m cells a 3m storey is
+    # three rows, and that third row is what lets a window sit at eye level instead of on
+    # the floor. It was on the floor while cells were 1.5m and a storey was two rows --
+    # correct for that grid, and immediately wrong for this one.
     #
     # Deterministic from the recipe's seed, so the same building generates identically
     # every time. It has to: a piece index means nothing if the wall it refers to might
@@ -20,37 +19,54 @@ module Game
       # The ground floor of the first edge gets the front door.
       DOOR_EDGE = 0
       DOOR_STOREY = 0
+      # Wide and tall enough to drive through, which is the whole point of a hollow
+      # building.
+      DOOR_WIDTH = 3
+      DOOR_HEIGHT = 2
+
+      # A window wants a course beneath it. Where the storey is too short to give it one it
+      # sits on the floor, which is at least honest about the grid it is drawn on.
+      SILL_ROW = 1
 
       def initialize(seed:)
         @seed = seed
       end
 
       def for_wall(edge:, storey:, cols:, rows:)
-        patches = []
-        window_columns(edge, storey, cols).each do |col|
-          patches.concat(opening(col, rows, :glass))
-        end
+        doorway = door(cols, rows) if edge == DOOR_EDGE && storey == DOOR_STOREY
 
-        if edge == DOOR_EDGE && storey == DOOR_STOREY
-          door = cols / 2
-          # The door displaces whatever window would have been there.
-          patches.reject! { |patch| patch.col0 == door }
-          patches.concat(opening(door, rows, :timber))
-        end
+        windows = window_columns(edge, storey, cols)
+          .reject { |col| doorway && doorway.first.covers?(0, col) }
+          .map { |col| window(col, rows) }
 
-        patches
+        windows + Array(doorway)
       end
 
       private
         attr_reader :seed
 
-        # The opening sits on the floor of its storey and the lintel goes directly above
-        # it. With a 1.5m cell and a 3m storey that is two rows: opening, then lintel.
-        def opening(col, rows, material)
-          patches = [ Surface::Patch.new(col0: col, row0: 0, col1: col, row1: 0, material: material) ]
-          return patches if rows < 2
+        def window(col, rows)
+          row = rows >= 3 ? SILL_ROW : 0
+          Surface::Patch.new(col0: col, row0: row, col1: col, row1: row, material: :glass)
+        end
 
-          patches << Surface::Patch.new(col0: col, row0: 1, col1: col, row1: 1, material: :steel)
+        # The one place steel reads as structure rather than as a dark square in the middle
+        # of a wall: a lintel actually spanning something. Above a single 1m window it was
+        # just a hole's worth of shadow.
+        def door(cols, rows)
+          width = [ DOOR_WIDTH, cols ].min
+          height = [ DOOR_HEIGHT, rows ].min
+          first = [ (cols - width) / 2, 0 ].max
+          last = first + width - 1
+
+          patches = [
+            Surface::Patch.new(col0: first, row0: 0, col1: last, row1: height - 1, material: :timber)
+          ]
+          return patches unless rows > height
+
+          patches << Surface::Patch.new(
+            col0: first, row0: height, col1: last, row1: height, material: :steel
+          )
         end
 
         # Every other column, offset by the edge and storey so the faces are not identical

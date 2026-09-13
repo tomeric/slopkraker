@@ -90,8 +90,13 @@ class ApplicationSystemTestCase < ActionDispatch::SystemTestCase
   # measure how fast a car accelerates is slow, and worse, it means measuring on whatever
   # ground that city happened to put underneath -- which is how acceleration and braking
   # ended up being timed on a cambered, kerbed corner.
-  def visit_world(slug, vehicle: nil)
-    visit root_path(params: { world: slug, vehicle: vehicle }.compact)
+  # Always at low quality unless a test asks otherwise. Headless Chrome rasterises in
+  # software, and at full quality a building costs it two thirds of the frame in the
+  # shadow pass -- at which point the fixed-step loop caps its substeps and the SIMULATION
+  # drops to about 65% of real time. Every timed assertion then under-runs, consistently
+  # enough to read as a physics change rather than as a frame rate.
+  def visit_world(slug, vehicle: nil, quality: "low")
+    visit root_path(params: { world: slug, vehicle: vehicle, quality: quality }.compact)
   end
 
   # Capybara does not retry evaluate_script, so poll for engine milestones.
