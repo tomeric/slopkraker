@@ -1,8 +1,8 @@
 require "test_helper"
 
-class Game::WorldTest < ActiveSupport::TestCase
+class Game::SpecTest < ActiveSupport::TestCase
   def spec
-    @spec ||= Game::World.build.to_spec
+    @spec ||= Game::Spec.build.to_spec
   end
 
   test "exposes the top level contract the client compiles against" do
@@ -153,7 +153,7 @@ class Game::WorldTest < ActiveSupport::TestCase
   end
 
   test "the version changes when tuning changes" do
-    other = Game::World.build
+    other = Game::Spec.build
     other.vehicles.fetch(:buggy).engine[:force] += 1
 
     assert_not_equal spec[:version], other.to_spec[:version]

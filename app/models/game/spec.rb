@@ -4,7 +4,12 @@ module Game
   # `version` digests the whole payload. Two clients running different tuning would
   # desync in a way that reads like a netcode bug, so the version makes staleness
   # detectable instead of mysterious.
-  class World
+  #
+  # Named Spec rather than World because there is now a ::World record holding the
+  # persistent map. Inside `module Game` a bare `World` would resolve here, so a model
+  # named the same thing would be a very long-fused bug: everything would work until
+  # something under Game:: meant to reach the record and silently reached this instead.
+  class Spec
     PHYSICS_HZ = 120
     SNAPSHOT_HZ = 20
 
