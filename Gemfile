@@ -17,6 +17,11 @@ gem "stimulus-rails"
 # Build JSON APIs with ease [https://github.com/rails/jbuilder]
 gem "jbuilder"
 
+# Ruby 4.0 bundles json 3.x, whose JSON.parse takes options as keywords only. Rails
+# 8.1.3.1 still calls ::JSON.parse(json, options) with a positional hash, so every
+# encrypted-cookie read (i.e. every request carrying a session) raises ArgumentError.
+# Hold json at 2.x until Rails ships a compatible release.
+gem "json", "~> 2.7"
 
 # Use Active Model has_secure_password [https://guides.rubyonrails.org/active_model_basics.html#securepassword]
 # gem "bcrypt", "~> 3.1.7"
