@@ -21,7 +21,7 @@ gem "jbuilder"
 # 8.1.3.1 still calls ::JSON.parse(json, options) with a positional hash, so every
 # encrypted-cookie read (i.e. every request carrying a session) raises ArgumentError.
 # Hold json at 2.x until Rails ships a compatible release.
-gem "json", "~> 2.7"
+gem "json", "~> 3.0"
 
 # Use Active Model has_secure_password [https://guides.rubyonrails.org/active_model_basics.html#securepassword]
 # gem "bcrypt", "~> 3.1.7"
