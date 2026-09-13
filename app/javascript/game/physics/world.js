@@ -1,4 +1,5 @@
 import { WORLD_GROUPS, PROP_GROUPS } from "game/physics/groups"
+import { ColliderRegistry } from "game/sim/collider_registry"
 
 // Builds the Rapier world from the Ruby arena spec. Static geometry gets parentless
 // colliders (Rapier treats those as fixed); props get dynamic bodies so they can be
@@ -8,7 +9,7 @@ export function createPhysicsWorld(RAPIER, spec) {
   const world = new RAPIER.World({ x: gx, y: gy, z: gz })
   world.timestep = 1 / spec.rules.physics_hz
 
-  const colliders = new Map() // collider handle -> { kind, name }
+  const colliders = new ColliderRegistry()
 
   for (const body of spec.arena.bodies) {
     const [w, h, d] = body.size

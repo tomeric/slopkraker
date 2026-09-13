@@ -17,6 +17,9 @@ import { ControlsOverlay } from "game/controls_overlay"
 import { DebugGizmos } from "game/render/debug_gizmos"
 import { DamageGizmos } from "game/render/damage_gizmos"
 import { HitMarkers } from "game/render/hit_markers"
+import { Interpolator, createEntry, savePrevious, readBack } from "game/sim/interpolator"
+import { BlastWave } from "game/blast_wave"
+import { Telemetry } from "game/telemetry"
 
 const MAX_FRAME_TIME = 0.25
 
@@ -37,17 +40,14 @@ export class GameEngine {
     this.rafId = null
     this.accumulator = 0
     this.lastFrame = 0
-    this.bodies = []
+    this.interpolator = new Interpolator()
     this.pendingImpacts = []
     this.fallSpeed = 0
     this.impactSpeed = 0
     this.muted = false
-    this.stats = {
-      ready: false, frames: 0, steps: 0, bodies: 0, fps: 0,
-      grounded: 0, speed: 0, planarSpeed: 0, turbo: 1, steer: 0, slip: 0, slipAngle: 0,
-      rockets: 0, rocketsFired: 0, rocketReadout: [], debris: 0, hitMarkers: 0, muted: false, drifting: false, slamming: false, slamTime: 0, slamThrust: 0, boosters: [], driftGrace: 0, driftTime: 0, driftAngle: 0, driftTarget: 0, driftTurnRate: 0, bullBar: null, explosionReadout: [], yawRate: 0, pitchRate: 0, damage: [], driftDir: 0, yaw: 0, forward: [ 0, 0, 1 ], boostCharged: false, boosting: false, throttle: 0, turboOn: false, fallSpeed: 0, verticalSpeed: 0, camRight: [ 1, 0, 0 ], explosions: 0, broken: 0, jets: 0, lastDamage: 0,
-      x: 0, y: 0, z: 0, upDot: 1, vehicle: null, error: null
-    }
+    this.telemetry = new Telemetry()
+    // The engine writes the counters it owns straight onto the readout.
+    this.stats = this.telemetry.stats
   }
 
   async start() {
@@ -88,7 +88,7 @@ export class GameEngine {
     })
     this.explosions = new Explosions({
       scene: this.scene,
-      onWave: (explosion) => this.blastWave(explosion)
+      onWave: (explosion) => this.blast.apply(explosion, this.vehicle)
     })
     this.destruction = new Destruction({
       RAPIER, world, scene: this.scene, colliderIndex: this.colliderIndex,
@@ -97,8 +97,13 @@ export class GameEngine {
         // Its rigid body is about to be freed; leaving the entry in the interpolation
         // list means the next readBack() calls translation() on freed wasm memory, which
         // traps and poisons the whole Rapier instance.
-        this.untrack(prop.body)
+        this.interpolator.untrack(prop.body)
       }
+    })
+    this.blast = new BlastWave({
+      props: this.props,
+      destruction: this.destruction,
+      projectiles: this.projectiles
     })
 
     this.hud = new Hud(this.root)
@@ -115,7 +120,7 @@ export class GameEngine {
     this.onResize = () => this.resize()
     window.addEventListener("resize", this.onResize)
 
-    this.stats.bodies = this.bodies.length
+    this.stats.bodies = this.interpolator.size
     this.stats.ready = true
     window.__arena = this.stats
     window.__arenaDebugVisible = this.gizmos.visible
@@ -180,18 +185,19 @@ export class GameEngine {
       turbo_fov_kick: spec.turbo.fov_kick
     })
 
+    // The vehicle interpolates like anything else but renders through a VehicleView and
+    // keeps its own interpolated transform, so it gets the shared entry plus those two
+    // rather than joining the Interpolator's list.
     const position = new THREE.Vector3(spawn.position[0], spawn.position[1], spawn.position[2])
     this.vehicleEntity = {
-      body: this.vehicle.body,
+      ...createEntry({
+        body: this.vehicle.body,
+        position,
+        quaternion: new THREE.Quaternion()
+      }),
       view: this.vehicleView,
-      prevPos: position.clone(),
-      currPos: position.clone(),
-      prevRot: new THREE.Quaternion(),
-      currRot: new THREE.Quaternion(),
       renderPos: position.clone(),
-      renderRot: new THREE.Quaternion(),
-      scratchVec: { x: 0, y: 0, z: 0 },
-      scratchRot: { x: 0, y: 0, z: 0, w: 1 }
+      renderRot: new THREE.Quaternion()
     }
   }
 
@@ -214,16 +220,7 @@ export class GameEngine {
       const mesh = this.arenaGroup.getObjectByName(prop.spec.name)
       if (!mesh) continue
       prop.mesh = mesh
-      this.bodies.push({
-        body: prop.body,
-        mesh,
-        prevPos: mesh.position.clone(),
-        currPos: mesh.position.clone(),
-        prevRot: mesh.quaternion.clone(),
-        currRot: mesh.quaternion.clone(),
-        scratchVec: { x: 0, y: 0, z: 0 },
-        scratchRot: { x: 0, y: 0, z: 0, w: 1 }
-      })
+      this.interpolator.track({ body: prop.body, mesh })
     }
   }
 
@@ -295,15 +292,9 @@ export class GameEngine {
   }
 
   step(dt, input) {
-    for (const entry of this.bodies) {
-      entry.prevPos.copy(entry.currPos)
-      entry.prevRot.copy(entry.currRot)
-    }
+    this.interpolator.beginStep()
     const vehicle = this.vehicleEntity
-    if (vehicle) {
-      vehicle.prevPos.copy(vehicle.currPos)
-      vehicle.prevRot.copy(vehicle.currRot)
-    }
+    if (vehicle) savePrevious(vehicle)
 
     this.vehicle.update(dt, input)
 
@@ -322,9 +313,9 @@ export class GameEngine {
     this.destruction.update(dt)
     this.hitMarkers.update(dt)
 
-    for (const entry of this.bodies) this.readBack(entry)
+    this.interpolator.endStep()
     if (vehicle) {
-      this.readBack(vehicle)
+      readBack(vehicle)
       if (this.vehicle.groundedWheels() === 0) {
         this.fallSpeed = Math.min(this.vehicle.body.linvel().y, this.fallSpeed ?? 0)
       } else if (this.fallSpeed) {
@@ -401,8 +392,8 @@ export class GameEngine {
   }
 
   // A rocket landing leaves an explosion behind rather than resolving in a single frame.
-  // The object owns its own radius and lifetime; blastWave below is what it does to the
-  // world as that radius grows.
+  // The object owns its own radius and lifetime; BlastWave is what it does to the world
+  // as that radius grows.
   explode(at, spec, damage) {
     this.stats.explosions += 1
     this.hitMarkers?.add(at, damage)
@@ -412,88 +403,8 @@ export class GameEngine {
     this.explosions.spawn({ at, spec: spec.explosion, damage })
   }
 
-  // Everything the shell has reached but not yet caught. A target is damaged once, on the
-  // frame the wave arrives, and the further out it is the weaker what reaches it -- which
-  // is the same falloff a one-shot blast query gave, now spread over the expansion.
-  blastWave(explosion) {
-    const { spec, at, damage, hit, radius } = explosion
-
-    for (const prop of this.props) {
-      if (prop.broken || hit.has(prop)) continue
-      const t = prop.body.translation()
-      const dx = t.x - at.x, dy = t.y - at.y, dz = t.z - at.z
-      const distance = Math.hypot(dx, dy, dz)
-      if (distance > radius) continue
-
-      hit.add(prop)
-      const falloff = explosionForce(spec, distance)
-      this.destruction.apply(prop, damage * falloff)
-      // The blast may have just destroyed it; its body is gone.
-      if (prop.broken) continue
-
-      const push = falloff * damage * spec.prop_push
-      const inverse = 1 / Math.max(distance, 0.4)
-      prop.body.applyImpulse(
-        {
-          x: dx * inverse * push,
-          y: (dy * inverse + spec.prop_lift) * push,
-          z: dz * inverse * push
-        },
-        true
-      )
-    }
-
-    // A rocket caught in a blast goes off with it, so a burst chains rather than
-    // trickling into the scenery one at a time. It dies here and detonates on the next
-    // projectile update, which is also what keeps the chain from recursing mid-frame.
-    for (const rocket of this.projectiles.live) {
-      if (rocket.dead || hit.has(rocket)) continue
-      const t = rocket.body.translation()
-      if (Math.hypot(t.x - at.x, t.y - at.y, t.z - at.z) > radius) continue
-
-      hit.add(rocket)
-      this.projectiles.markDead(rocket)
-    }
-
-    // Blasts shove the vehicle too -- rocket-jumping off your own shot is a feature.
-    if (!this.vehicle || hit.has(this.vehicle)) return
-
-    const t = this.vehicle.body.translation()
-    const dx = t.x - at.x, dy = t.y - at.y, dz = t.z - at.z
-    const distance = Math.hypot(dx, dy, dz)
-    if (distance > radius) return
-
-    hit.add(this.vehicle)
-    const falloff = explosionForce(spec, distance)
-    const push = falloff * damage * spec.vehicle_push
-    const inverse = 1 / Math.max(distance, 0.6)
-    this.vehicle.body.applyImpulse(
-      {
-        x: dx * inverse * push,
-        y: (dy * inverse + spec.vehicle_lift) * push,
-        z: dz * inverse * push
-      },
-      true
-    )
-  }
-
-  untrack(body) {
-    const index = this.bodies.findIndex((entry) => entry.body === body)
-    if (index >= 0) this.bodies.splice(index, 1)
-  }
-
-  readBack(entry) {
-    const t = entry.body.translation(entry.scratchVec)
-    const r = entry.body.rotation(entry.scratchRot)
-    entry.currPos.set(t.x, t.y, t.z)
-    entry.currRot.set(r.x, r.y, r.z, r.w)
-  }
-
   render(alpha, frameTime, input) {
-    for (const entry of this.bodies) {
-      entry.mesh.position.lerpVectors(entry.prevPos, entry.currPos, alpha)
-      entry.mesh.quaternion.slerpQuaternions(entry.prevRot, entry.currRot, alpha)
-    }
+    this.interpolator.interpolate(alpha)
 
     const entity = this.vehicleEntity
     if (entity) {
@@ -510,7 +421,6 @@ export class GameEngine {
       entity.view.syncBoosters(this.vehicle.boosterState?.(), frameTime)
       this.gizmos.update(this.vehicle, entity.renderPos)
       this.damageGizmos?.update(frameTime, this.vehicle)
-      if (this.damageGizmos) this.stats.damage = this.damageGizmos.readout
       this.projectiles.sync(frameTime)
       this.explosions.sync()
       this.destruction.sync()
@@ -528,70 +438,27 @@ export class GameEngine {
 
       this.hud.update(frameTime, this.vehicle)
 
-      const stats = this.stats
-      stats.grounded = this.vehicle.groundedWheels()
-      stats.speed = this.vehicle.speed
-      stats.planarSpeed = this.vehicle.planarSpeed
-      stats.turbo = this.vehicle.turboBar.fraction
-      stats.steer = this.vehicle.steerAngle
-      stats.slip = this.vehicle.lateralSlip()
-      stats.slipAngle = this.vehicle.slipAngle()
-      stats.upDot = this.vehicle._up.y
-      stats.vehicle = this.vehicleKey
-      stats.x = entity.renderPos.x
-      stats.y = entity.renderPos.y
-      stats.z = entity.renderPos.z
-      stats.rockets = this.projectiles.live.length
-      stats.rocketsFired = this.projectiles.fired
-      stats.rocketReadout = this.projectiles.live.map((r) => ({
-        damage: Math.round(r.damage), speed: Math.round(r.speed || r.spec.launch_speed),
-        phase: r.phase
-      }))
-      stats.explosionReadout = this.explosions.readout()
-      stats.debris = this.destruction.debris.length
-      stats.hitMarkers = this.hitMarkers.live.length
-      stats.jets = this.vehicle.jetThrottle || 0
-      stats.drifting = this.vehicle.drifting
-      stats.slamming = this.vehicle.slamming
-      stats.slamTime = this.vehicle.slamTime
-      stats.slamThrust = this.vehicle.slamThrust || 0
-      stats.boosters = entity.view.boosterReadout
-      stats.driftGrace = this.vehicle.driftGrace
-      stats.yaw = Math.atan2(this.vehicle._forward.x, this.vehicle._forward.z)
-      // Spawns follow the track heading, so "forward" is not a world axis.
-      stats.forward = [ this.vehicle._forward.x, this.vehicle._forward.y, this.vehicle._forward.z ]
-      stats.driftTime = this.vehicle.driftTime
-      stats.driftAngle = this.vehicle.driftAngle
-      stats.driftTarget = this.vehicle.driftTarget
-      stats.driftTurnRate = this.vehicle.driftTurnRate
-      stats.bullBar = this.vehicle.bullBarBox()
-      stats.yawRate = this.vehicle.body.angvel().y
-      stats.pitchRate = this.vehicle._right.dot(
-        new THREE.Vector3(this.vehicle.body.angvel().x, this.vehicle.body.angvel().y, this.vehicle.body.angvel().z)
-      )
-      stats.driftDir = this.vehicle.driftDirection
-      stats.boostCharged = this.vehicle.boostCharged
-      stats.boosting = this.vehicle.boostTime > 0
-      stats.throttle = input.throttle
-      stats.turboOn = this.vehicle.turboActive
-      stats.fallSpeed = this.fallSpeed
-      stats.verticalSpeed = this.vehicle.body.linvel().y
-      // The camera's world-space right vector: the only definition of "right" that
-      // matches what the player actually sees.
-      const m = this.camera.matrixWorld.elements
-      stats.camRight = [ m[0], m[1], m[2] ]
-      stats.audio = {
-        enabled: this.audio.engine.enabled,
-        state: this.audio.engine.ctx ? this.audio.engine.ctx.state : "none",
-        voices: this.audio.engine.voices.length
-      }
-
+      this.telemetry.update({
+        vehicle: this.vehicle,
+        vehicleKey: this.vehicleKey,
+        entity,
+        camera: this.camera,
+        projectiles: this.projectiles,
+        explosions: this.explosions,
+        destruction: this.destruction,
+        hitMarkers: this.hitMarkers,
+        damageGizmos: this.damageGizmos,
+        audio: this.audio,
+        input,
+        fallSpeed: this.fallSpeed
+      })
       // A rising fired count is the cleanest signal that a rocket left the rail.
       if (this.projectiles.fired > this.lastRocketCount) {
         this.lastRocketCount = this.projectiles.fired
         this.audio.rocketFired()
       }
 
+      const stats = this.stats
       this.controls.muted = this.muted
       this.audio.update(frameTime, {
         speed: stats.speed, throttle: input.throttle, grounded: stats.grounded,
@@ -601,8 +468,7 @@ export class GameEngine {
     }
 
     this.renderer.render(this.scene, this.camera)
-    this.stats.frames += 1
-    if (frameTime > 0) this.stats.fps = Math.round(1 / frameTime)
+    this.telemetry.frame(frameTime)
   }
 
   aspect() {
@@ -639,7 +505,7 @@ export class GameEngine {
     if (this.scene) disposeScene(this.scene)
     this.renderer?.dispose()
     this.renderer?.forceContextLoss()
-    this.bodies = []
+    this.interpolator.clear()
     if (window.__arena === this.stats) delete window.__arena
   }
 }
