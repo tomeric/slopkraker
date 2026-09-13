@@ -36,7 +36,16 @@ module Game
       {
         damage: {
           damage_per_speed: 2.0,
-          minimum_speed: 4.0
+          minimum_speed: 4.0,
+          # The share of a hit that lands however hard the target is. Without it, anything
+          # whose hardness exceeds what a car can deliver is permanently immune, which a
+          # player cannot tell apart from a bug.
+          minimum_fraction: 0.1,
+          # What a hit does to the cells around the one it landed on. Without this a
+          # lethal impact takes out exactly one 1.5m panel and leaves a nick, which reads
+          # as a car bouncing off a wall rather than going through it. With it, one good
+          # hit opens something you can drive into.
+          spread: 0.7
         },
         impact_force_threshold: 2000.0,
         # How long the debug overlay holds a hit readout before returning to live values.

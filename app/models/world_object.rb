@@ -59,6 +59,7 @@ class WorldObject < ApplicationRecord
       name: name, kind: role,
       position: position, size: size, rotation: rotation,
       mass: recipe.fetch("mass"), health: recipe.fetch("health"),
+      hardness: recipe.fetch("hardness", 0.0),
       debris_count: recipe.fetch("debris_count", 6),
       colour: recipe.fetch("colour", "#b5651d")
     )

@@ -100,6 +100,7 @@ export class GameEngine {
     })
     this.destruction = new Destruction({
       RAPIER, world, scene: this.scene, colliderIndex: this.colliderIndex,
+      minimumFraction: this.spec.rules.damage.minimum_fraction,
       onBreak: (prop) => {
         this.stats.broken += 1
         // Its rigid body is about to be freed; leaving the entry in the interpolation

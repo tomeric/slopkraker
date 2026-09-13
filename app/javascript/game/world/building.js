@@ -24,12 +24,13 @@ const BROKEN = 1
 const ABSENT = 2
 
 export class Building {
-  constructor({ RAPIER, world, spec, materials, meshes, colliderIndex, contactThreshold }) {
+  constructor({ RAPIER, world, spec, materials, meshes, colliderIndex, contactThreshold, spread = 0 }) {
     this.spec = spec
     this.materials = materials
     this.meshes = meshes
     this.world = world
     this.contactThreshold = contactThreshold
+    this.spread = spread
     this.id = spec.id
     this.name = spec.name
 
@@ -41,6 +42,9 @@ export class Building {
     this.material = new Array(count)
     this.colliders = new Array(count)
     this.matrices = new Array(count)
+    // Which surface each piece belongs to, so a hit can find the cells around it. -1 for
+    // an index nothing was built at.
+    this.surfaceOf = new Int32Array(count).fill(-1)
 
     this.build(RAPIER, colliderIndex)
   }
@@ -64,8 +68,11 @@ export class Building {
   }
 
   build(RAPIER, colliderIndex) {
+    const surfaceIndex = new Map(this.spec.surfaces.map((surface, i) => [ surface, i ]))
+
     eachBuildingCell(this.spec, (index, name, matrix, surface) => {
       this.material[index] = name
+      this.surfaceOf[index] = surfaceIndex.get(surface)
 
       // A doorway. It holds an index so the arithmetic stays uniform, and nothing else.
       if (name === "void") {
@@ -117,8 +124,39 @@ export class Building {
     return this.state[index] === INTACT
   }
 
+  // The cells sharing an edge with this one, within its own surface. Bounded by the
+  // surface rather than by the index, so a hit at the end of a row does not wrap onto the
+  // start of the next one, and a hit on a wall never spreads onto the roof.
+  neighbours(index) {
+    const surface = this.spec.surfaces[this.surfaceOf[index]]
+    if (!surface) return []
+
+    const local = index - surface.off
+    const row = Math.floor(local / surface.cols)
+    const col = local % surface.cols
+    const out = []
+
+    if (col > 0) out.push(index - 1)
+    if (col < surface.cols - 1) out.push(index + 1)
+    if (row > 0) out.push(index - surface.cols)
+    if (row < surface.rows - 1) out.push(index + surface.cols)
+    return out
+  }
+
   // Returns true if this damage was what finished the piece off.
-  damage(index, amount) {
+  //
+  // A hit carries into the cells around it. Without that, the most a single impact can do
+  // is remove the one 1.5m panel it touched -- which looks like a car chipping a wall
+  // rather than going through it, however lethal the hit was. Spreading turns one good
+  // impact into a hole with a shape.
+  //
+  // The spread does not spread again: passing 0 on the recursive call is what stops one
+  // hit walking across the whole building.
+  damage(index, amount, spread = this.spread) {
+    if (spread > 0) {
+      for (const near of this.neighbours(index)) this.damage(near, amount * spread, 0)
+    }
+
     if (!this.standing(index)) return false
 
     this.health[index] -= amount

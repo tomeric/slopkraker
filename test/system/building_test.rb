@@ -1,6 +1,6 @@
 require "application_system_test_case"
 
-# A building is 248 pieces expanded from 16 surfaces, and every one of them can be hit.
+# A building is 652 pieces expanded from 22 surfaces, and every one of them can be hit.
 #
 # Driven through the piece hooks rather than by aiming a car at a wall. Aiming and hoping
 # is where most of this suite's flakiness comes from, and nothing worth asserting about a
@@ -12,15 +12,15 @@ class BuildingTest < ApplicationSystemTestCase
   end
 
   test "the house arrives with every one of its pieces" do
-    assert_equal 248, telemetry["pieces"]
+    assert_equal 652, telemetry["pieces"]
     assert_equal 1, telemetry["buildings"].length
     assert_equal "house", telemetry["buildings"].first["name"]
   end
 
   # Void cells -- the doorway, the clipped corners of the gables -- hold an index but are
-  # never standing. 248 pieces, four of them nothing at all.
+  # never standing. 652 pieces, sixteen of them nothing at all.
   test "void cells hold an index but nothing else" do
-    assert_equal 244, telemetry["piecesStanding"]
+    assert_equal 636, telemetry["piecesStanding"]
     assert_equal 0, telemetry["piecesBroken"]
   end
 
@@ -37,8 +37,8 @@ class BuildingTest < ApplicationSystemTestCase
     JS
 
     assert_equal({
-      "brick" => 72, "roof_tile" => 42, "timber" => 36, "concrete" => 35,
-      "steel" => 20, "plaster" => 20, "glass" => 19, "void" => 4
+      "timber" => 161, "brick" => 152, "roof_tile" => 100, "concrete" => 80,
+      "steel" => 48, "plaster" => 48, "glass" => 47, "void" => 16
     }, materials)
   end
 
@@ -94,7 +94,7 @@ class BuildingTest < ApplicationSystemTestCase
     assert_operator healths["concrete"], :<, healths["steel"]
   end
 
-  # One draw call per material rather than one per piece. 248 pieces rendering as seven
+  # One draw call per material rather than one per piece. 652 pieces rendering as seven
   # draws is the thing that makes a city conceivable at all.
   test "the house costs a draw call per material, not per piece" do
     assert_operator page.evaluate_script("window.__arenaDraws()"), :<, 40

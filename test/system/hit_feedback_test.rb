@@ -91,13 +91,18 @@ class HitFeedbackTest < ApplicationSystemTestCase
 
     # The targets world puts a crate stack at (0, 20) and a pillar at (-20, 20). Yaw 0
     # faces +z, so lining up short of them on the same axis means driving straight in.
+    #
+    # Ten metres, not fourteen. The monster truck covers about fifteen metres in the two
+    # and a half seconds these tests drive for, so a fourteen metre run-up arrives exactly
+    # as the clock runs out and misses whenever anything is a fraction slow -- which reads
+    # as "the hit did not register" rather than as "the car never got there".
     def aim_at_crates
-      page.execute_script("window.__arenaPlace = { x: 0, y: 2.0, z: 6, yaw: 0 }")
+      page.execute_script("window.__arenaPlace = { x: 0, y: 2.0, z: 10, yaw: 0 }")
       sleep 0.8
     end
 
     def aim_at_pillar
-      page.execute_script("window.__arenaPlace = { x: -20, y: 1.2, z: 6, yaw: 0 }")
+      page.execute_script("window.__arenaPlace = { x: -20, y: 1.2, z: 10, yaw: 0 }")
       sleep 0.8
     end
 

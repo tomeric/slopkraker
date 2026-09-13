@@ -12,10 +12,11 @@ export function resolveDamage({ rules, part, speed, state, material = null, kind
   const raw = excess * rules.damage_per_speed * multiplierFor(part, state)
   if (!material) return raw
 
-  // Armour comes off after the multipliers, not before: taking it first would let a big
-  // multiplier cancel it out, which is the opposite of what armour is for.
-  const multiplier = material.multipliers?.[kind] ?? 1
-  return Math.max(raw * multiplier - material.armour, 0)
+  // Hardness comes off after the multipliers, not before: taking it first would let a big
+  // multiplier cancel it out. And never all the way to nothing -- a fixed share of every
+  // hit lands, so a very hard thing is a long job rather than a silently invincible one.
+  const hit = raw * (material.multipliers?.[kind] ?? 1)
+  return Math.max(hit - material.hardness, hit * (rules.minimum_fraction ?? 0))
 }
 
 function multiplierFor(part, state) {

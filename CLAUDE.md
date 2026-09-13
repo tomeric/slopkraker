@@ -103,10 +103,26 @@ yet. Wiring them in is the open piece of work.
 
 ## Testing
 
+**Don't run the suite between tuning steps.** When something is being adjusted for *feel* —
+damage numbers, handling, how a building comes apart — the full system suite takes ~7 minutes
+and tells you nothing about whether the change feels right. Run the one file that covers what
+changed, or nothing at all, and let the person driving the game say whether it is better. Save
+the full run for when the change has settled. The same goes for re-running a whole suite to
+chase one failure: run that file.
+
 Model/channel tests are ordinary and fast. System tests drive real headless Chrome with
 SwiftShader (no GPU) and assert on physics outcomes — how far the car travelled in two seconds,
 whether the bull bar only bites mid-drift. They run **serially** (`parallelize(workers: 1)`):
 competing Chrome instances starve the render loop and turn timing measurements into noise.
+That also holds across worktrees, so the suite takes a machine-wide lock; expect it to block
+rather than fail when another checkout is running it. A dev server in the same worktree skews
+the timings too, and the suite warns when it finds one.
+
+System tests that drive at a target need **margin**: the monster truck covers about 15m in the
+2.5s these tests usually drive for, so a 14m run-up arrives exactly as the clock runs out and
+fails as "the hit did not register" rather than "the car never got there". Prefer the piece
+hooks (`__arenaBreak`, `__arenaDamagePiece`) over aiming a car at something whenever the
+assertion is not actually about driving.
 
 The engine exposes debug/test hooks on `window`:
 

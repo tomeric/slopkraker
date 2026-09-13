@@ -4,7 +4,8 @@ import { DEBRIS_GROUPS } from "game/physics/groups"
 // Props take damage and, past zero health, break into debris. Not buildings -- just
 // enough to feel the blade, the bull bar and a rocket actually land.
 export class Destruction {
-  constructor({ RAPIER, world, scene, colliderIndex, onBreak }) {
+  constructor({ RAPIER, world, scene, colliderIndex, onBreak, minimumFraction = 0 }) {
+    this.minimumFraction = minimumFraction
     this.RAPIER = RAPIER
     this.world = world
     this.scene = scene
@@ -16,7 +17,10 @@ export class Destruction {
   apply(prop, damage) {
     if (prop.broken || damage <= 0) return 0
 
-    prop.health -= damage
+    // A prop shrugs off its hardness the same way a material does, and the same floor
+    // applies: a fraction always lands, so nothing is quietly invincible.
+    const hardness = prop.spec.hardness || 0
+    prop.health -= Math.max(damage - hardness, damage * this.minimumFraction)
     const mesh = prop.mesh
     if (mesh) {
       // Darken toward black as it takes damage, so hits read before it breaks.

@@ -26,7 +26,8 @@ export class Buildings {
       const building = new Building({
         RAPIER, world, spec: buildingSpec, materials,
         meshes: this.meshes, colliderIndex,
-        contactThreshold: spec.rules.impact_force_threshold
+        contactThreshold: spec.rules.impact_force_threshold,
+        spread: spec.rules.damage.spread || 0
       })
       this.list.push(building)
       this.byId.set(building.id, building)

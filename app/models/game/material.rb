@@ -13,18 +13,18 @@ module Game
     # blast wave but shatters if anything touches it; concrete is the other way round.
     KINDS = %i[impact blast blade bull_bar slam].freeze
 
-    attr_reader :name, :health_per_m2, :density, :armour, :structural_weight,
+    attr_reader :name, :health_per_m2, :density, :hardness, :structural_weight,
                 :multipliers, :fracture, :colour, :friction, :restitution,
                 :opacity, :metalness, :roughness
 
     def initialize(name:, health_per_m2:, density:, colour:,
-                   armour: 0.0, structural_weight: 1.0, multipliers: {}, fracture: {},
+                   hardness: 0.0, structural_weight: 1.0, multipliers: {}, fracture: {},
                    friction: 0.8, restitution: 0.05,
                    opacity: 1.0, metalness: 0.05, roughness: 0.85)
       @name = name.to_sym
       @health_per_m2 = health_per_m2.to_f
       @density = density.to_f
-      @armour = armour.to_f
+      @hardness = hardness.to_f
       @structural_weight = structural_weight.to_f
       @multipliers = KINDS.index_with { |kind| (multipliers[kind] || 1.0).to_f }.freeze
       @fracture = fracture.freeze
@@ -38,6 +38,12 @@ module Game
       @metalness = metalness.to_f
       @roughness = roughness.to_f
       freeze
+    end
+
+    # How much of a hit this simply shrugs off. Subtracted after the multipliers, so a
+    # good part cannot cancel it out -- concrete should not care how sharp the blade is.
+    def absorb(damage, floor_fraction)
+      [ damage - hardness, damage * floor_fraction ].max
     end
 
     def multiplier_for(kind)
@@ -73,7 +79,7 @@ module Game
         name: name.to_s,
         health_per_m2: health_per_m2,
         density: density,
-        armour: armour,
+        hardness: hardness,
         structural_weight: structural_weight,
         multipliers: multipliers.transform_keys(&:to_s),
         fracture: fracture,

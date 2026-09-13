@@ -421,7 +421,7 @@ class AbilitiesTest < ApplicationSystemTestCase
     # knocks it out of the firing line.
     def aim_at_crates
       page.execute_script(<<~JS)
-        window.__arenaPlace = { x: 0, y: 2.0, z: 6, yaw: 0 }
+        window.__arenaPlace = { x: 0, y: 2.0, z: 10, yaw: 0 }
       JS
       sleep 0.8
     end

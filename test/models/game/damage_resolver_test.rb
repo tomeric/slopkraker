@@ -54,7 +54,7 @@ class Game::DamageResolverTest < ActiveSupport::TestCase
 
   # --- what you hit, not only what you hit it with -------------------------------
 
-  test "a material with no armour and no multiplier changes nothing" do
+  test "a material with no hardness and no multiplier changes nothing" do
     plain = Game::Material.new(name: :plain, health_per_m2: 1.0, density: 1.0, colour: "#ffffff")
 
     assert_in_delta resolver.resolve(part: nil, speed: 20.0),
@@ -68,19 +68,34 @@ class Game::DamageResolverTest < ActiveSupport::TestCase
     assert_operator glass, :>, concrete * 3
   end
 
-  # Armour is why bumping a pier is pointless however fast you are going, and it has to
+  # Hardness is why bumping a pier is pointless however fast you are going, and it has to
   # come off after the multipliers or a good enough part would cancel it out.
-  test "armour is subtracted after the multipliers" do
-    armoured = Game::Material.new(
-      name: :armoured, health_per_m2: 1.0, density: 1.0, colour: "#ffffff",
-      armour: 10.0, multipliers: { impact: 2.0 }
+  test "hardness is subtracted after the multipliers" do
+    hard = Game::Material.new(
+      name: :hard, health_per_m2: 1.0, density: 1.0, colour: "#ffffff",
+      hardness: 10.0, multipliers: { impact: 2.0 }
     )
     raw = resolver.resolve(part: nil, speed: 20.0)
 
-    assert_in_delta raw * 2.0 - 10.0, resolver.resolve(part: nil, speed: 20.0, material: armoured), 1e-9
+    assert_in_delta raw * 2.0 - 10.0, resolver.resolve(part: nil, speed: 20.0, material: hard), 1e-9
   end
 
-  test "armour can absorb a hit entirely rather than going negative" do
+  # The floor. Something a car cannot out-damage should be a very long job, not a
+  # permanently invincible one -- a player has no way to tell those apart, and "I hit it
+  # a hundred times and nothing happened" is indistinguishable from a bug.
+  test "a fraction of every hit lands however hard the target is" do
+    floored = Game::DamageResolver.new(damage_per_speed: 2.0, minimum_speed: 4.0, minimum_fraction: 0.1)
+    stubborn = Game::Material.new(
+      name: :stubborn, health_per_m2: 1.0, density: 1.0, colour: "#ffffff", hardness: 10_000.0
+    )
+    raw = floored.resolve(part: nil, speed: 20.0)
+
+    landed = floored.resolve(part: nil, speed: 20.0, material: stubborn)
+    assert_in_delta raw * 0.1, landed, 1e-9
+    assert_operator landed, :>, 0
+  end
+
+  test "with no floor configured hardness can still absorb a hit entirely" do
     assert_equal 0.0, resolver.resolve(part: nil, speed: 5.0, material: Game::Materials.fetch(:steel))
   end
 
