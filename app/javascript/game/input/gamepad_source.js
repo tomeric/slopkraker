@@ -67,6 +67,7 @@ export class GamepadSource {
     if (this.tapped(pad, b.slide.button)) input.slidePressed = true
     if (this.buttonValue(pad, b.turbo.button) > 0.5) input.turbo = true
     if (this.buttonValue(pad, b.action.button) > 0.5) input.action = true
+    if (this.tapped(pad, b.action.button)) input.actionPressed = true
 
     input.cameraYaw -= this.axis(pad, b.camera_yaw.axis, dead) * this.stickSensitivity * 0.016
     input.cameraPitch -= this.axis(pad, b.camera_pitch.axis, dead) * this.stickSensitivity * 0.016

@@ -10,10 +10,18 @@ class Game::Parts::RocketLauncherTest < ActiveSupport::TestCase
       cooldown: COOLDOWN,
       ammo_cost: 10.0,
       launch_angle: 12.0,
+      recoil: 1200.0,
       rocket: Game::Rocket.new(
-        launch_speed: 18.0, max_speed: 64.0, acceleration: 58.0, mass: 12.0, radius: 0.16,
-        lifetime: 5.0, gravity_scale: 0.65, blast_radius: 4.5, minimum_damage: 45.0,
-        max_damage: 190.0, damage_per_speed: 2.6
+        launch_speed: 18.0, mass: 12.0, radius: 0.16, lifetime: 5.0,
+        minimum_damage: 45.0, max_damage: 190.0, damage_per_speed: 2.6,
+        flight: {
+          coast: { drag: 9.0, gravity_scale: 0.75, min_time: 0.15, max_time: 0.9 },
+          thrust: { acceleration: 58.0, max_speed: 64.0, gravity_scale: 0.30 }
+        },
+        explosion: Game::Explosion.new(
+          radius: 4.5, expand_time: 0.22, linger: 0.20,
+          prop_push: 0.9, prop_lift: 0.6, vehicle_share: 0.6, vehicle_lift: 0.8
+        )
       )
     )
   end
@@ -74,5 +82,15 @@ class Game::Parts::RocketLauncherTest < ActiveSupport::TestCase
 
   test "the recharge delay must outlast the cooldown or sustained fire earns free rockets" do
     assert_operator full_bar.recharge_delay, :>, COOLDOWN
+  end
+
+  # --- it kicks ------------------------------------------------------------------
+
+  test "shoves the car back when it fires" do
+    assert_operator launcher.recoil, :>, 0.0
+  end
+
+  test "ships the recoil so the kick can be tuned" do
+    assert_in_delta 1200.0, launcher.to_spec[:recoil], 1e-9
   end
 end

@@ -40,3 +40,22 @@ export function partArmed(part, state = {}) {
 export function rocketDamage(spec, speed) {
   return Math.min(Math.max(spec.damage_per_speed * speed, spec.minimum_damage), spec.max_damage)
 }
+
+// Faithful port of Game::Explosion#radius_at. Eased out, so a blast leaps outward and
+// settles rather than creeping at a constant rate. The curve is cosmetic and cannot move
+// the numbers: damage is a function of distance, so it decides only WHEN something is
+// caught, never how hard.
+export function explosionRadius(spec, elapsed) {
+  if (spec.expand_time <= 0) return spec.radius
+
+  const t = Math.min(Math.max(elapsed / spec.expand_time, 0), 1)
+  return spec.radius * (1 - (1 - t) ** 2)
+}
+
+// Faithful port of Game::Explosion#force_at: the share of the blast something at this
+// distance takes. Everything at the centre, nothing at the rim.
+export function explosionForce(spec, distance) {
+  if (spec.radius <= 0) return 0
+
+  return Math.min(Math.max(1 - distance / spec.radius, 0), 1)
+}

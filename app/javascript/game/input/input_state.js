@@ -9,7 +9,8 @@ export class InputState {
     this.slide = false        // held
     this.slidePressed = false // press edge: fires the hop
     this.turbo = false
-    this.action = false
+    this.action = false        // held: the truck's jets burn for as long as it is down
+    this.actionPressed = false // press edge: one press, one rocket
     this.cameraYaw = 0     // delta this frame
     this.cameraPitch = 0
     this.respawn = false
@@ -24,6 +25,7 @@ export class InputState {
   // Camera deltas and edge-triggered flags are consumed each frame; analogue axes persist.
   endFrame() {
     this.slidePressed = false
+    this.actionPressed = false
     this.cameraYaw = 0
     this.cameraPitch = 0
     this.respawn = false

@@ -65,9 +65,9 @@ class HitFeedbackTest < ApplicationSystemTestCase
     aim_at_pillar
     assert_equal 0, telemetry["hitMarkers"]
 
-    drive(action: true)
+    # One press, one rocket: the trigger is edge-triggered.
+    drive(action_pressed: true)
     sleep 0.6
-    drive
 
     wait_for(timeout: 8, message: "blast left no marker") { telemetry["hitMarkers"].positive? }
     # And it clears itself rather than accumulating forever.
@@ -120,10 +120,11 @@ class HitFeedbackTest < ApplicationSystemTestCase
       seen
     end
 
-    def drive(throttle: 0, brake: 0, steer: 0, slide: false, action: false)
-      page.execute_script(<<~JS, throttle, brake, steer, slide, action)
+    def drive(throttle: 0, brake: 0, steer: 0, slide: false, action: false, action_pressed: false)
+      page.execute_script(<<~JS, throttle, brake, steer, slide, action, action_pressed)
         window.__arenaInput = { throttle: arguments[0], brake: arguments[1], steer: arguments[2],
-          slide: arguments[3], turbo: false, action: arguments[4], slidePressed: false, pitch: 0 }
+          slide: arguments[3], turbo: false, action: arguments[4], slidePressed: false,
+          pitch: 0, actionPressed: arguments[5] }
       JS
     end
 end

@@ -14,17 +14,6 @@ import * as THREE from "three"
 // Fast enough to catch short-lived states like a slam, which is over in a few frames.
 const REFRESH_HZ = 20
 
-// Mirrors GameEngine#damageState so the overlay and the resolver agree.
-function stateFor(vehicle) {
-  return {
-    drifting: vehicle.drifting,
-    slip_angle: vehicle.slipAngle(),
-    drift_grace: vehicle.driftGrace,
-    slamming: vehicle.slamming,
-    fall_speed: vehicle.body.linvel().y
-  }
-}
-
 export class DamageGizmos {
   constructor(parent, vehicleSpec, rules) {
     this.rules = rules
@@ -68,7 +57,7 @@ export class DamageGizmos {
     this.group.add(gizmo.sprite)
 
     // Keyed by the collider's own name so impacts can be routed back to it.
-    return { label, key: part ? part.name : "chassis", part, box, gizmo, hit: null }
+    return { label, key: part ? part.name : "chassis", part, size, box, gizmo, hit: null }
   }
 
   // Called when this part actually connects with something. The box flashes and the
@@ -108,7 +97,7 @@ export class DamageGizmos {
     // the overlay would read zero on the very hit it is meant to describe.
     const v = vehicle.body.linvel()
     const speed = Math.hypot(v.x, v.y, v.z)
-    const state = stateFor(vehicle)
+    const state = vehicle.damageState()
     // Always computed, even while hidden: the HUD and the tests read it.
     this.readout = []
 
@@ -116,9 +105,17 @@ export class DamageGizmos {
       const armed = entry.part ? partArmed(entry.part, state) : true
       const damage = resolveDamage({ rules: this.rules, part: entry.part, speed, state })
       const bonus = entry.part && armed ? entry.part.damage_multiplier : 1
+
+      // The bull bar's collider grows mid-slide, so the box drawn over it has to follow or
+      // the overlay would be describing a hitbox the car no longer has. Done before the
+      // readout is taken, and regardless of whether the overlay is on screen, so what is
+      // reported is always what would be drawn.
+      if (entry.part?.kind === "bull_bar") this.resize(entry, vehicle.bullBarBox())
+
       this.readout.push({
         label: entry.label, damage: Math.round(damage), armed, bonus,
-        hit: entry.hit ? entry.hit.damage : null
+        hit: entry.hit ? entry.hit.damage : null,
+        box: this.drawnBox(entry)
       })
 
       if (!this.group.visible) continue
@@ -137,6 +134,30 @@ export class DamageGizmos {
         armed,
         highlight
       })
+    }
+  }
+
+  // Scaled rather than rebuilt: an EdgesGeometry per frame is a lot of garbage for a box
+  // that only ever changes size.
+  resize(entry, live) {
+    if (!live) return
+
+    entry.box.scale.set(
+      (live.halfWidth * 2) / entry.size[0],
+      (live.halfHeight * 2) / entry.size[1],
+      (live.halfDepth * 2) / entry.size[2]
+    )
+    entry.box.position.z = live.z
+  }
+
+  // Measured off the mesh itself rather than off what it was asked to be, so a box that
+  // never took the change reads back as the box on screen.
+  drawnBox(entry) {
+    return {
+      width: entry.size[0] * entry.box.scale.x,
+      height: entry.size[1] * entry.box.scale.y,
+      depth: entry.size[2] * entry.box.scale.z,
+      z: entry.box.position.z
     }
   }
 

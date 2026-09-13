@@ -159,7 +159,151 @@ class Game::WorldTest < ActiveSupport::TestCase
     assert_not_equal spec[:version], other.to_spec[:version]
   end
 
+  # --- the bull bar reaches out mid-slide --------------------------------------
+  #
+  # Measured off the faces of the shipped box rather than its raw numbers: what matters is
+  # how much further the bar reaches in each direction, which is what the driver feels.
+
+  test "the buggy's bull bar reaches out to both sides mid-slide" do
+    bar = buggy_bull_bar
+
+    assert_in_delta 1.85, bar[:slide_extension][:size][0] / bar[:size][0], 1e-9,
+      "the bar should be well over half again as wide while sliding"
+  end
+
+  test "the buggy's bull bar reaches three quarters again as far back mid-slide" do
+    bar = buggy_bull_bar
+    reach = (back_face(bar[:offset], bar[:size]) -
+             back_face(bar[:slide_extension][:offset], bar[:slide_extension][:size]))
+
+    assert_in_delta 0.75, reach / (bar[:size][2] / 2), 1e-9
+  end
+
+  # Far less than it reaches back: the bar is there to catch what you swing it into, not to
+  # turn the back of the buggy into a second front bumper.
+  test "the buggy's bull bar reaches only modestly further forward mid-slide" do
+    bar = buggy_bull_bar
+    reach = (front_face(bar[:slide_extension][:offset], bar[:slide_extension][:size]) -
+             front_face(bar[:offset], bar[:size]))
+
+    assert_in_delta 0.25, reach / (bar[:size][2] / 2), 1e-9
+  end
+
+  # A taller bar would start catching things it is meant to pass under.
+  test "the buggy's bull bar does not grow taller mid-slide" do
+    bar = buggy_bull_bar
+
+    assert_in_delta bar[:size][1], bar[:slide_extension][:size][1], 1e-9
+  end
+
+  test "the buggy's bull bar ramps its growth rather than snapping to it" do
+    assert_operator buggy_bull_bar[:slide_extension][:ease_time], :>, 0.0
+  end
+
+  test "the buggy's bull bar sticks out past the bodywork" do
+    assert_operator buggy_bull_bar[:size][0], :>, spec[:vehicles][:buggy][:chassis][:size][0],
+      "the bar should be visible past the bodywork, not tucked inside it"
+  end
+
+  # The spikes are drawn within the bar's own width so the collider covers what you can
+  # see. That only works while they leave a solid section between them.
+  test "the buggy's bull bar spikes leave a solid section between them" do
+    spikes = buggy_bull_bar[:spikes]
+
+    assert_operator spikes[:bar_width], :>, 0.0
+    assert_in_delta buggy_bull_bar[:size][0], spikes[:bar_width] + 2 * spikes[:length], 1e-9
+  end
+
+  test "the buggy has a voice for the rocket lighting up and for it going off" do
+    audio = spec[:vehicles][:buggy][:audio]
+
+    assert audio[:ignition], "the thrusters catching should be audible"
+    assert audio[:explosion], "a blast should be audible"
+  end
+
+  # --- the stick trims the drift arc -------------------------------------------
+
+  # The client clamps the trimmed arc between these; without them in the spec it reads
+  # undefined, the turn rate goes NaN and the drift silently stops steering.
+  test "every vehicle bounds how far the stick can trim the drift arc" do
+    spec[:vehicles].each_value do |vehicle|
+      slide = vehicle[:slide]
+      assert_operator slide[:arc_floor_scale], :<, 1.0,
+        "#{vehicle[:key]}: the stick should open the arc wider than the pedals alone reach"
+      assert_operator slide[:arc_ceiling_scale], :>, 1.0,
+        "#{vehicle[:key]}: the stick should tighten the arc beyond the pedals alone reach"
+    end
+  end
+
+  # At a trim of exactly 1.0 the widening side collapses -- base * (1 - 1) is zero whatever
+  # the pedals are doing, so every pedal setting bottoms out on the same floor and the
+  # stick stops expressing anything on that side.
+  test "no vehicle trims the drift arc so hard that widening collapses" do
+    spec[:vehicles].each_value do |vehicle|
+      assert_operator vehicle[:slide][:steer_arc_bounds], :<, 1.0, vehicle[:key].to_s
+    end
+  end
+
+  # --- the rocket flies in two arcs --------------------------------------------
+
+  test "the buggy's rocket ships both flight phases" do
+    flight = buggy_rocket[:flight]
+
+    assert flight[:coast], "no coast phase, so the rocket cannot lob"
+    assert flight[:thrust], "no thrust phase, so the rocket cannot wind up"
+  end
+
+  # A heavy lob and then a flat run is what makes two arcs read as two arcs rather than
+  # as one long curve.
+  test "the buggy's rocket arcs harder coasting than it does under power" do
+    flight = buggy_rocket[:flight]
+
+    assert_operator flight[:coast][:gravity_scale], :>, flight[:thrust][:gravity_scale]
+  end
+
+  # Ignition tracks the apex, but bounded: fired down a slope the rocket is already
+  # falling on the first frame, and fired from a fast buggy the apex may never arrive.
+  test "the buggy's rocket always coasts for a moment before it can ignite" do
+    coast = buggy_rocket[:flight][:coast]
+
+    assert_operator coast[:min_time], :>, 0.0
+    assert_operator coast[:max_time], :>, coast[:min_time]
+  end
+
+  # Igniting at the apex leaves it flying flat a metre off the ground, and the first thing
+  # thrust does is tip that heading into the dirt.
+  test "the buggy's rocket lights its thrusters before it stops climbing" do
+    assert_operator buggy_rocket[:flight][:coast][:ignite_climb], :>, 0.0
+  end
+
+  test "the buggy's rocket ignites well within its own lifetime" do
+    assert_operator buggy_rocket[:flight][:coast][:max_time], :<, buggy_rocket[:lifetime]
+  end
+
+  test "the buggy's rocket carries a blast that expands rather than landing all at once" do
+    blast = buggy_rocket[:explosion]
+
+    assert_operator blast[:radius], :>, 0.0
+    assert_operator blast[:expand_time], :>, 0.0
+  end
+
   private
+    def buggy_rocket
+      spec[:vehicles][:buggy][:parts].find { |p| p[:kind] == "rocket_launcher" }[:rocket]
+    end
+
+    def buggy_bull_bar
+      spec[:vehicles][:buggy][:parts].find { |p| p[:kind] == "bull_bar" }
+    end
+
+    def back_face(offset, size)
+      offset[2] - size[2] / 2
+    end
+
+    def front_face(offset, size)
+      offset[2] + size[2] / 2
+    end
+
     def assert_no_ruby_objects(node, path = "root")
       case node
       when Hash  then node.each { |k, v| assert_no_ruby_objects(v, "#{path}.#{k}") }

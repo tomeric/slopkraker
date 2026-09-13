@@ -1,9 +1,20 @@
 import * as THREE from "three"
 import { createVehicleBody, applyWheelTuning } from "game/physics/vehicle_body"
 import { TurboBar } from "game/turbo_bar"
+import { vehicleGroups, reachingPartGroups, catchesWorld } from "game/physics/groups"
 
 const WORLD_UP = new THREE.Vector3(0, 1, 0)
 const REVERSE_THRESHOLD = 0.8
+
+const lerp = (a, b, t) => a + (b - a) * t
+
+// Half-extents and local offset in the shape Rapier's collider setters want.
+function boxOf(size, offset) {
+  return {
+    half: { x: size[0] / 2, y: size[1] / 2, z: size[2] / 2 },
+    at: { x: offset[0], y: offset[1], z: offset[2] }
+  }
+}
 
 // Base driving behaviour shared by both vehicles: throttle, brake, reverse, steering,
 // hop-to-drift, turbo, airborne weight-shift and flip recovery. Subclasses add the
@@ -62,6 +73,46 @@ export class Vehicle {
     this.slamTime = 0
     this.prevSlip = 0
     this.slipRate = 0
+
+    this.bullBar = this.rigBullBar(built.partColliders, meta.owner)
+
+    this._pendingImpulse = new THREE.Vector3()
+    this._hasImpulse = false
+  }
+
+  // Rapier's vehicle controller rewrites the chassis velocity inside updateVehicle(), so
+  // an impulse applied before that call is simply discarded -- the same reason the drift
+  // kinematics have to be the last word. Anything wanting to shove the car queues it here
+  // and it lands afterwards.
+  queueImpulse(vector) {
+    this._pendingImpulse.add(vector)
+    this._hasImpulse = true
+  }
+
+  flushImpulse() {
+    if (!this._hasImpulse) return
+
+    this.body.applyImpulse(this._pendingImpulse, true)
+    this._pendingImpulse.set(0, 0, 0)
+    this._hasImpulse = false
+  }
+
+  // The bull bar swings out to a bigger box while a drift has it armed. Both boxes are
+  // Ruby's -- this only eases between the two it was handed.
+  rigBullBar(partColliders, owner) {
+    const entry = partColliders.find(({ part }) => part.kind === "bull_bar")
+    if (!entry || !entry.part.slide_extension) return null
+
+    const extension = entry.part.slide_extension
+    return {
+      collider: entry.collider,
+      resting: boxOf(entry.part.size, entry.part.offset),
+      reaching: boxOf(extension.size, extension.offset),
+      restingGroups: vehicleGroups(owner),
+      reachingGroups: reachingPartGroups(owner),
+      easeTime: extension.ease_time,
+      amount: 0
+    }
   }
 
   // Forward speed projected from the body's own velocity rather than Rapier's
@@ -150,10 +201,16 @@ export class Vehicle {
 
     this.controller.updateVehicle(dt)
 
+    // Queued shoves land here: applied any earlier, updateVehicle discards them.
+    this.flushImpulse()
+
     // The drift overrides velocity direction and yaw, so it has to be the last word
     // before the solver runs -- updateVehicle would otherwise undo it.
     if (this.drifting && grounded > 0) this.applyDriftKinematics(dt, input)
     else this.updateExitFlick(dt)
+
+    // Last, so the bar is sized off the slip angle this frame actually ended up with.
+    this.updateBullBar(dt)
 
     this.turboBar.update(dt)
   }
@@ -337,12 +394,13 @@ export class Vehicle {
     const lean = Math.min(Math.max(input.steer * this.driftDirection, -1), 1)
     const base = s.min_turn_rate + (s.max_turn_rate - s.min_turn_rate) * blend
 
-    // Floor and ceiling on the result. At full trim the multiplicative bound would
-    // otherwise open the arc out to a near-straight line, which reads as the drift
-    // having quietly stopped working rather than as running it wide.
+    // Floor and ceiling on the result, both scaled off the pedal range by the spec. At
+    // full trim the multiplicative bound would otherwise open the arc out to a
+    // near-straight line, which reads as the drift having quietly stopped working rather
+    // than as running it wide -- and wind it down to a spin at the other end.
     const turnRate = Math.min(
-      Math.max(base * (1 + lean * s.steer_arc_bounds), s.min_turn_rate * 0.5),
-      s.max_turn_rate * 1.75
+      Math.max(base * (1 + lean * s.steer_arc_bounds), s.min_turn_rate * s.arc_floor_scale),
+      s.max_turn_rate * s.arc_ceiling_scale
     )
     // Ease the angle in over entry_time so the nose swings round rather than snapping.
     const entry = Math.min(this.driftTime / s.entry_time, 1)
@@ -497,6 +555,83 @@ export class Vehicle {
     if (this._torque.lengthSq() < 1e-4) this._torque.copy(this._forward)
     this._torque.normalize().multiplyScalar(fr.torque * dt)
     this.body.applyTorqueImpulse(this._torque, true)
+  }
+
+  // Everything a conditional part needs to decide whether its bonus applies. It lives on
+  // the vehicle because the vehicle owns every field in it, and because the resolver, the
+  // overlay and the bull bar's own collider all have to reach the same answer.
+  damageState() {
+    return {
+      drifting: this.drifting,
+      slip_angle: this.slipAngle(),
+      drift_grace: this.driftGrace,
+      slamming: this.slamming,
+      fall_speed: this.body.linvel(this._vec).y
+    }
+  }
+
+  // Swung out for as long as the slide lasts, and through the retain window after it, so
+  // the box and the lingering bonus go away together.
+  //
+  // The gate is the slide itself rather than the bar being armed. Slip angle hovers right
+  // around the arming threshold for most of a drift, so gating on that pumped the box
+  // fully in and out several times a corner -- and with nothing drawn to explain it, the
+  // bar would simply have missed for no visible reason.
+  //
+  // Eased rather than snapped: a solid collider appearing at full size inside a prop it
+  // already overlaps fires the thing across the arena.
+  //
+  // Growing further back than forward means MOVING the box as well as resizing it --
+  // a cuboid is symmetric about its own offset, so asymmetric reach has nowhere else to
+  // come from.
+  updateBullBar(dt) {
+    const bar = this.bullBar
+    if (!bar) return
+
+    const step = bar.easeTime > 0 ? dt / bar.easeTime : 1
+    const wanted = this.drifting || this.driftGrace > 0 ? step : -step
+    const amount = Math.min(Math.max(bar.amount + wanted, 0), 1)
+    // Rapier rebuilds the shape on every setHalfExtents, so skip the frames that would
+    // rewrite the same box.
+    if (amount === bar.amount) return
+    bar.amount = amount
+
+    const { resting, reaching } = bar
+    bar.collider.setHalfExtents({
+      x: lerp(resting.half.x, reaching.half.x, amount),
+      y: lerp(resting.half.y, reaching.half.y, amount),
+      z: lerp(resting.half.z, reaching.half.z, amount)
+    })
+    bar.collider.setTranslationWrtParent({
+      x: lerp(resting.at.x, reaching.at.x, amount),
+      y: lerp(resting.at.y, reaching.at.y, amount),
+      z: lerp(resting.at.z, reaching.at.z, amount)
+    })
+    bar.collider.setCollisionGroups(amount > 0 ? bar.reachingGroups : bar.restingGroups)
+  }
+
+  // Read back out of Rapier rather than from what we meant to set: the overlay and the
+  // tests should see the box the physics actually has. Rapier exposes no getter for a
+  // collider's local offset, so it is recovered by projecting the collider's world
+  // position onto the chassis forward axis -- which is exactly its local z, the basis
+  // being orthonormal.
+  bullBarBox() {
+    const bar = this.bullBar
+    if (!bar) return null
+
+    const half = bar.collider.halfExtents()
+    const at = bar.collider.translation()
+    const origin = this.body.translation()
+
+    return {
+      halfWidth: half.x,
+      halfHeight: half.y,
+      halfDepth: half.z,
+      z: (at.x - origin.x) * this._forward.x +
+         (at.y - origin.y) * this._forward.y +
+         (at.z - origin.z) * this._forward.z,
+      hitsWorld: catchesWorld(bar.collider.collisionGroups())
+    }
   }
 
   // Overridden by the subclasses: jets for the truck, rockets for the buggy.

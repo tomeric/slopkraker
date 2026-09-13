@@ -29,6 +29,22 @@ export function vehicleGroups(owner) {
   return groups(layer, ALL)
 }
 
+// A part that reaches well past the bodywork with nothing drawn to explain it -- the bull
+// bar while a drift has it swung out. Clipping a wall with an invisible wing reads as the
+// car hitting thin air, so while it is out the part only meets things worth hitting.
+// Walls become destructible props in time, at which point the PROP bit catches them like
+// anything else.
+export function reachingPartGroups(owner) {
+  const layer = owner === "local" ? LAYER.OWN_VEHICLE : LAYER.OTHER_VEHICLE
+  return groups(layer, ALL & ~LAYER.WORLD)
+}
+
+// Whether a collision-groups mask still meets the arena itself. Kept here with the bit
+// layout rather than unpacked by every caller that wants to know.
+export function catchesWorld(collisionGroups) {
+  return (collisionGroups & LAYER.WORLD) !== 0
+}
+
 // A rocket ignores only the vehicle that launched it.
 export function rocketGroups(owner) {
   const own = owner === "local" ? LAYER.OWN_VEHICLE : LAYER.OTHER_VEHICLE

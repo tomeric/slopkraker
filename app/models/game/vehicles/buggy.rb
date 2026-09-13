@@ -58,7 +58,15 @@ module Game
             # arc down indefinitely, which is what makes a tight corner a braking problem..
             min_turn_rate: 0.48,
             max_turn_rate: 1.30,
-            steer_arc_bounds: 0.75,
+            steer_arc_bounds: 0.95,
+            # Floor and ceiling on the trimmed result, as fractions of the pedal range. The
+            # floor is what stops a held stick opening the arc out to a near-straight line,
+            # which reads as the drift having quietly stopped working rather than as running
+            # it wide; the ceiling stops it winding down to a spin. The floor is the binding
+            # constraint on widening at every pedal setting, so it is the knob to reach for
+            # when the stick wants more room to run the car wide.
+            arc_floor_scale: 0.32,
+            arc_ceiling_scale: 2.10,
             # How far the nose is cocked ahead of the direction of travel. This is the
             # part you can see: without it the car slides but never looks sideways.
             min_angle: 0.34,
@@ -129,14 +137,32 @@ module Game
               cooldown: 0.1,
               ammo_cost: 10.0,
               launch_angle: 12.0,
+              # Enough of a shove to feel the shot -- about 1.3 m/s off a 900kg car -- and
+              # to slow you a touch if you fire while running flat out.
+              recoil: 1200.0,
               rocket: rocket
             ),
             Parts::BullBar.new(
               offset: Vector3.new(0.0, 0.02, -1.75),
-              size: Vector3.new(1.9, 0.35, 0.25),
+              # Wider than the bodywork on purpose: the solid section spans the 1.8 chassis
+              # and the spikes are what stick out past it, one to each side.
+              size: Vector3.new(2.5, 0.35, 0.25),
+              spikes: { length: 0.35, radius: 0.12 },
               damage_multiplier: 3.0,
               minimum_slip_angle: 0.35,
-              retain: 0.10
+              retain: 0.10,
+              # Committing to a slide swings the bar out: hardest to the sides and backwards,
+              # where the car is actually travelling, and far less forward. Lining the bar up
+              # is the skill; catching the prop once you have should not come down to
+              # centimetres.
+              slide_extension: {
+                sides: 0.85,
+                back: 0.75,
+                front: 0.25,
+                # Snapping a solid box out to full size inside a prop it already overlaps
+                # fires the thing across the arena, so the growth is eased in.
+                ease_time: 0.12
+              }
             )
           ],
           camera: camera,
@@ -151,17 +177,62 @@ module Game
           # Off the rail slowly, then it winds up under its own thrust: a rocket with room
           # to run lands far harder than one fired point blank.
           launch_speed: 18.0,
-          max_speed: 64.0,
-          acceleration: 58.0,
           mass: 12.0,
           radius: 0.16,
+          # A shot into open air destroys itself rather than flying forever.
           lifetime: 5.0,
-          gravity_scale: 0.65,
-          blast_radius: 4.5,
           minimum_damage: 45.0,
           max_damage: 190.0,
           damage_per_speed: 2.6,
-          colour: "#ff5a1f"
+          colour: "#ff5a1f",
+          flight: flight,
+          explosion: explosion
+        )
+      end
+
+      # Two arcs, not one flat dart. The rocket lobs out of the launcher giving up speed to
+      # drag and arcing under most of a gravity, then lights the motor near the apex and
+      # runs -- at which point it accelerates hard and the arc flattens right out.
+      #
+      # Ignition tracks the apex rather than a stopwatch, bounded at both ends. Fired down
+      # a slope the rocket is already falling on the first frame, which without min_time
+      # would light the motor instantly and collapse the two arcs into one; fired from a
+      # fast-moving buggy the apex may never arrive at all, hence max_time.
+      #
+      # It lights JUST BEFORE the apex, not at it: thrust only rescales the heading the
+      # rocket already has, so igniting once it has levelled off leaves it flying flat a
+      # metre above the ground with gravity tipping that heading straight into the dirt.
+      # Firing while it is still climbing at ignite_climb gives the second arc somewhere
+      # to go.
+      #
+      # ignite_climb also sets how long the first arc lasts, and at a 12 degree launch
+      # there is not much climb to spend: too eager and the coast is over in a couple of
+      # frames and there is only one arc to look at. Drag is what makes that coast read as
+      # a coast rather than as a pause.
+      def self.flight
+        {
+          coast: { drag: 14.0, gravity_scale: 0.75, ignite_climb: 0.9, min_time: 0.15, max_time: 0.9 },
+          thrust: { acceleration: 58.0, max_speed: 64.0, gravity_scale: 0.30 }
+        }
+      end
+
+      # The blast the rocket leaves behind: a shell that expands from a point out to its
+      # radius, dealing less the further it has had to travel to reach you. prop_push is
+      # impulse per point of damage and the lift numbers are the upward bias that makes a
+      # blast throw debris into the air rather than skid it along the ground.
+      #
+      # vehicle_share is what a car takes of that: enough to rocket-jump off your own
+      # shot, not enough to be flung across the arena by a stray one.
+      def self.explosion
+        Explosion.new(
+          radius: 4.5,
+          expand_time: 0.22,
+          linger: 0.20,
+          prop_push: 0.9,
+          prop_lift: 0.6,
+          vehicle_share: 0.6,
+          vehicle_lift: 0.8,
+          colour: "#ffb03a"
         )
       end
 
@@ -219,9 +290,17 @@ module Game
 
       def self.audio
         {
-          engine: { idle_hz: 62.0, max_hz: 360.0, voices: 3, detune: 5.0, gain: 0.22, lowpass_hz: 1800.0 },
+          # Pitched down and pulled well back. The engine is the one voice that never stops,
+          # so it is the one that grates: it sets the floor everything else has to clear.
+          engine: { idle_hz: 44.0, max_hz: 240.0, voices: 3, detune: 5.0, gain: 0.11, lowpass_hz: 1100.0 },
           turbo: { gain: 0.2, sweep_hz: [ 320.0, 2800.0 ] },
-          rocket: { gain: 0.5, thump_hz: 95.0 },
+          rocket: { gain: 0.85, thump_hz: 80.0 },
+          # The launch thump falls and the thrusters catching rises, so the two moments of
+          # a single shot do not sound like the same event twice.
+          ignition: { gain: 0.7, sweep_hz: [ 240.0, 1700.0 ] },
+          # Held for as long as the motor burns, rather than a single crack at ignition.
+          thrust: { gain: 0.34, band_hz: 820.0 },
+          explosion: { gain: 0.95, boom_hz: 58.0 },
           impact: { gain: 0.55, band_hz: 280.0 },
           skid: { gain: 0.28, band_hz: 1900.0 },
           landing: { gain: 0.4, thump_hz: 90.0 }
