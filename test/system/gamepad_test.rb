@@ -12,7 +12,7 @@ class GamepadTest < ApplicationSystemTestCase
   RT = 7  # throttle
 
   setup do
-    visit root_path
+    visit_world("flat")
     wait_for(message: "engine never booted") { page.evaluate_script("!!(window.__arena && window.__arena.ready)") }
     sleep 0.8
   end

@@ -20,6 +20,53 @@ class WorldObject < ApplicationRecord
 
   def building? = kind == "building"
 
+  # `kind` says how a thing is stored and simulated; `recipe["kind"]` says what it is --
+  # ground, wall, crate, pillar. The client uses the latter to pick a colour, decide
+  # whether to cast a shadow and label a hit, so the two taxonomies are deliberately
+  # separate rather than one column trying to be both.
+  def role
+    recipe["kind"] || kind
+  end
+
+  def to_static_body
+    Game::StaticBody.new(
+      name: name, kind: role,
+      position: position, size: size, rotation: rotation,
+      colour: recipe.fetch("colour", "#4a5159"),
+      friction: recipe.fetch("friction", 1.0),
+      restitution: recipe.fetch("restitution", 0.05)
+    )
+  end
+
+  def to_prop
+    Game::DestructibleProp.new(
+      name: name, kind: role,
+      position: position, size: size, rotation: rotation,
+      mass: recipe.fetch("mass"), health: recipe.fetch("health"),
+      debris_count: recipe.fetch("debris_count", 6),
+      colour: recipe.fetch("colour", "#b5651d")
+    )
+  end
+
+  def position
+    Game::Vector3.new(x, y, z)
+  end
+
+  def size
+    w, h, d = recipe.fetch("size")
+    Game::Vector3.new(w, h, d)
+  end
+
+  # Stored as yaw plus an optional explicit pitch, because that is how a ramp is actually
+  # described. A full quaternion in the recipe wins if one is given.
+  def rotation
+    if (quat = recipe["rotation"])
+      return Game::Quaternion.new(*quat)
+    end
+
+    Game::Quaternion.from_yaw_pitch(yaw, recipe.fetch("pitch", 0.0))
+  end
+
   private
     # The chunk holding the anchor owns the object; `radius` is how far it reaches beyond
     # that anchor. Keeping it under one chunk is what guarantees a three-by-three ring

@@ -1,0 +1,33 @@
+# Narrow worlds, one per thing worth testing.
+#
+# The suite used to boot a 380m arena -- 255 static bodies and 120 props -- for every
+# test, then use three of them. Worse than slow: driving_test measured acceleration and
+# braking from a spawn on a cambered, kerbed corner, and had to teleport to the infield
+# whenever the camber would have decided the result. A test that says what ground it
+# wants gets a straight answer.
+#
+# Neither of these carries terrain rows. A world with no tile for a point samples its
+# fallback height, which for flat ground is the whole answer -- so nothing binary has to
+# go in a fixture.
+
+flat:
+  slug: flat
+  name: Flat
+  # Big enough that nothing reaches an edge within a test. At 30m/s a three second run
+  # covers 90m, and it is 200m from the middle to the rim.
+  bounds: [ -200, -200, 200, 200 ]
+  spawns:
+    - position: [ 0.0, 2.0, 0.0 ]
+      yaw: 0.0
+  content_digest: flatworld001
+
+targets:
+  slug: targets
+  name: Targets
+  bounds: [ -200, -200, 200, 200 ]
+  # Facing the crates, which sit down the -z axis. Spawning pointed at what a test is
+  # about to hit saves every one of them a turn.
+  spawns:
+    - position: [ 0.0, 2.0, 0.0 ]
+      yaw: 0.0
+  content_digest: targetworld1

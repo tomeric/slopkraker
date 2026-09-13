@@ -1,0 +1,90 @@
+# `kind` says how a thing is simulated -- static is a fixed collider, prop is a dynamic
+# body that can be knocked about and broken. `recipe.kind` says what it is, which is what
+# the client colours and what a hit is labelled with.
+#
+# Coordinates here are deliberate rather than inherited. Under the old arena a test aimed
+# at (0, 2.0, -32) because that is where a crate stack happened to land; here the stack
+# is put where the test wants it.
+
+# --- flat: ground and nothing else ------------------------------------------------
+
+flat_ground:
+  world: flat
+  kind: static
+  name: ground
+  cx: 0
+  cz: 0
+  x: 0.0
+  y: -0.5
+  z: 0.0
+  yaw: 0.0
+  radius: 0.0
+  recipe:
+    kind: ground
+    size: [ 400.0, 1.0, 400.0 ]
+    colour: "#4a5159"
+    friction: 1.1
+
+# --- targets: ground, a stack to plough through, a pillar to clip ------------------
+
+targets_ground:
+  world: targets
+  kind: static
+  name: ground
+  cx: 0
+  cz: 0
+  x: 0.0
+  y: -0.5
+  z: 0.0
+  yaw: 0.0
+  radius: 0.0
+  recipe:
+    kind: ground
+    size: [ 400.0, 1.0, 400.0 ]
+    colour: "#4a5159"
+    friction: 1.1
+
+# Three crates squarely stacked 20m ahead of the spawn -- yaw 0 faces +z -- so hitting
+# the bottom one brings the pile down. Same mass, health and size as the arena's, so the
+# thresholds the damage tests assert against are unchanged.
+<% 3.times do |level| %>
+targets_crate_<%= level %>:
+  world: targets
+  kind: prop
+  name: crate_<%= level %>
+  cx: 0
+  cz: 0
+  x: 0.0
+  y: <%= 0.75 + level * 1.5 %>
+  z: 20.0
+  yaw: 0.0
+  radius: 1.5
+  recipe:
+    kind: crate
+    size: [ 1.5, 1.5, 1.5 ]
+    mass: 55.0
+    health: 110.0
+    debris_count: 6
+    colour: "#b5651d"
+<% end %>
+
+# Off to one side, so a test can reach it without going through the crates. Light enough
+# to topple on contact rather than behave like a wall.
+targets_pillar:
+  world: targets
+  kind: prop
+  name: pillar
+  cx: -1
+  cz: 0
+  x: -20.0
+  y: 2.2
+  z: 20.0
+  yaw: 0.0
+  radius: 2.2
+  recipe:
+    kind: pillar
+    size: [ 1.0, 4.4, 1.0 ]
+    mass: 90.0
+    health: 200.0
+    debris_count: 8
+    colour: "#9aa0a6"

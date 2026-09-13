@@ -65,7 +65,7 @@ class AudioTest < ApplicationSystemTestCase
 
   private
     def boot(vehicle)
-      visit root_path(params: { vehicle: vehicle })
+      visit_world("flat", vehicle: vehicle)
       wait_for(message: "engine never booted") { page.evaluate_script("!!(window.__arena && window.__arena.ready)") }
       sleep 0.5
     end

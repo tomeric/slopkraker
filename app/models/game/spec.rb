@@ -15,9 +15,14 @@ module Game
 
     attr_reader :arena, :vehicles, :rules, :input
 
-    def self.build
+    # A world record's scene, plus the tuning every world shares.
+    def self.for(world)
+      build(scene: world.scene)
+    end
+
+    def self.build(scene:)
       new(
-        arena: Arena.build,
+        arena: scene,
         vehicles: {
           monster_truck: Vehicles::MonsterTruck.build,
           buggy: Vehicles::Buggy.build

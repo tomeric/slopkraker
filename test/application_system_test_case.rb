@@ -75,6 +75,15 @@ class ApplicationSystemTestCase < ActionDispatch::SystemTestCase
     end
   end
 
+  # Every test says which world it needs. A test about steering wants flat ground and
+  # nothing else; one about the bull bar wants something to hit. Booting a whole city to
+  # measure how fast a car accelerates is slow, and worse, it means measuring on whatever
+  # ground that city happened to put underneath -- which is how acceleration and braking
+  # ended up being timed on a cambered, kerbed corner.
+  def visit_world(slug, vehicle: nil)
+    visit root_path(params: { world: slug, vehicle: vehicle }.compact)
+  end
+
   # Capybara does not retry evaluate_script, so poll for engine milestones.
   def wait_for(timeout: 20, message: "condition never met")
     deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + timeout

@@ -301,7 +301,7 @@ class AbilitiesTest < ApplicationSystemTestCase
 
   private
     def boot(vehicle)
-      visit root_path(params: { vehicle: vehicle })
+      visit_world("targets", vehicle: vehicle)
       wait_for(message: "engine never booted") { page.evaluate_script("!!(window.__arena && window.__arena.ready)") }
       sleep 1.0
     end
@@ -421,7 +421,7 @@ class AbilitiesTest < ApplicationSystemTestCase
     # knocks it out of the firing line.
     def aim_at_crates
       page.execute_script(<<~JS)
-        window.__arenaPlace = { x: -66, y: 1.2, z: -36, yaw: 0 }
+        window.__arenaPlace = { x: 0, y: 2.0, z: 6, yaw: 0 }
       JS
       sleep 0.8
     end

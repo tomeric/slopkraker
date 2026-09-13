@@ -8,7 +8,7 @@ require "application_system_test_case"
 # exercises the real keyboard path so the binding layer stays covered.
 class DrivingTest < ApplicationSystemTestCase
   setup do
-    visit root_path
+    visit_world("flat")
     wait_for(message: "engine never booted") { page.evaluate_script("!!(window.__arena && window.__arena.ready)") }
     settle
   end
@@ -42,9 +42,6 @@ class DrivingTest < ApplicationSystemTestCase
   end
 
   test "brake from rest reverses the vehicle" do
-    # Flat infield: spawning on a cambered, kerbed corner makes this a coin toss.
-    page.execute_script("window.__arenaPlace = { x: 0, y: 2.0, z: 0, yaw: 0 }")
-    sleep 1.0
     start = position
 
     drive(brake: 1)
@@ -227,7 +224,7 @@ class DrivingTest < ApplicationSystemTestCase
     sleep 1.5
     plain = telemetry["speed"]
 
-    visit root_path
+    visit_world("flat")
     wait_for { page.evaluate_script("!!(window.__arena && window.__arena.ready)") }
     settle
 
@@ -239,11 +236,6 @@ class DrivingTest < ApplicationSystemTestCase
   end
 
   test "the slide button flips an upside down vehicle back onto its wheels" do
-    # Do this on flat infield ground: landing back on a cambered, kerbed corner makes
-    # "settled on its wheels" a coin toss that has nothing to do with flip recovery.
-    page.execute_script("window.__arenaPlace = { x: 0, y: 2.0, z: 0, yaw: 0 }")
-    sleep 0.8
-
     flip_upside_down
     assert_operator telemetry["upDot"], :<, -0.5, "test setup failed to invert the vehicle"
 
@@ -300,7 +292,7 @@ class DrivingTest < ApplicationSystemTestCase
     # Tightest radius the car sustains while still actually travelling. Radius is only
     # meaningful above walking pace, hence the speed floor.
     def turn_radius(brake:)
-      visit root_path
+      visit_world("flat")
       wait_for { page.evaluate_script("!!(window.__arena && window.__arena.ready)") }
       settle
 
@@ -324,7 +316,7 @@ class DrivingTest < ApplicationSystemTestCase
     # is tuned per vehicle, so which one is driving matters: root_path alone boots the
     # monster truck.
     def drift_turn_rate(steer_trim:, throttle:, brake:, vehicle: nil)
-      visit(vehicle ? root_path(params: { vehicle: vehicle }) : root_path)
+      visit_world("flat", vehicle: vehicle)
       wait_for { page.evaluate_script("!!(window.__arena && window.__arena.ready)") }
       settle
 
@@ -397,7 +389,7 @@ class DrivingTest < ApplicationSystemTestCase
 
     # Fresh page each time so both corners start from identical state.
     def measure_corner(slide:)
-      visit root_path
+      visit_world("flat")
       wait_for { page.evaluate_script("!!(window.__arena && window.__arena.ready)") }
       settle
 
@@ -414,7 +406,7 @@ class DrivingTest < ApplicationSystemTestCase
     end
 
     def drift_yaw_change(slide:)
-      visit root_path
+      visit_world("flat")
       wait_for { page.evaluate_script("!!(window.__arena && window.__arena.ready)") }
       settle
 

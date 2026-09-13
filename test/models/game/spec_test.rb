@@ -2,7 +2,7 @@ require "test_helper"
 
 class Game::SpecTest < ActiveSupport::TestCase
   def spec
-    @spec ||= Game::Spec.build.to_spec
+    @spec ||= Game::Spec.for(worlds(:targets)).to_spec
   end
 
   test "exposes the top level contract the client compiles against" do
@@ -17,46 +17,40 @@ class Game::SpecTest < ActiveSupport::TestCase
     assert_no_ruby_objects(round_tripped)
   end
 
-  test "the arena is walled, has ramps and somewhere to spawn" do
-    arena = spec[:arena]
-    assert_equal [ 0.0, -9.81, 0.0 ], arena[:gravity]
-    kinds = arena[:bodies].map { |b| b[:kind] }
-    assert_includes kinds, "ground"
-    assert_operator kinds.count("wall"), :>=, 4, "arena must be enclosed"
-    assert_operator kinds.count("ramp"), :>=, 3, "need ramps to test physics against"
-    assert_not_empty arena[:spawns]
+  # The scene is assembled from World rows now, so what is asserted is that a world
+  # arrives intact -- not that it contains any particular furniture, which is the fixture's
+  # business rather than the spec's.
+  test "the scene carries gravity, ground and somewhere to spawn" do
+    scene = spec[:arena]
+
+    assert_equal [ 0.0, -9.81, 0.0 ], scene[:gravity]
+    assert_includes scene[:bodies].map { |body| body[:kind] }, "ground"
+    assert_not_empty scene[:spawns]
   end
 
-  test "the arena carries a circuit with corners and real elevation" do
-    bodies = spec[:arena][:bodies]
-    road = bodies.select { |b| b[:kind] == "road" }
+  test "a world's props arrive as things that can be broken" do
+    props = spec[:arena][:props]
 
-    assert_operator road.length, :>, 40, "the circuit needs enough slabs to corner smoothly"
-    # Deliberately unbarriered for now so you can run wide and drift back on.
-    assert_equal 0, bodies.count { |b| b[:kind] == "barrier" }
-    heights = road.map { |b| b[:position][1] }
-    assert_operator heights.max - heights.min, :>, 8.0,
-      "the circuit needs real elevation change to test landings"
-
-    # The track has to fit inside the walls it is drawn in.
-    half = spec[:arena][:size] / 2
-    road.each do |slab|
-      assert_operator slab[:position][0].abs, :<, half, "#{slab[:name]} outside the arena"
-      assert_operator slab[:position][2].abs, :<, half, "#{slab[:name]} outside the arena"
+    assert_equal %w[crate crate crate pillar], props.map { |prop| prop[:kind] }.sort
+    props.each do |prop|
+      assert_operator prop[:health], :>, 0, "#{prop[:name]} needs health to lose"
+      assert_operator prop[:mass], :>, 0, "#{prop[:name]} needs mass to be shoved"
     end
   end
 
-  test "players spawn on the circuit" do
-    road = spec[:arena][:bodies].select { |b| b[:kind] == "road" }
-
+  # A spawn facing a wall is a spawn nobody can drive out of, so the heading is as much
+  # part of it as the position.
+  test "every spawn carries a position and a heading" do
     spec[:arena][:spawns].each do |spawn|
-      position = spawn[:position]
-      nearest = road.map { |slab|
-        Math.sqrt((slab[:position][0] - position[0])**2 + (slab[:position][2] - position[2])**2)
-      }.min
-      assert_operator nearest, :<, Game::Track::WIDTH, "spawn #{position.inspect} is off the track"
-      assert spawn[:yaw].is_a?(Float), "spawn needs a heading or the car drives off the circuit"
+      assert_equal 3, spawn[:position].length
+      assert_kind_of Float, spawn[:yaw]
     end
+  end
+
+  # The hard edges of the world. Nothing enforces them yet, but the client is handed them
+  # from the first version of this payload so that adding the walls is not a wire change.
+  test "the scene carries the world's bounds" do
+    assert_equal [ -200, -200, 200, 200 ], spec[:arena][:bounds]
   end
 
   test "every static body carries a full transform and size" do
@@ -153,7 +147,7 @@ class Game::SpecTest < ActiveSupport::TestCase
   end
 
   test "the version changes when tuning changes" do
-    other = Game::Spec.build
+    other = Game::Spec.for(worlds(:targets))
     other.vehicles.fetch(:buggy).engine[:force] += 1
 
     assert_not_equal spec[:version], other.to_spec[:version]

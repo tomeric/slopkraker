@@ -76,7 +76,7 @@ class HitFeedbackTest < ApplicationSystemTestCase
 
   private
     def boot(vehicle)
-      visit root_path(params: { vehicle: vehicle })
+      visit_world("targets", vehicle: vehicle)
       wait_for(message: "engine never booted") { page.evaluate_script("!!(window.__arena && window.__arena.ready)") }
       sleep 0.8
     end
@@ -89,14 +89,15 @@ class HitFeedbackTest < ApplicationSystemTestCase
       (telemetry["damage"] || []).select { |e| e["hit"] }
     end
 
-    # Infield crate stacks sit around (0, -18); line the car up short of them.
+    # The targets world puts a crate stack at (0, 20) and a pillar at (-20, 20). Yaw 0
+    # faces +z, so lining up short of them on the same axis means driving straight in.
     def aim_at_crates
-      page.execute_script("window.__arenaPlace = { x: 0, y: 2.0, z: -32, yaw: 0 }")
+      page.execute_script("window.__arenaPlace = { x: 0, y: 2.0, z: 6, yaw: 0 }")
       sleep 0.8
     end
 
     def aim_at_pillar
-      page.execute_script("window.__arenaPlace = { x: -40, y: 1.2, z: -17, yaw: 0 }")
+      page.execute_script("window.__arenaPlace = { x: -20, y: 1.2, z: 6, yaw: 0 }")
       sleep 0.8
     end
 

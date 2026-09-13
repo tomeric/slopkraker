@@ -2,7 +2,7 @@ require "application_system_test_case"
 
 class MuteTest < ApplicationSystemTestCase
   setup do
-    visit root_path
+    visit_world("flat")
     wait_for(message: "engine never booted") { page.evaluate_script("!!(window.__arena && window.__arena.ready)") }
   end
 
@@ -46,7 +46,7 @@ class MuteTest < ApplicationSystemTestCase
     find(".hud__mute").click
     assert page.evaluate_script("window.__arena.muted")
 
-    visit root_path
+    visit_world("flat")
     wait_for { page.evaluate_script("!!(window.__arena && window.__arena.ready)") }
 
     assert page.evaluate_script("window.__arena.muted"), "mute should be remembered"

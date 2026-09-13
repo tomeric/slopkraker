@@ -4,7 +4,7 @@ require "application_system_test_case"
 # them rather than checking hand-written markup.
 class ControlsOverlayTest < ApplicationSystemTestCase
   setup do
-    visit root_path
+    visit_world("flat")
     wait_for(message: "engine never booted") { page.evaluate_script("!!(window.__arena && window.__arena.ready)") }
   end
 
@@ -29,7 +29,7 @@ class ControlsOverlayTest < ApplicationSystemTestCase
   test "names the action after what the current vehicle does with it" do
     assert row_for("Jump jets"), "monster truck should label its action"
 
-    visit root_path(params: { vehicle: "buggy" })
+    visit_world("flat", vehicle: "buggy")
     wait_for { page.evaluate_script("!!(window.__arena && window.__arena.ready)") }
     assert row_for("Fire rocket"), "buggy should label its action"
   end

@@ -1,9 +1,13 @@
-# This file should ensure the existence of records required to run the application in every environment (production,
-# development, test). The code here should be idempotent so that it can be executed at any point in every environment.
-# The data can then be loaded with the bin/rails db:seed command (or created alongside the database with db:setup).
+# The worlds are defined once, in test/fixtures, and loaded from there into whichever
+# database is asking. Tests get them automatically; development and CI get them here.
 #
-# Example:
-#
-#   ["Action", "Comedy", "Drama", "Horror"].each do |genre_name|
-#     MovieGenre.find_or_create_by!(name: genre_name)
-#   end
+# Defining them twice would mean a test passing against one world while the browser shows
+# another, which is exactly the class of bug this project already guards against with the
+# spec version digest.
+require "active_record/fixtures"
+
+FIXTURES = %w[worlds world_objects].freeze
+
+ActiveRecord::FixtureSet.create_fixtures(Rails.root.join("test/fixtures"), FIXTURES)
+
+puts "Seeded #{World.count} worlds and #{WorldObject.count} objects."

@@ -29,6 +29,34 @@ class World < ApplicationRecord
     tile_size / chunk_size
   end
 
+  # `bounds` is [min_x, min_z, max_x, max_z] in game metres -- the hard edges of the
+  # world, beyond which nothing can travel.
+  def extent
+    min_x, min_z, max_x, max_z = bounds
+    [ max_x - min_x, max_z - min_z ]
+  end
+
+  # The payload the client builds a world out of. Static rows become fixed geometry,
+  # props become things that can be knocked about and broken; buildings are generated
+  # from their recipes and do not appear here.
+  def scene
+    Game::Scene.new(
+      name: name,
+      gravity: Game::Vector3.new(0, gravity, 0),
+      bounds: bounds,
+      bodies: world_objects.where(kind: "static").order(:id).map(&:to_static_body),
+      props: world_objects.where(kind: "prop").order(:id).map(&:to_prop),
+      spawns: spawn_points
+    )
+  end
+
+  def spawn_points
+    spawns.map do |spawn|
+      x, y, z = spawn.fetch("position")
+      Game::Spawn.new(position: Game::Vector3.new(x, y, z), yaw: spawn.fetch("yaw", 0.0))
+    end
+  end
+
   def frame
     Game::Terrain::Frame.new(
       origin_x: origin_x, origin_y: origin_y, origin_z: origin_z, srid: srid,
