@@ -68,6 +68,9 @@ module Game
       payload = {
         arena: arena.to_spec,
         vehicles: vehicles.transform_values(&:to_spec),
+        # The whole table, inline. Every surface references a material by name, and the
+        # first one can arrive before any other fetch resolves.
+        materials: Materials.to_spec,
         rules: rules,
         input: input.to_spec
       }

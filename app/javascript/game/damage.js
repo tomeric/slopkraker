@@ -1,11 +1,21 @@
 // Faithful port of Game::DamageResolver. Ruby owns the rules; this evaluates them
 // client-side so damage feedback is immediate rather than a network round trip away.
 // Covered by a parity system test against the Ruby implementation.
-export function resolveDamage({ rules, part, speed, state }) {
+//
+// `material` is an entry from the table Ruby ships in the spec, or null for something
+// that carries its own health -- a crate, a pillar. `kind` says how it was hit, because a
+// blast and a blade are not the same thing to a pane of glass.
+export function resolveDamage({ rules, part, speed, state, material = null, kind = "impact" }) {
   const excess = speed - rules.minimum_speed
   if (excess <= 0) return 0
 
-  return excess * rules.damage_per_speed * multiplierFor(part, state)
+  const raw = excess * rules.damage_per_speed * multiplierFor(part, state)
+  if (!material) return raw
+
+  // Armour comes off after the multipliers, not before: taking it first would let a big
+  // multiplier cancel it out, which is the opposite of what armour is for.
+  const multiplier = material.multipliers?.[kind] ?? 1
+  return Math.max(raw * multiplier - material.armour, 0)
 }
 
 function multiplierFor(part, state) {

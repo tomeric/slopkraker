@@ -1,5 +1,6 @@
 import { WORLD_GROUPS, PROP_GROUPS } from "game/physics/groups"
 import { ColliderRegistry } from "game/sim/collider_registry"
+import { createWorldBounds } from "game/world/bounds"
 
 // Builds the Rapier world from the Ruby arena spec. Static geometry gets parentless
 // colliders (Rapier treats those as fixed); props get dynamic bodies so they can be
@@ -27,6 +28,12 @@ export function createPhysicsWorld(RAPIER, spec) {
 
     const collider = world.createCollider(desc)
     colliders.set(collider.handle, { kind: body.kind, name: body.name, destructible: false, body: null })
+  }
+
+  // The hard edges. Registered like any other static geometry so a contact with one is
+  // reported rather than silently ignored.
+  for (const collider of createWorldBounds(RAPIER, world, spec.arena.bounds)) {
+    colliders.set(collider.handle, { kind: "bounds", name: "bounds", destructible: false, body: null })
   }
 
   const props = []

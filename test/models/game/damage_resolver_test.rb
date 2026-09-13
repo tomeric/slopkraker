@@ -51,4 +51,44 @@ class Game::DamageResolverTest < ActiveSupport::TestCase
   test "negative closing speed never yields negative damage" do
     assert_equal 0.0, resolver.resolve(part: blade, speed: -30.0)
   end
+
+  # --- what you hit, not only what you hit it with -------------------------------
+
+  test "a material with no armour and no multiplier changes nothing" do
+    plain = Game::Material.new(name: :plain, health_per_m2: 1.0, density: 1.0, colour: "#ffffff")
+
+    assert_in_delta resolver.resolve(part: nil, speed: 20.0),
+                    resolver.resolve(part: nil, speed: 20.0, material: plain), 1e-9
+  end
+
+  test "glass takes far more from the same hit than concrete" do
+    glass = resolver.resolve(part: nil, speed: 20.0, material: Game::Materials.fetch(:glass))
+    concrete = resolver.resolve(part: nil, speed: 20.0, material: Game::Materials.fetch(:concrete))
+
+    assert_operator glass, :>, concrete * 3
+  end
+
+  # Armour is why bumping a pier is pointless however fast you are going, and it has to
+  # come off after the multipliers or a good enough part would cancel it out.
+  test "armour is subtracted after the multipliers" do
+    armoured = Game::Material.new(
+      name: :armoured, health_per_m2: 1.0, density: 1.0, colour: "#ffffff",
+      armour: 10.0, multipliers: { impact: 2.0 }
+    )
+    raw = resolver.resolve(part: nil, speed: 20.0)
+
+    assert_in_delta raw * 2.0 - 10.0, resolver.resolve(part: nil, speed: 20.0, material: armoured), 1e-9
+  end
+
+  test "armour can absorb a hit entirely rather than going negative" do
+    assert_equal 0.0, resolver.resolve(part: nil, speed: 5.0, material: Game::Materials.fetch(:steel))
+  end
+
+  test "the damage kind changes what a material takes" do
+    concrete = Game::Materials.fetch(:concrete)
+    impact = resolver.resolve(part: nil, speed: 30.0, material: concrete, kind: :impact)
+    blast = resolver.resolve(part: nil, speed: 30.0, material: concrete, kind: :blast)
+
+    assert_operator blast, :>, impact, "concrete should yield to a blast sooner than a shove"
+  end
 end

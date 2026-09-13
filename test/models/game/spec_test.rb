@@ -6,7 +6,7 @@ class Game::SpecTest < ActiveSupport::TestCase
   end
 
   test "exposes the top level contract the client compiles against" do
-    assert_equal %i[version arena vehicles rules input].sort, spec.keys.sort
+    assert_equal %i[version arena vehicles materials rules input].sort, spec.keys.sort
   end
 
   # The client reads this blob and nothing else. A Vector3 or a Symbol surviving into
@@ -15,6 +15,14 @@ class Game::SpecTest < ActiveSupport::TestCase
     round_tripped = JSON.parse(spec.to_json)
     assert_equal JSON.parse(JSON.generate(spec)), round_tripped
     assert_no_ruby_objects(round_tripped)
+  end
+
+  test "the material table ships with the spec" do
+    # Every surface references a material by name, and the first one can arrive before any
+    # other fetch resolves -- so the table has to be inline rather than fetched.
+    assert_equal Game::Materials.names.map(&:to_s).sort, spec[:materials].keys.map(&:to_s).sort
+    assert_operator spec[:materials][:glass][:health_per_m2], :<,
+                    spec[:materials][:concrete][:health_per_m2]
   end
 
   # The scene is assembled from World rows now, so what is asserted is that a world
