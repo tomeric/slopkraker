@@ -1,0 +1,209 @@
+:root {
+  --ink: #e8ecf1;
+  --panel: rgba(14, 17, 22, 0.82);
+  --edge: rgba(255, 255, 255, 0.12);
+  --accent: #f2c014;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  margin: 0;
+  background: #0e1116;
+  color: var(--ink);
+  font: 14px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  overflow: hidden;
+}
+
+.arena { position: fixed; inset: 0; }
+
+.arena__canvas { display: block; width: 100%; height: 100%; }
+
+.arena__status {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  background: #0e1116;
+  color: var(--ink);
+  font-size: 15px;
+  letter-spacing: 0.02em;
+}
+.arena__status[hidden] { display: none; }
+
+.arena__hud {
+  position: absolute;
+  left: 24px;
+  bottom: 24px;
+  display: grid;
+  gap: 8px;
+  padding: 14px 18px;
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  backdrop-filter: blur(6px);
+  pointer-events: none;
+}
+
+.hud__speed {
+  font-size: 30px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.hud__speed em { font-size: 12px; font-style: normal; opacity: 0.6; margin-left: 4px; }
+
+.hud__turbo {
+  width: 190px;
+  height: 7px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.14);
+  overflow: hidden;
+}
+.hud__turbo-fill {
+  height: 100%;
+  width: 100%;
+  background: var(--accent);
+  transform-origin: left;
+  transition: background-color 120ms linear;
+}
+
+.hud__vehicle { font-size: 12px; opacity: 0.65; letter-spacing: 0.04em; }
+
+/* The HUD as a whole ignores pointers so it never eats a drag meant for the camera;
+   the button opts itself back in. */
+.hud__mute {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 2px;
+  padding: 6px 10px;
+  border: 1px solid var(--edge);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  pointer-events: auto;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.hud__mute:hover { background: rgba(255, 255, 255, 0.11); }
+.hud__mute:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.hud__mute[aria-pressed="true"] {
+  border-color: rgba(226, 87, 76, 0.55);
+  background: rgba(226, 87, 76, 0.16);
+  color: #ffb4ab;
+}
+
+.arena__controls {
+  position: absolute;
+  right: 24px;
+  bottom: 24px;
+  pointer-events: none;
+}
+
+.controls {
+  display: grid;
+  gap: 2px;
+  min-width: 240px;
+  padding: 12px 14px;
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  backdrop-filter: blur(6px);
+  font-size: 12px;
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+
+.controls.is-hidden {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.controls__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.55;
+}
+
+.controls__pad-badge {
+  padding: 1px 7px;
+  border: 1px solid var(--edge);
+  border-radius: 999px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  opacity: 0.7;
+}
+.controls__pad-badge.is-connected {
+  border-color: rgba(122, 214, 136, 0.5);
+  background: rgba(122, 214, 136, 0.14);
+  color: #9fe0aa;
+  opacity: 1;
+}
+
+.controls__row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 6px;
+  margin: 0 -6px;
+  border-radius: 6px;
+  transition: background-color 90ms linear, color 90ms linear;
+}
+
+.controls__row.is-active {
+  background: rgba(242, 192, 20, 0.16);
+  color: var(--accent);
+}
+.controls__row.is-active kbd,
+.controls__row.is-active .controls__pad {
+  border-color: rgba(242, 192, 20, 0.55);
+  background: rgba(242, 192, 20, 0.22);
+  color: #ffe89a;
+}
+
+.controls__label {
+  opacity: 0.85;
+  white-space: nowrap;
+}
+.controls__row.is-active .controls__label { opacity: 1; }
+
+.controls__keys {
+  display: flex;
+  gap: 3px;
+}
+
+.controls__pad {
+  min-width: 34px;
+  padding: 1px 6px;
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 10px;
+  text-align: center;
+  opacity: 0.8;
+}
+.controls__pad:empty {
+  border-color: transparent;
+  background: none;
+}
+
+kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  border: 1px solid var(--edge);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  font: inherit;
+  font-size: 11px;
+}

@@ -1,0 +1,36 @@
+<% content_for :head do %>
+  <%# The canvas clones blank into Turbo's cached preview, so skip the preview entirely. %>
+  <meta name="turbo-cache-control" content="no-preview">
+<% end %>
+
+<div class="arena"
+     data-controller="arena"
+     data-arena-player-id-value="<%= @player_id %>"
+     data-arena-match-value="<%= @match %>">
+  <%# The world spec is ~100KB; in an attribute it would be doubled again by HTML
+      escaping, so it rides in a script tag instead. %>
+  <script type="application/json" data-arena-target="spec"><%= raw @world.to_spec.to_json %></script>
+
+  <canvas class="arena__canvas" data-arena-target="canvas"></canvas>
+
+  <div class="arena__status" data-arena-target="status">Loading…</div>
+
+  <div class="arena__hud">
+    <div class="hud__speed"><span data-arena-target="speed">0</span><em>km/h</em></div>
+    <div class="hud__turbo">
+      <div class="hud__turbo-fill" data-arena-target="turboFill"></div>
+    </div>
+    <div class="hud__vehicle" data-arena-target="vehicleName"></div>
+
+    <button type="button"
+            class="hud__mute"
+            data-arena-target="mute"
+            data-action="arena#toggleMute"
+            aria-pressed="false">
+      <span aria-hidden="true" data-arena-target="muteIcon">🔊</span>
+      <span data-arena-target="muteLabel">Sound on</span>
+    </button>
+  </div>
+
+  <div class="arena__controls" data-arena-target="controls"></div>
+</div>
