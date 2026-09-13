@@ -1,5 +1,7 @@
 import { Building } from "game/world/building"
 import { PieceMeshes } from "game/render/piece_meshes"
+import { Patterns } from "game/fracture/patterns"
+import { Debris } from "game/render/debris"
 
 // Every building in the world, and the instanced meshes they share.
 //
@@ -8,12 +10,14 @@ import { PieceMeshes } from "game/render/piece_meshes"
 // instead of one per material per house, which is the difference that decides whether a
 // city is possible at all.
 export class Buildings {
-  constructor({ RAPIER, world, scene, spec, materials, colliderIndex }) {
+  constructor({ RAPIER, world, scene, spec, materials, colliderIndex, grid }) {
     this.list = []
     this.byId = new Map()
 
     const specs = spec.arena.buildings || []
     this.meshes = new PieceMeshes(scene, materials)
+    this.patterns = new Patterns(materials)
+    this.debris = new Debris({ scene, materials, patterns: this.patterns })
     if (specs.length === 0) return
 
     // Counted across every building first, because an InstancedMesh is allocated once at
@@ -21,19 +25,32 @@ export class Buildings {
     const counts = new Map()
     for (const building of specs) Building.countMaterials(building, counts)
     this.meshes.allocate(counts)
+    // Before the loop starts, so the first explosion is not also the first tessellation.
+    this.patterns.warm(counts.keys())
 
     for (const buildingSpec of specs) {
       const building = new Building({
         RAPIER, world, spec: buildingSpec, materials,
         meshes: this.meshes, colliderIndex,
         contactThreshold: spec.rules.impact_force_threshold,
-        spread: spec.rules.damage.spread || 0
+        spread: spec.rules.damage.spread || 0,
+        debris: this.debris,
+        grid,
+        rules: spec.rules.damage
       })
       this.list.push(building)
       this.byId.set(building.id, building)
     }
 
     this.meshes.finalise()
+  }
+
+  update(dt) {
+    this.debris.update(dt)
+  }
+
+  get debrisCount() {
+    return this.debris.count
   }
 
   get pieceCount() {
@@ -64,6 +81,8 @@ export class Buildings {
 
   dispose(colliderIndex) {
     for (const building of this.list) building.dispose(colliderIndex)
+    this.debris.dispose()
+    this.patterns.dispose()
     this.meshes.dispose()
     this.list = []
     this.byId.clear()

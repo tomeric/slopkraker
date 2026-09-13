@@ -24,6 +24,7 @@ import { Buildings } from "game/world/buildings"
 import { Telemetry } from "game/telemetry"
 
 const MAX_FRAME_TIME = 0.25
+const SCRATCH_AWAY = new THREE.Vector3()
 
 // Fixed-step simulation with render interpolation. Physics runs at the rate Ruby
 // specifies regardless of display refresh; meshes are interpolated between the last two
@@ -79,7 +80,8 @@ export class GameEngine {
 
     this.buildings = new Buildings({
       RAPIER, world, scene: this.scene, spec: this.spec,
-      materials: this.spec.materials, colliderIndex: this.colliderIndex
+      materials: this.spec.materials, colliderIndex: this.colliderIndex,
+      grid: this.propGrid
     })
 
     this.eventQueue = new RAPIER.EventQueue(true)
@@ -114,7 +116,8 @@ export class GameEngine {
       props: this.props,
       destruction: this.destruction,
       projectiles: this.projectiles,
-      grid: this.propGrid
+      grid: this.propGrid,
+      rules: this.spec.rules.damage
     })
 
     this.hud = new Hud(this.root)
@@ -345,6 +348,7 @@ export class GameEngine {
     this.projectiles.update(dt)
     this.explosions.update(dt)
     this.destruction.update(dt)
+    this.buildings.update(dt)
     this.hitMarkers.update(dt)
 
     this.interpolator.endStep()
@@ -396,11 +400,11 @@ export class GameEngine {
       if (target.kind === "piece") {
         if (!target.building.standing(target.piece)) return
 
-        const damage = resolveDamage({
-          rules, part: attacker.part, speed: this.impactSpeed, state,
-          material: target.building.materialSpec(target.piece), kind: partKind(attacker.part)
-        })
-        if (damage > 0) pending.push({ piece: target, damage, key: attacker.name, label })
+        // Raw: the piece absorbs it, and so does every cell the spread reaches.
+        const damage = resolveDamage({ rules, part: attacker.part, speed: this.impactSpeed, state })
+        if (damage > 0) {
+          pending.push({ piece: target, damage, kind: partKind(attacker.part), key: attacker.name, label })
+        }
         return
       }
 
@@ -441,11 +445,16 @@ export class GameEngine {
 
   // A piece is a fixed collider that is never freed, so unlike a prop there is nothing to
   // read before the damage lands and nothing to be careful about afterwards.
-  damagePiece({ piece, damage, key, label }) {
+  damagePiece({ piece, damage, kind, key, label }) {
     const { building, piece: index } = piece
     const at = building.colliders[index].translation()
 
-    building.damage(index, damage)
+    // Which way the hit was going, so the shards carry on in that direction rather than
+    // dropping straight down out of the hole.
+    const from = this.vehicle.body.translation()
+    const away = SCRATCH_AWAY.set(at.x - from.x, 0, at.z - from.z).normalize()
+
+    building.damage(index, damage, kind, building.spread, away)
     this.stats.lastDamage = Math.round(damage)
     this.audio?.impact(Math.min(damage / 120, 1))
     this.damageGizmos?.registerHit(key, damage)

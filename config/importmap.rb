@@ -12,5 +12,10 @@ pin "@rails/actioncable", to: "actioncable.esm.js"
 pin "three", to: "three.js", preload: false # @0.170.0
 pin "@dimforge/rapier3d-compat", to: "rapier3d_compat.js", preload: false # @0.20.0
 
+# Vendored by hand rather than pinned through JSPM, because JSPM rewrites the bare "three"
+# import to its own CDN URL -- which would load a second copy of three alongside the one
+# above. This build's only import is bare "three", so the pin above resolves it to ours.
+pin "@dgreenheck/three-pinata", to: "three_pinata.js", preload: false # @2.0.1
+
 pin_all_from "app/javascript/controllers", under: "controllers"
 pin_all_from "app/javascript/game", under: "game"

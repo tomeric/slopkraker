@@ -1,6 +1,7 @@
 import * as THREE from "three"
 import { PROP_GROUPS } from "game/physics/groups"
 import { eachBuildingCell, materialAt } from "game/world/surface"
+import { absorb } from "game/damage"
 
 // One building, expanded from its surfaces into pieces that can be hit.
 //
@@ -24,13 +25,16 @@ const BROKEN = 1
 const ABSENT = 2
 
 export class Building {
-  constructor({ RAPIER, world, spec, materials, meshes, colliderIndex, contactThreshold, spread = 0 }) {
+  constructor({ RAPIER, world, spec, materials, meshes, colliderIndex, contactThreshold, spread = 0, debris = null, grid = null, rules = {} }) {
     this.spec = spec
     this.materials = materials
     this.meshes = meshes
     this.world = world
     this.contactThreshold = contactThreshold
     this.spread = spread
+    this.debris = debris
+    this.grid = grid
+    this.rules = rules
     this.id = spec.id
     this.name = spec.name
 
@@ -88,6 +92,14 @@ export class Building {
       this.maxHealth[index] = health
       this.slot[index] = this.meshes.add(name, matrix)
       this.colliders[index] = this.createCollider(RAPIER, matrix, surface, name, index, colliderIndex)
+
+      // Into the blast grid, so an explosion can find this piece. Static: a wall panel
+      // never moves, so it is placed once and never revisited -- which is the property
+      // that lets the grid hold a city's worth of them.
+      if (this.grid) {
+        matrix.decompose(POSITION, ROTATION, SCALE)
+        this.grid.insert(this.target(index), POSITION.x, POSITION.y, POSITION.z)
+      }
     })
   }
 
@@ -114,6 +126,14 @@ export class Building {
       building: this, piece: index
     })
     return collider
+  }
+
+  // The handle a blast holds onto. Built once per piece and kept, so a blast query hands
+  // back something that already knows which building and which cell it is.
+  target(index) {
+    this.targets ||= new Array(this.state.length)
+    this.targets[index] ||= { building: this, piece: index }
+    return this.targets[index]
   }
 
   materialSpec(index) {
@@ -143,7 +163,11 @@ export class Building {
     return out
   }
 
-  // Returns true if this damage was what finished the piece off.
+  // `raw` is damage before the target has had any say in it. Each cell absorbs it with
+  // ITS OWN material, which is the only way the spread can be right: a steel lintel set
+  // into a brick wall has to resist what reaches it as steel. Absorbing once at the centre
+  // and passing the result outward meant the lintel took brick's arithmetic at 70% and
+  // fell out of a wall it should have outlasted.
   //
   // A hit carries into the cells around it. Without that, the most a single impact can do
   // is remove the one 1.5m panel it touched -- which looks like a car chipping a wall
@@ -152,12 +176,15 @@ export class Building {
   //
   // The spread does not spread again: passing 0 on the recursive call is what stops one
   // hit walking across the whole building.
-  damage(index, amount, spread = this.spread) {
+  damage(index, raw, kind = "impact", spread = this.spread, away = null) {
     if (spread > 0) {
-      for (const near of this.neighbours(index)) this.damage(near, amount * spread, 0)
+      for (const near of this.neighbours(index)) this.damage(near, raw * spread, kind, 0, away)
     }
 
     if (!this.standing(index)) return false
+
+    const amount = absorb(raw, this.materialSpec(index), kind, this.rules)
+    if (amount <= 0) return false
 
     this.health[index] -= amount
     if (this.health[index] > 0) {
@@ -165,15 +192,20 @@ export class Building {
       return false
     }
 
-    this.break(index)
+    this.break(index, away)
     return true
   }
 
-  break(index) {
+  break(index, away = null) {
     if (!this.standing(index)) return false
 
     this.state[index] = BROKEN
+    // Shards before the piece goes: they are spawned from the transform the piece had,
+    // which is still on hand either way, but doing it in this order keeps the two reads of
+    // that matrix next to each other.
+    this.debris?.spawn(this.matrices[index], this.material[index], { away })
     this.meshes.setVisible(this.material[index], this.slot[index], false)
+    if (this.targets?.[index]) this.grid?.remove(this.targets[index])
     // Disabled, never removed. The handle stays valid, the registry stays consistent, and
     // restoring is the same call with the other argument.
     this.colliders[index]?.setEnabled(false)
@@ -188,6 +220,10 @@ export class Building {
     this.meshes.setVisible(this.material[index], this.slot[index], true, this.matrices[index])
     this.meshes.tint(this.material[index], this.slot[index], 1)
     this.colliders[index]?.setEnabled(true)
+    if (this.grid && this.matrices[index]) {
+      this.matrices[index].decompose(POSITION, ROTATION, SCALE)
+      this.grid.insert(this.target(index), POSITION.x, POSITION.y, POSITION.z)
+    }
     return true
   }
 

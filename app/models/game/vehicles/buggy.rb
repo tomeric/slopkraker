@@ -181,9 +181,9 @@ module Game
           radius: 0.16,
           # A shot into open air destroys itself rather than flying forever.
           lifetime: 5.0,
-          minimum_damage: 45.0,
-          max_damage: 190.0,
-          damage_per_speed: 2.6,
+          minimum_damage: 90.0,
+          max_damage: 380.0,
+          damage_per_speed: 5.2,
           colour: "#ff5a1f",
           flight: flight,
           explosion: explosion
@@ -225,11 +225,15 @@ module Game
       # shot, not enough to be flung across the arena by a stray one.
       def self.explosion
         Explosion.new(
-          radius: 4.5,
+          # Radius is the lever that makes a blast feel bigger, not damage. Everything
+          # inside the shell is already comfortably past dying, so raising the number
+          # changes nothing you can see -- widening the shell is what turns a hole into a
+          # crater.
+          radius: 5.0,
           expand_time: 0.22,
           linger: 0.20,
-          prop_push: 0.9,
-          prop_lift: 0.6,
+          prop_push: 1.15,
+          prop_lift: 0.75,
           vehicle_share: 0.6,
           vehicle_lift: 0.8,
           colour: "#ffb03a"

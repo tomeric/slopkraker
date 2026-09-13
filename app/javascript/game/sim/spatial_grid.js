@@ -138,14 +138,21 @@ export class SpatialGrid {
           if (fx * fx + fz * fz <= innerSquared) continue
         }
 
-        // Backwards, because visit() is allowed to remove the item it was handed -- a
-        // blast destroys what it reaches, and a destroyed prop leaves the grid at once.
-        // remove() swaps the last record into the hole, and walking down means that
-        // record has already been visited, so nothing is skipped or seen twice. This
-        // only holds while unbucket() swaps rather than splices.
+        // Backwards, because visit() is allowed to remove things from this very cell. A
+        // blast destroys what it reaches, and a destroyed piece leaves the grid at once --
+        // and because damage spreads, it takes its neighbours with it, several of which
+        // are usually in this same cell.
+        //
+        // remove() swaps the last record into the hole. Walking down means that record has
+        // already been visited, so nothing is skipped or seen twice. But the cell can
+        // shrink past the index we started from, so the bound is re-checked every step:
+        // without that, cell[i] reads undefined and the whole sweep throws, which loses
+        // every target the blast had not reached yet.
         for (let i = cell.length - 1; i >= 0; i -= 1) {
+          if (i >= cell.length) continue
+
           const record = cell[i]
-          visit(record.item, record.x, record.y, record.z)
+          if (record) visit(record.item, record.x, record.y, record.z)
         }
       }
     }

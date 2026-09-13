@@ -1,3 +1,4 @@
+import * as THREE from "three"
 import { explosionForce } from "game/damage"
 
 // Re-sweep once the shell has grown by this share of its final radius. The shell only
@@ -14,11 +15,12 @@ const SWEEP_GROWTH = 0.08
 // Lives beside destruction.js rather than inside it until that file splits, at which
 // point both move into destruction/.
 export class BlastWave {
-  constructor({ props, destruction, projectiles, grid }) {
+  constructor({ props, destruction, projectiles, grid, rules }) {
     this.props = props
     this.destruction = destruction
     this.projectiles = projectiles
     this.grid = grid
+    this.rules = rules
     this.positionOf = (prop) => prop.entry?.currPos
   }
 
@@ -47,21 +49,42 @@ export class BlastWave {
   // weaker what arrives -- the same falloff a one-shot blast query gave, now spread over
   // the expansion.
   sweepProps(spec, at, damage, hit, radius, sweptTo) {
-    this.grid.forEachInAnnulus(at.x, at.z, sweptTo, radius, (prop, px, py, pz) => {
-      if (prop.broken || hit.has(prop)) return
+    this.grid.forEachInAnnulus(at.x, at.z, sweptTo, radius, (target, px, py, pz) => {
+      if (hit.has(target)) return
 
       const dx = px - at.x, dy = py - at.y, dz = pz - at.z
       const distance = Math.hypot(dx, dy, dz)
       if (distance > radius) return
 
-      hit.add(prop)
+      hit.add(target)
       const falloff = explosionForce(spec, distance)
-      this.destruction.apply(prop, damage * falloff)
-      // The blast may have just destroyed it; its body is gone.
-      if (prop.broken) return
 
-      push(prop.body, dx, dy, dz, distance, falloff * damage * spec.prop_push, spec.prop_lift, 0.4)
+      // The grid holds both the loose props and the pieces of every building. A piece has
+      // a building; a prop has a body.
+      if (target.building) {
+        this.blastPiece(target, damage * falloff, dx, dy, dz, distance)
+        return
+      }
+
+      if (target.broken) return
+      this.destruction.apply(target, damage * falloff)
+      // The blast may have just destroyed it; its body is gone.
+      if (target.broken) return
+
+      push(target.body, dx, dy, dz, distance, falloff * damage * spec.prop_push, spec.prop_lift, 0.4)
     })
+  }
+
+  // A piece is fixed, so there is nothing to shove -- the whole effect is the damage and
+  // what it throws off. `away` points out of the blast so the shards carry with it.
+  blastPiece(target, damage, dx, dy, dz, distance) {
+    const away = AWAY.set(dx, dy, dz)
+    if (distance > 0) away.multiplyScalar(1 / distance)
+
+    // Handed over raw and marked as a blast: each cell it reaches absorbs it with its own
+    // material, so glass and the lintel beside it answer for themselves.
+    const building = target.building
+    building.damage(target.piece, damage, "blast", building.spread, away)
   }
 
   // A rocket caught in a blast goes off with it, so a burst chains rather than trickling
@@ -93,6 +116,8 @@ export class BlastWave {
     push(vehicle.body, dx, dy, dz, distance, falloff * damage * spec.vehicle_push, spec.vehicle_lift, 0.6)
   }
 }
+
+const AWAY = new THREE.Vector3()
 
 // `lift` is the upward bias that makes a blast throw things up rather than merely slide
 // them along the ground. `floor` keeps a target sitting exactly on the origin from being

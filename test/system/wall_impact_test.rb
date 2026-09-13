@@ -54,7 +54,42 @@ class WallImpactTest < ApplicationSystemTestCase
     assert_equal 0, broken.fetch("steel", 0), "a lintel is not something you drive through"
   end
 
+  # A rocket has to reach the building at all, and for a while it did not. The blast wave
+  # sweeps the spatial grid, and only loose props were ever put into it -- so explosions
+  # found crates and pillars and passed straight through walls, at any damage number you
+  # care to set.
+  #
+  # Then, once pieces were in the grid, breaking one removed it from a cell mid-sweep while
+  # damage spread was breaking its neighbours out of that same cell. The array shrank under
+  # a loop that had captured its length once, the sweep threw, and every target it had not
+  # reached yet was lost. Both failures look identical from the driver's seat: a bang, and a
+  # wall still standing.
+  test "a rocket blows a hole in the house" do
+    standing = telemetry["piecesStanding"]
+    fire_from(2)
+
+    assert_operator telemetry["piecesBroken"], :>, 20,
+      "one rocket should take out a good part of a wall"
+    assert_operator telemetry["piecesStanding"], :<, standing
+    assert_empty severe_console_errors, "the sweep threw part way through"
+  end
+
+  test "a blast leaves shards behind" do
+    fire_from(2)
+
+    assert_operator telemetry["shards"], :>, 0, "a blast should throw debris"
+  end
+
   private
+    def fire_from(z)
+      page.execute_script("window.__arenaPlace = { x: #{FRONT_X}, y: 2.0, z: #{z}, yaw: 0 }")
+      sleep 1.0
+      page.execute_script("window.__arenaInput = { action: true, actionPressed: true }")
+      sleep 0.3
+      page.execute_script("window.__arenaInput = null")
+      sleep 2.5
+    end
+
     def charge
       page.execute_script("window.__arenaPlace = { x: #{FRONT_X}, y: 2.0, z: #{RUN_UP_Z}, yaw: 0 }")
       sleep 1.0
