@@ -223,6 +223,12 @@ module Game
 
           def each_cell(from: nil, only: nil)
             surfaces.surfaces.each do |surface|
+              # Rubble is the wreckage a collapse LEAVES, so no collapse may sweep it: not
+              # to destroy it, not to weigh it as load, not to count it as support. Its
+              # storey of -1 already puts it outside every bound here, and this says so out
+              # loud, because the failure would be silent and permanent -- a house that
+              # quietly never leaves any wreckage, with nothing downstream looking wrong.
+              next if surface.kind == :rubble
               next if from && surface.storey < from
               next if only && surface.storey != only
 

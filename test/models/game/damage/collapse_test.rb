@@ -114,8 +114,11 @@ class Game::Damage::CollapseTest < ActiveSupport::TestCase
     result = evaluate(set, broken: indices_of(walls_at(set, 0).first(2)))
 
     assert_equal 0, result.collapsed_from
-    assert_equal set.piece_count, (result.broken + indices_of(walls_at(set, 0).first(2))).uniq.length,
-                 "a collapse from the ground up should account for every piece in the building"
+    building_pieces = indices_of(set.surfaces.reject { |s| s.kind == :rubble })
+    assert_equal building_pieces.length,
+                 (result.broken + indices_of(walls_at(set, 0).first(2))).uniq.length,
+                 "a collapse from the ground up should account for every piece in the " \
+                 "building -- but not for the rubble it leaves behind"
 
     roof = set.surfaces.find { |surface| surface.kind == :roof }
     assert_includes result.broken, roof.piece_index(0, 0), "the roof should come down with it"
@@ -203,5 +206,30 @@ class Game::Damage::CollapseTest < ActiveSupport::TestCase
         assert_equal 1, surface.storey, "only the storey under the collapse takes the pancake"
       end
     end
+  end
+
+  # THE failure mode of this whole design. A collapse sweeps every cell of every surface at
+  # or above the failed storey, so rubble left visible to it would be destroyed by the very
+  # collapse that creates it -- and nothing downstream would look wrong. A house would
+  # simply never leave any wreckage, and no message, row or assertion would say why.
+  test "a collapse leaves the rubble it creates standing" do
+    set = house
+    rubble = set.surfaces.last
+    result = evaluate(set, broken: indices_of(walls_at(set, 0).first(2)))
+
+    piles = Game::Building::Rubble.pile_indices(rubble)
+    assert_operator piles.length, :>, 0, "the house generated no rubble to test with"
+    assert_empty(result.broken & piles, "the collapse destroyed its own wreckage")
+  end
+
+  # Rubble weighs nothing and holds nothing up, so a building reserving it cannot change
+  # when that building falls down. If this drifts, every collapse in the game retunes
+  # itself silently.
+  test "rubble is weighed neither as load nor as support" do
+    rubble = house.surfaces.last
+
+    assert_equal :rubble, rubble.kind
+    assert_equal 0.0, rubble.structural_area, "rubble counted as support"
+    assert_equal(-1, rubble.storey, "rubble must sit below every storey the rule sweeps")
   end
 end
