@@ -59,6 +59,40 @@ class CollapseTest < ApplicationSystemTestCase
     assert piece_standing?(building, roof_offset(building)), "the roof starts up"
   end
 
+  # Coming back to a ruin must be silent. Restoring is not an event: the pieces were broken
+  # in some earlier session, possibly by someone else, and staging the explosion again on
+  # every page load is the difference between a world that persists and a world that blows
+  # up in your face each time you open it.
+  test "returning to a wrecked building does not set it off again" do
+    building = boot("debris-restore")
+    wreck_storey(building, 0)
+    wait_for(timeout: 15, message: "the server never reported a collapse") do
+      page.evaluate_script("window.__arenaCollapses()").positive?
+    end
+    Game::Damage::Registry.flush_all!
+
+    boot("debris-restore")
+    wait_for(timeout: 15, message: "the wreckage never came back") do
+      !piece_standing?(building, 0)
+    end
+
+    assert_equal 0, page.evaluate_script("window.__arenaDebrisSpawned()"),
+                 "restoring a ruin re-staged its demolition"
+  end
+
+  # ...but a break happening now still throws shards, or breaking things stops being fun.
+  test "a break that happens now still throws debris" do
+    building = boot("debris-live")
+    page.execute_script("window.__arenaDamagePiece(0, 5000, arguments[0])", building)
+
+    spawned = wait_for(timeout: 15, message: "a live break threw no debris") do
+      count = page.evaluate_script("window.__arenaDebrisSpawned()")
+      count.positive? && count
+    end
+
+    assert_operator spawned, :>, 0
+  end
+
   # The process-restart case from the design doc, and the only version of this test worth
   # having. Dropping the registry is what makes it real: the server's memory of this match
   # is gone, so anything that comes back can only have come from object_damages. Reloading

@@ -63,16 +63,24 @@ export class Buildings {
     return this.byId.get(objectId)?.collapse(fromStorey) ?? 0
   }
 
+  // Silent, unlike applyBreaks. This is the world as it already was -- broken in some
+  // earlier session, possibly by somebody else -- so the pieces are simply absent. Running
+  // it loud meant every page load re-staged a demolition, and a persistent world that
+  // explodes each time you open it does not read as persistence at all.
   applyState(objects) {
     for (const entry of objects || []) {
       const building = this.byId.get(entry.id)
       if (!building) continue
 
-      building.applyBroken(entry.broken)
+      building.applyBroken(entry.broken, true)
       if (entry.collapsed_from !== null && entry.collapsed_from !== undefined) {
-        building.collapse(entry.collapsed_from)
+        building.collapse(entry.collapsed_from, true)
       }
     }
+  }
+
+  get debrisSpawned() {
+    return this.debris.spawnedTotal
   }
 
   get debrisCount() {

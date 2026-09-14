@@ -22,6 +22,7 @@ export class Debris {
     this.patterns = patterns
     this.cap = cap
     this.live = []
+    this.spawned = 0
     this.pool = []
     this.meshMaterials = new Map()
   }
@@ -50,6 +51,10 @@ export class Debris {
   spawn(matrix, name, { away = null, force = 1 } = {}) {
     const fragments = this.patterns.for(name)
     if (fragments.length === 0) return 0
+
+    // Cumulative and never reset. `count` is how many are in the air, which decays as they
+    // retire, so it cannot answer "did this spawn anything" a moment after the fact.
+    this.spawned += fragments.length
 
     matrix.decompose(POSITION, ROTATION, SCALE)
     const lifetime = 4 + Math.random() * 3
@@ -137,6 +142,10 @@ export class Debris {
     piece.mesh.visible = false
     this.live.splice(index, 1)
     this.pool.push(piece)
+  }
+
+  get spawnedTotal() {
+    return this.spawned
   }
 
   get count() {

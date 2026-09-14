@@ -248,14 +248,17 @@ export class Building {
     return broke
   }
 
-  breakCell(index, away = null) {
+  // `silent` is the difference between something breaking and something having been
+  // broken. A hit throws shards; restoring a ruin someone else left must not, or every
+  // page load re-stages a demolition that happened in a session long gone.
+  breakCell(index, away = null, silent = false) {
     if (!this.standing(index)) return false
 
     this.state[index] = BROKEN
     // Shards before the piece goes: they are spawned from the transform the piece had,
     // which is still on hand either way, but doing it in this order keeps the two reads of
     // that matrix next to each other.
-    this.debris?.spawn(this.matrices[index], this.material[index], { away })
+    if (!silent) this.debris?.spawn(this.matrices[index], this.material[index], { away })
     this.meshes.setVisible(this.material[index], this.slot[index], false)
     if (this.targets?.[index]) this.grid?.remove(this.targets[index])
     // Disabled, never removed. The handle stays valid, the registry stays consistent, and
@@ -268,12 +271,12 @@ export class Building {
   // hundred and fifty pieces here. The client already holds the surfaces, so expanding it
   // is a filter rather than a message. Roof and gable surfaces carry storey_count, which
   // is above every real storey, so "storey >= from" reaches them without a special case.
-  collapse(fromStorey) {
+  collapse(fromStorey, silent = false) {
     let count = 0
     for (let index = 0; index < this.pieceCount; index++) {
       const surface = this.spec.surfaces[this.surfaceOf[index]]
       if (!surface || surface.storey < fromStorey) continue
-      if (this.breakCell(index)) count++
+      if (this.breakCell(index, null, silent)) count++
     }
     return count
   }
@@ -282,13 +285,13 @@ export class Building {
   // A piece we have already broken that the server thinks is standing stays broken, which
   // is what makes a rollback after a server restart invisible rather than a wall
   // flickering back into existence in front of the player who just drove through it.
-  applyBroken(base64) {
+  applyBroken(base64, silent = false) {
     if (!base64) return 0
     const binary = atob(base64)
     let count = 0
     for (let index = 0; index < this.pieceCount; index++) {
       const byte = binary.charCodeAt(index >> 3)
-      if (byte & (1 << (index & 7)) && this.breakCell(index)) count++
+      if (byte & (1 << (index & 7)) && this.breakCell(index, null, silent)) count++
     }
     return count
   }

@@ -189,6 +189,7 @@ export class GameEngine {
       this.buildings?.find(buildingId)?.block(piece) ?? []
     window.__arenaDraws = () => this.renderer.info.render.calls
     window.__arenaCollapses = () => this.collapsesSeen ?? 0
+    window.__arenaDebrisSpawned = () => this.buildings?.debrisSpawned ?? 0
     window.__arenaReported = () => this.reporter?.sent ?? 0
     window.__arenaBuildingIds = () => this.buildings?.list.map((b) => b.id) ?? []
     window.__arenaBuildingSpec = (id) => this.buildings?.find(id)?.spec ?? null
