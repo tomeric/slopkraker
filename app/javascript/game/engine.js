@@ -22,6 +22,8 @@ import { BlastWave } from "game/blast_wave"
 import { SpatialGrid } from "game/sim/spatial_grid"
 import { Buildings } from "game/world/buildings"
 import { Telemetry } from "game/telemetry"
+import { NetConnection } from "game/net/connection"
+import { DamageReporter } from "game/net/damage_reporter"
 
 const MAX_FRAME_TIME = 0.25
 const SCRATCH_AWAY = new THREE.Vector3()
@@ -83,10 +85,25 @@ export class GameEngine {
     this.propGrid = new SpatialGrid({ cellSize: 5 })
     this.trackProps()
 
+    // Opened before the buildings, because every building reports through the reporter and
+    // a break landing before it exists would be a break the server never hears about.
+    this.connection = new NetConnection({
+      match: this.match,
+      world: this.worldSlug,
+      playerId: this.playerId,
+      onMessage: (data) => this.onNetMessage(data),
+      onStatus: (up) => this.onNetStatus(up)
+    })
+    this.reporter = new DamageReporter({
+      connection: this.connection, hz: this.spec.rules.snapshot_hz
+    })
+    this.collapsesSeen = 0
+
     this.buildings = new Buildings({
       RAPIER, world, scene: this.scene, spec: this.spec,
       materials: this.spec.materials, colliderIndex: this.colliderIndex,
-      grid: this.propGrid
+      grid: this.propGrid,
+      onDamage: (id, piece, raw, kind) => this.reporter.report(id, piece, raw, kind)
     })
 
     this.eventQueue = new RAPIER.EventQueue(true)
@@ -171,6 +188,10 @@ export class GameEngine {
     window.__arenaPieceBlock = (piece, buildingId) =>
       this.buildings?.find(buildingId)?.block(piece) ?? []
     window.__arenaDraws = () => this.renderer.info.render.calls
+    window.__arenaCollapses = () => this.collapsesSeen ?? 0
+    window.__arenaReported = () => this.reporter?.sent ?? 0
+    window.__arenaBuildingIds = () => this.buildings?.list.map((b) => b.id) ?? []
+    window.__arenaBuildingSpec = (id) => this.buildings?.find(id)?.spec ?? null
     window.__arenaQuality = this.qualityName
 
     this.running = true
@@ -178,6 +199,41 @@ export class GameEngine {
     this.rafId = requestAnimationFrame(this.frame)
     this.onStatus(null)
     this.onMuteChange(this.muted)
+  }
+
+  // Everything the server decides about the world arrives here. All of it is monotone --
+  // pieces only break, a collapse only ever moves downward -- so applying a message twice
+  // costs nothing and a break this client already predicted is simply confirmed.
+  onNetMessage(data) {
+    switch (data.type) {
+      case "breaks":
+        if (!this.buildings) return
+        this.buildings.applyBreaks(data.broken)
+        for (const [ objectId, storey ] of data.collapses || []) {
+          this.buildings.applyCollapse(objectId, storey)
+          this.collapsesSeen++
+        }
+        break
+      case "state":
+        this.buildings?.applyState(data.objects)
+        break
+      case "error":
+        // Loud on purpose: the suite surfaces SEVERE console errors on a wait_for timeout,
+        // so a process that has lost the match shows up as a named cause rather than as
+        // destruction mysteriously doing nothing.
+        console.error(`arena: server refused damage (${data.reason})`)
+        break
+    }
+  }
+
+  // Asked once per connect, not once per boot: a reconnect has to catch up on everything
+  // that broke while the socket was down, and the answer is monotone so asking again is
+  // always safe.
+  onNetStatus(up) {
+    // The socket is opened before the buildings are built, so a fast connect can land
+    // here first. Nothing to resync against yet, and the next connect will ask again.
+    if (!up || !this.buildings) return
+    this.connection.requestState(this.buildings.list.map((building) => building.id))
   }
 
   toggleMute() {
@@ -359,6 +415,7 @@ export class GameEngine {
     this.explosions.update(dt)
     this.destruction.update(dt)
     this.buildings.update(dt)
+    this.reporter.update(dt)
     this.hitMarkers.update(dt)
 
     this.interpolator.endStep()
@@ -587,6 +644,7 @@ export class GameEngine {
     this.hitMarkers?.dispose()
     this.projectiles?.dispose()
     this.destruction?.dispose()
+    this.connection?.dispose()
     this.buildings?.dispose(this.colliderIndex)
     this.eventQueue?.free()
     this.world?.free()

@@ -10,7 +10,7 @@ import { Debris } from "game/render/debris"
 // instead of one per material per house, which is the difference that decides whether a
 // city is possible at all.
 export class Buildings {
-  constructor({ RAPIER, world, scene, spec, materials, colliderIndex, grid }) {
+  constructor({ RAPIER, world, scene, spec, materials, colliderIndex, grid, onDamage = null }) {
     this.list = []
     this.byId = new Map()
 
@@ -36,7 +36,8 @@ export class Buildings {
         spread: spec.rules.damage.spread || 0,
         debris: this.debris,
         grid,
-        rules: spec.rules.damage
+        rules: spec.rules.damage,
+        onDamage
       })
       this.list.push(building)
       this.byId.set(building.id, building)
@@ -47,6 +48,31 @@ export class Buildings {
 
   update(dt) {
     this.debris.update(dt)
+  }
+
+  // What the server says is gone. Everything below is monotone -- it only ever breaks --
+  // so applying the same message twice costs nothing and a break this client already
+  // predicted is simply confirmed.
+  applyBreaks(broken) {
+    for (const [ objectId, pieceIndex ] of broken || []) {
+      this.byId.get(objectId)?.break(pieceIndex)
+    }
+  }
+
+  applyCollapse(objectId, fromStorey) {
+    return this.byId.get(objectId)?.collapse(fromStorey) ?? 0
+  }
+
+  applyState(objects) {
+    for (const entry of objects || []) {
+      const building = this.byId.get(entry.id)
+      if (!building) continue
+
+      building.applyBroken(entry.broken)
+      if (entry.collapsed_from !== null && entry.collapsed_from !== undefined) {
+        building.collapse(entry.collapsed_from)
+      }
+    }
   }
 
   get debrisCount() {

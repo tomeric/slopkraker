@@ -25,7 +25,7 @@ const BROKEN = 1
 const ABSENT = 2
 
 export class Building {
-  constructor({ RAPIER, world, spec, materials, meshes, colliderIndex, contactThreshold, spread = 0, debris = null, grid = null, rules = {} }) {
+  constructor({ RAPIER, world, spec, materials, meshes, colliderIndex, contactThreshold, spread = 0, debris = null, grid = null, rules = {}, onDamage = null }) {
     this.spec = spec
     this.materials = materials
     this.meshes = meshes
@@ -35,6 +35,7 @@ export class Building {
     this.debris = debris
     this.grid = grid
     this.rules = rules
+    this.onDamage = onDamage
     this.id = spec.id
     this.name = spec.name
 
@@ -223,6 +224,12 @@ export class Building {
     const amount = absorb(raw, this.materialSpec(index), kind, this.rules)
     if (amount <= 0) return false
 
+    // Reported RAW, before this cell's material has taken its cut. The server runs the
+    // same absorb from the same table; sending `amount` would apply the material twice.
+    // Reported per cell rather than per hit, because spread and block tiling have already
+    // happened here and the server has no business knowing about either.
+    this.onDamage?.(this.id, index, raw, kind)
+
     this.health[index] -= amount
     if (this.health[index] > 0) {
       this.meshes.tint(this.material[index], this.slot[index], this.health[index] / this.maxHealth[index])
@@ -255,6 +262,35 @@ export class Building {
     // restoring is the same call with the other argument.
     this.colliders[index]?.setEnabled(false)
     return true
+  }
+
+  // A collapse arrives as twenty bytes -- [object_id, from_storey] -- and becomes a
+  // hundred and fifty pieces here. The client already holds the surfaces, so expanding it
+  // is a filter rather than a message. Roof and gable surfaces carry storey_count, which
+  // is above every real storey, so "storey >= from" reaches them without a special case.
+  collapse(fromStorey) {
+    let count = 0
+    for (let index = 0; index < this.pieceCount; index++) {
+      const surface = this.spec.surfaces[this.surfaceOf[index]]
+      if (!surface || surface.storey < fromStorey) continue
+      if (this.breakCell(index)) count++
+    }
+    return count
+  }
+
+  // Monotone, and that is the whole of the reconciliation design. This only ever breaks.
+  // A piece we have already broken that the server thinks is standing stays broken, which
+  // is what makes a rollback after a server restart invisible rather than a wall
+  // flickering back into existence in front of the player who just drove through it.
+  applyBroken(base64) {
+    if (!base64) return 0
+    const binary = atob(base64)
+    let count = 0
+    for (let index = 0; index < this.pieceCount; index++) {
+      const byte = binary.charCodeAt(index >> 3)
+      if (byte & (1 << (index & 7)) && this.breakCell(index)) count++
+    }
+    return count
   }
 
   restore(index) {
