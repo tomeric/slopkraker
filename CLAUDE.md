@@ -14,8 +14,10 @@ Two vehicles:
 - Fast Buggy with a Rocket Launcher, and a rear-mounted Bull Bar to destroy stuff while drifting.
 
 Currently:
-- Drive around a walled arena with ramps, a circuit and destructible crates/pillars.
-- Everything under `app/models/game/` is a plain Ruby object for now.
+- Worlds are rows. Two are seeded, `flat` and `targets`; `/?world=<slug>` picks one.
+- Buildings generate from a ~300 byte recipe into surfaces, and come apart by the cell:
+  glass shatters, timber splinters, brick spalls, and a storey that loses what holds it
+  up brings down everything above it.
 
 ## Commands
 
@@ -26,8 +28,8 @@ bin/ci                     # full CI: rubocop, bundler-audit, importmap audit, b
 bin/rubocop                # rails-omakase style
 
 bin/rails test                                   # model/channel tests only (system tests excluded)
-bin/rails test test/models/game/world_test.rb    # one file
-bin/rails test test/models/game/world_test.rb:24 # one test by line
+bin/rails test test/models/game/spec_test.rb     # one file
+bin/rails test test/models/game/spec_test.rb:24  # one test by line
 bin/rails test:system                            # browser tests — headless Chrome, slow, serial
 bin/rails test test/system/driving_test.rb       # one system test file
 ```
@@ -35,28 +37,87 @@ bin/rails test test/system/driving_test.rb       # one system test file
 `bin/ci` deliberately leaves system tests out (they need Chrome and take minutes). Run them
 by hand after touching anything in `app/javascript/game/`.
 
-Useful URLs while the server is up: `/?vehicle=buggy` picks the vehicle, `/?match=<name>` picks
-the ActionCable match. In-game: `G` toggles the debug overlay, `V` switches vehicle, `R` respawns,
-`H` hides the controls panel, `M` mutes.
+Useful URLs while the server is up: `/?world=<slug>` picks the world (`flat`, `targets`),
+`/?vehicle=buggy` picks the vehicle, `/?quality=low` drops shadows and pixel ratio, `/?match=<name>`
+picks the ActionCable match. In-game: `G` toggles the debug overlay, `V` switches vehicle,
+`R` respawns, `H` hides the controls panel, `M` mutes.
+
+`bin/dev` resolves its own port: an explicit `PORT`/`-p` wins, else the port recorded in
+`.dev-port`, else the first free one in the 31xx band, which it then records. Several worktrees
+run servers on this machine at once and 3000/3001 are taken by other apps.
 
 ## Architecture
 
+### Active Record at the top level, plain Ruby under `game/`
+
+`app/models/*.rb` are Active Record: `World`, `TerrainTile`, `WorldObject`, `Match`,
+`ObjectDamage`. `app/models/game/**` are plain Ruby objects that **never touch the database** —
+they are handed what they need and return value objects. A `World` builds a `Game::Scene`; a
+`Game::Scene` never looks a `World` up. That split is what keeps almost all of the game's
+logic testable without fixtures, and it is worth preserving.
+
+Note the naming trap: `Game::World` no longer exists, and must not come back. Inside
+`module Game` a bare `World` resolves to `Game::World`, so a PORO by that name sitting
+beside the `::World` record would be a bug with a very long fuse. The composition root is
+`Game::Spec`.
+
 ### Ruby owns the rules, the browser runs the simulation
 
-`Game::World.build` composes the arena, both vehicles, the rules hash and the input bindings, and
-`#to_spec` serialises the lot (~100KB) into a `<script type="application/json">` tag in
-`app/views/arenas/show.html.erb`. `arena_controller.js` parses it and hands it to `GameEngine`.
+`Game::Spec.for(world)` composes the world's scene, both vehicles, the material table, the rules
+hash and the input bindings, and `#to_spec` serialises the lot into a
+`<script type="application/json">` tag in `app/views/arenas/show.html.erb`. `arena_controller.js`
+parses it and hands it to `GameEngine`.
 
 **Every tuning number lives in Ruby.** The JS side holds no constants of its own — chassis, engine,
-suspension, drift, turbo, camera, audio, part damage profiles all arrive in the spec. Retuning feel
-means editing `app/models/game/vehicles/*.rb`, never JavaScript. `World#to_spec` appends a SHA
-digest as `version` so two clients on different tuning are detectable rather than silently desyncing.
+suspension, drift, turbo, camera, audio, part damage profiles, and every number in
+`Game::Materials` all arrive in the spec. Retuning feel means editing
+`app/models/game/vehicles/*.rb` or `materials.rb`, never JavaScript. `Spec#to_spec` appends a SHA
+digest as `version` so two clients on different tuning are detectable rather than silently
+desyncing.
 
 A few behaviours are *ported* rather than shipped as data, because they must run every frame
-client-side: `Game::TurboBar` → `game/turbo_bar.js`, `Game::DamageResolver` + `Part#armed?` →
-`game/damage.js`. These pairs must be changed together. The Ruby side has unit tests under
-`test/models/game/`; the JS side is only covered indirectly by the browser tests. (Comments in
-those JS files mention a "parity system test" — no such test exists yet.)
+client-side. These pairs must be changed together:
+
+| Ruby | JavaScript |
+|---|---|
+| `Game::TurboBar` | `game/turbo_bar.js` |
+| `Game::DamageResolver` + `Part#armed?` | `game/damage.js` |
+| `Game::Building::Surface` (the grid) | `game/world/surface.js` |
+
+The Ruby side has unit tests under `test/models/game/`; the JS side is only covered indirectly by
+the browser tests. (Comments in those JS files mention a "parity system test" — no such test
+exists yet.)
+
+**`Game::Damage::Collapse` is deliberately NOT ported**, and the file opens with the reasoning
+because the temptation to port it will recur. An individual break is monotone and self-caused, so
+a client can predict it and never have to undo one. A collapse is neither: it follows from the sum
+of what every player has done to a building, and it is the one event that cannot be walked back.
+The server decides and says so in `[object_id, from_storey]`; the client expands that against
+surfaces it already holds.
+
+### Buildings: recipe → surfaces → pieces
+
+A `world_objects.recipe` is a few hundred bytes — footprint ring, storeys, eaves, ridge, roof type,
+cell size, seed. `Game::Building::Generator` turns it into a `SurfaceSet` deterministically and on
+demand; **pieces are never rows and are never materialised on the server**. That is the only reason
+a thousand buildings can be a thousand rows rather than a quarter of a million.
+
+A surface is a regular grid of cells with a `piece_offset`, and the client expands it. Two rules
+hold the whole thing together, and both are commented at their sites:
+
+- **Piece index space is never culled, only geometry is.** `piece_index = off + row * cols + col`
+  for every row and column, always. A doorway is a real index holding `void`; a gable's clipped
+  corners are real indices holding `void`. If either side culled, both would have to cull
+  identically forever, and the first divergence would silently renumber every piece after it.
+- **Generation order is part of the contract.** Offsets are handed out by walking the surfaces in
+  sequence, so reordering `Walls → Interior → Roof` renumbers everything after the change — damage
+  recorded against a wall would come back applied to the roof. The worked example in
+  `generator_test.rb` pins the order, the offsets and the piece count.
+
+Cells are tiled into polyomino **blocks** (`Game::Building::Blocks`) that break together, so holes
+come out ragged rather than as clean rectangles. `Game::Materials` is the frozen table every
+destructible thing behaves by; `void` is a real entry with zero everything, which is what keeps
+the index arithmetic uniform.
 
 ### The engine loop (`app/javascript/game/engine.js`)
 
@@ -110,6 +171,11 @@ changed, or nothing at all, and let the person driving the game say whether it i
 the full run for when the change has settled. The same goes for re-running a whole suite to
 chase one failure: run that file.
 
+Every system test says which world it needs — `visit_world("flat")`, `visit_world("targets")`.
+The worlds are defined once in `test/fixtures` and loaded from there by `db/seeds.rb`, so a test
+and the browser cannot disagree about what is standing where. The suite runs at `quality: "low"`,
+which drops shadows and pixel ratio; that is the tier the timing assertions are calibrated on.
+
 Model/channel tests are ordinary and fast. System tests drive real headless Chrome with
 SwiftShader (no GPU) and assert on physics outcomes — how far the car travelled in two seconds,
 whether the bull bar only bites mid-drift. They run **serially** (`parallelize(workers: 1)`):
@@ -132,6 +198,11 @@ The engine exposes debug/test hooks on `window`:
 | `__arenaInput` | Assign an object to drive the vehicle directly, bypassing synthetic-key jitter |
 | `__arenaPlace` | `{x, y, z, yaw}` — park the vehicle at a known pose |
 | `__arenaFlip` | Drop it in upside down to exercise flip recovery |
+| `__arenaBreak`, `__arenaRestore` | `(piece, buildingId)` — break or restore one piece outright |
+| `__arenaDamagePiece` | `(piece, amount, buildingId)` — damage without driving into anything |
+| `__arenaPieceState`, `__arenaPieceBlock` | What a piece is made of, how hurt it is, which block it breaks with |
+| `__arenaDraws` | `renderer.info.render.calls` — turns "did the render plan regress" into an assertion |
+| `__arenaQuality` | Which tier the engine actually settled on |
 | `__arenaDebugVisible`, `__arenaMasterGain` | Overlay / audio assertions |
 
 Most system tests drive through `__arenaInput`; one test in `driving_test.rb` uses real key events
