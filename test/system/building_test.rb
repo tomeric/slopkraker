@@ -12,13 +12,15 @@ class BuildingTest < ApplicationSystemTestCase
   end
 
   test "the house arrives with every one of its pieces" do
-    assert_equal 1454, telemetry["pieces"]
+    assert_equal 1502, telemetry["pieces"]
     assert_equal 1, telemetry["buildings"].length
     assert_equal "house", telemetry["buildings"].first["name"]
   end
 
-  # Void cells -- the doorway, the clipped corners of the gables -- hold an index but are
-  # never standing. 1454 pieces, fifty-six of them nothing at all.
+  # Void cells -- the doorway, the clipped corners of the gables, the empty squares of the
+  # rubble grid -- hold an index but are never standing. So do the heaps themselves until
+  # the house falls on them: 1502 indices, of which 1398 are the building, 36 are dormant
+  # wreckage and 68 are nothing at all.
   test "void cells hold an index but nothing else" do
     assert_equal 1398, telemetry["piecesStanding"]
     assert_equal 0, telemetry["piecesBroken"]
@@ -38,7 +40,7 @@ class BuildingTest < ApplicationSystemTestCase
 
     assert_equal({
       "brick" => 445, "timber" => 366, "roof_tile" => 224, "concrete" => 180,
-      "plaster" => 108, "glass" => 72, "void" => 56, "steel" => 3
+      "plaster" => 108, "glass" => 72, "void" => 68, "steel" => 3, "rubble" => 36
     }, materials)
   end
 
@@ -116,10 +118,15 @@ class BuildingTest < ApplicationSystemTestCase
     assert_operator healths["concrete"], :<, healths["steel"]
   end
 
-  # One draw call per material rather than one per piece. 1454 pieces rendering as seven
+  # One draw call per material rather than one per piece. 1502 pieces rendering as eight
   # draws is the thing that makes a city conceivable at all.
+  #
+  # The number is a ceiling with room in it rather than a budget: what this catches is the
+  # render plan regressing to per-piece, which at fifteen hundred pieces would be hundreds
+  # of draws and nowhere near this. It was 40 while the house was made of seven materials
+  # and rubble made it eight, which left it sitting exactly on the limit.
   test "the house costs a draw call per material, not per piece" do
-    assert_operator page.evaluate_script("window.__arenaDraws()"), :<, 40
+    assert_operator page.evaluate_script("window.__arenaDraws()"), :<, 45
   end
 
   private

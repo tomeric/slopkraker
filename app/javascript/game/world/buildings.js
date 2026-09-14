@@ -77,7 +77,25 @@ export class Buildings {
   }
 
   applyCollapse(objectId, fromStorey) {
-    return this.byId.get(objectId)?.collapse(fromStorey) ?? 0
+    const building = this.byId.get(objectId)
+    if (!building) return 0
+
+    const count = building.collapse(fromStorey)
+    building.revealRubble(this.revealedRubble(building, fromStorey))
+    return count
+  }
+
+  // The same arithmetic the server runs in Building::Rubble.revealed_count. A house gutted
+  // to the ground leaves all of its wreckage; one that lost only its top floor leaves a
+  // proportional share. Both sides work it out from collapsed_from and the storey count,
+  // which they already hold, so it never goes on the wire.
+  revealedRubble(building, fromStorey) {
+    const storeys = building.spec.storeys
+    if (!storeys || fromStorey === null || fromStorey === undefined) return 0
+
+    const piles = building.rubbleCounts
+    const total = piles.dormant + piles.standing + piles.cleared
+    return Math.round(total * (storeys - fromStorey) / storeys)
   }
 
   // Silent, unlike applyBreaks. This is the world as it already was -- broken in some
@@ -92,6 +110,10 @@ export class Buildings {
       building.applyBroken(entry.broken, true)
       if (entry.collapsed_from !== null && entry.collapsed_from !== undefined) {
         building.collapse(entry.collapsed_from, true)
+        // AFTER applyBroken, and harmlessly so. Revealing only moves DORMANT -> INTACT, so
+        // a heap cleared in some earlier session stays cleared -- which is what makes the
+        // order of these two irrelevant rather than load-bearing.
+        building.revealRubble(this.revealedRubble(building, entry.collapsed_from))
       }
     }
   }
