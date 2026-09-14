@@ -17,7 +17,8 @@ Currently:
 - Worlds are rows. Two are seeded, `flat` and `targets`; `/?world=<slug>` picks one.
 - Buildings generate from a ~300 byte recipe into surfaces, and come apart by the cell:
   glass shatters, timber splinters, brick spalls, and a storey that loses what holds it
-  up brings down everything above it.
+  up brings down everything above it — as solid pieces that fall and land, rather than
+  as a building that vanishes.
 
 ## Commands
 
@@ -121,6 +122,31 @@ come out ragged rather than as clean rectangles. `Game::Materials` is the frozen
 destructible thing behaves by; `void` is a real entry with zero everything, which is what keeps
 the index arithmetic uniform.
 
+### A condemned piece falls before it is gone (`game/world/falling_pieces.js`)
+
+A collapse used to replace a house with a cloud of shards between one frame and the next, which
+reads as the building being deleted rather than as it falling down. Now a condemned piece is
+handed to `FallingPieces`: a real dynamic body with the panel's own size, orientation and mass,
+which falls, tumbles, and throws the shards it used to throw **at the moment it lands**.
+
+Everything else about being condemned still happens in the frame it is decided — state, blast grid
+and collider all go at once, because structurally the piece *is* gone. Only its appearance is
+deferred. Three things hold it up, all commented at their sites:
+
+- **The budget is spent by stride, not in order.** A ground-floor failure condemns over a thousand
+  cells, and a thousand dynamic bodies in one frame is a stall, so only every nth piece falls
+  (`ceil(condemned / rules.collapse.fall.max)`) and the rest shatter where they stood. *Every nth*
+  rather than *the first n* is why `collapse()` makes an extra pass: taken in order the budget goes
+  to whichever wall the generator emitted first while the roof puffs away untouched.
+- **Falling pieces are deaf to each other** (`FALLING_GROUPS` excludes its own layer). Condemned
+  panels start out flush with the panels beside them; if they could touch each other the whole
+  storey would burst on its first frame and nothing would ever be seen to fall.
+- **Silent restores drop nothing.** `applyState` passes `silent`, and a ruin arrived at is a ruin —
+  raining masonry on every page load is the same lie as re-staging its shards.
+
+This is the one place in the building code holding genuine Rapier body lifetimes, so the footgun
+below is live here in a way it is not for a standing piece.
+
 ### The engine loop (`app/javascript/game/engine.js`)
 
 Fixed-step accumulator at `rules.physics_hz` (120Hz), capped at `max_substeps`, with render
@@ -147,6 +173,15 @@ bugs, both commented at their sites:
 - Once a prop breaks its body is freed; touching it afterwards (reading `translation()`, leaving
   it in the interpolation list) reads released memory and poisons the whole Rapier instance.
   Read positions before applying fatal damage; `untrack()` the body on break.
+
+And one that is not a lifetime rule but is found the same way, by something quietly never happening:
+
+- **Rapier reports a contact STARTING, not a contact continuing.** A body created already resting
+  against something gets exactly one collision event, on its first frame, and no second one is
+  ever coming, because it never stops touching what it sits on. `FallingPieces` discarded that
+  event as arriving too early to act on, and twenty-two of a hundred and thirty-two pieces hung
+  motionless for the full backstop and vanished together. Remember the touch and act on it later;
+  never drop it.
 
 `GameEngine#dispose()` frees the event queue, world, renderer context and audio graph explicitly.
 
@@ -264,6 +299,7 @@ The engine exposes debug/test hooks on `window`:
 | `__arenaBreak`, `__arenaRestore` | `(piece, buildingId)` — break or restore one piece outright |
 | `__arenaDamagePiece` | `(piece, amount, buildingId)` — damage without driving into anything |
 | `__arenaPieceState`, `__arenaPieceBlock` | What a piece is made of, how hurt it is, which block it breaks with |
+| `__arenaFalling` | How many condemned pieces are in the air — zero at rest, which is what makes a fall assertable |
 | `__arenaDraws` | `renderer.info.render.calls` — turns "did the render plan regress" into an assertion |
 | `__arenaQuality` | Which tier the engine actually settled on |
 | `__arenaDebugVisible`, `__arenaMasterGain` | Overlay / audio assertions |
