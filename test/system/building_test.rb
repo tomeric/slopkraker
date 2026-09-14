@@ -17,10 +17,11 @@ class BuildingTest < ApplicationSystemTestCase
     assert_equal "house", telemetry["buildings"].first["name"]
   end
 
-  # Void cells -- the doorway, the clipped corners of the gables, the empty squares of the
-  # rubble grid -- hold an index but are never standing. So do the heaps themselves until
-  # the house falls on them: 1502 indices, of which 1398 are the building, 36 are dormant
-  # wreckage and 68 are nothing at all.
+  # Void cells -- the doorway, the clipped corners of the gables, and the squares of the
+  # rubble grid that fall outside the footprint -- hold an index but are never standing. So
+  # do the heaps themselves until the house falls on them: 1502 indices, of which 1398 are
+  # the building, 42 are dormant wreckage and 62 are nothing at all. Every square of ground
+  # the house actually stood on holds debris, which is what stops the mound having holes.
   test "void cells hold an index but nothing else" do
     assert_equal 1398, telemetry["piecesStanding"]
     assert_equal 0, telemetry["piecesBroken"]
@@ -40,7 +41,7 @@ class BuildingTest < ApplicationSystemTestCase
 
     assert_equal({
       "brick" => 445, "timber" => 366, "roof_tile" => 224, "concrete" => 180,
-      "plaster" => 108, "glass" => 72, "void" => 68, "steel" => 3, "rubble" => 36
+      "plaster" => 108, "glass" => 72, "void" => 62, "steel" => 3, "rubble" => 42
     }, materials)
   end
 

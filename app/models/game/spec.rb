@@ -146,7 +146,10 @@ module Game
             # Never more than 0.65: a third of a heap has to stand proud or it stops being
             # something you have to get around. The range below keeps clear of that rather
             # than riding it.
-            sink: [ 0.05, 0.45 ],
+            # Narrow, so neighbouring heaps settle to similar depths. A wide range put
+            # adjacent lumps at randomly different heights, and they stepped against each
+            # other instead of running together into one mass.
+            sink: [ 0.1, 0.22 ],
             # How far a heap leans off level. A heap is not a paving slab, and this is what
             # stops it reading as one -- it was the last thing making them look laid rather
             # than dropped.
@@ -160,10 +163,12 @@ module Game
             # metre -- which also leaves the perimeter more driveable than it was, because
             # the material moved inward off it.
             #
-            # Higher is steeper. Measured on this house, against the nearest heap to the
-            # middle rather than an idealised centre: 1.5 gives a 2.5m peak, 2.5 gives 3.0m,
-            # 3.5 gives 3.2m and stops paying.
-            falloff: 2.5,
+            # Higher is steeper. Softened once SHARE doubled: the height now comes from
+            # having the material rather than from concentrating it, and a gentle profile
+            # over a lot of debris reads as ONE BROAD MOUND where a steep one over the same
+            # material would be a spike. Measured at SHARE 0.6 with every cell filled:
+            # 1.2 peaks at 3.8m, 1.8 at 4.5m, 2.5 at 5.1m.
+            falloff: 1.8,
             # What is left at the rim, as a share of the peak. The dome must never reach
             # zero: a heap of no height is an invisible piece with a degenerate collider,
             # something you can neither see nor drive over nor clear. The edge of a pile
@@ -171,10 +176,20 @@ module Game
             # here. It is also a lever on the whole shape, because raising it lifts the
             # MEAN and so flattens everything the peak is measured against.
             edge: 0.06,
-            # How much heaps differ in size from one another. Wide, because real debris is
-            # a range from slabs down to fragments, and heaps within a few percent of each
-            # other read as a manufactured thing however irregular each one is.
-            spread: 0.55
+            # How much heaps differ in size from one another.
+            #
+            # BOUNDED BY THE GRID, and this is the whole of why a mound had pockets of air
+            # in it. Heaps sit CELL apart and are CELL * SPREAD across, so a heap shrunk far
+            # enough cannot reach the heaps beside it and leaves a hole however irregular it
+            # is. At 0.55 the smallest was 1.43m on a 2m grid -- it could not touch anything.
+            # There is a test for the invariant rather than for this number.
+            spread: 0.25,
+            # How far a heap's plan may depart from square, as a ratio applied to one
+            # horizontal axis and divided out of the other so the ground it covers is
+            # unchanged. BOUNDED BY THE SAME GRID as spread, and for the same reason: it
+            # narrows an axis, so too much of it reaches under the spacing and reopens the
+            # holes spread was tightened to close. The test covers both together.
+            aspect: 0.15
           }
         },
         impact_force_threshold: 2000.0,

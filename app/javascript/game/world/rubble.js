@@ -59,7 +59,7 @@ export function rubbleMatrix(surface, row, col, target, origin, rules = {}) {
   // are long and narrow and others nearly square without any of them covering more ground
   // than the coverage model counted on. This is where the per-variant stretch went when the
   // geometry was normalised.
-  const aspect = 1 + noise(surface, row, col, 61) * 0.35
+  const aspect = 1 + noise(surface, row, col, 61) * (rules.aspect ?? 0.15)
   SCALE.set(SCALE.x * scale * vary * aspect, SCALE.y * scale * vary / aspect, SCALE.z * heap)
 
   // Lifted by however much the mound grew it, so a taller heap still stands ON the ground

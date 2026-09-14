@@ -209,6 +209,13 @@ derive from the recipe seed, clearing goes through `damage`/`breaks` addressed b
   already caused bugs that looked almost right: flattening the lump on `y` squashed it
   sideways and let it grow vertical spikes, and lifting a heap along `n` buried it while
   sinking it floated it. Heaps are flattened on `z` and moved along **world up**.
+- **No heap may be too small to reach its neighbour**, and this is what pockets of air in a
+  mound actually are. Heaps sit `CELL` apart and are `CELL * SPREAD` across; `spread` shrinks
+  them and `aspect` narrows one axis, so between them they can take a heap under the spacing,
+  at which point it cannot touch anything beside it and leaves a hole however irregular it
+  is. `spec_test` asserts the invariant over BOTH factors — checking only `spread` is how a
+  1.59m lump on a 2m grid passed. `DENSITY` is 1.0 for the same reason: an empty cell is a
+  hole by construction.
 - **The wreckage is a PILE, not a carpet, and the profile is what makes it one.** The dome
   in `rubbleMatrix` is normalised by its own mean over the heaps, so the volume Ruby derived
   is neither created nor destroyed — the same material is simply put where a pile puts it.

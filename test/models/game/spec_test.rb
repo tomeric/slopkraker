@@ -334,6 +334,20 @@ class Game::SpecTest < ActiveSupport::TestCase
     assert_operator rubble.fetch(:edge), :>, 0.0
     assert_operator rubble.fetch(:edge), :<, 0.5
 
+    # NO LUMP MAY BE TOO SMALL TO REACH ITS NEIGHBOUR. Heaps sit on a grid of CELL metres
+    # and are CELL * SPREAD across before their size varies; if varying can take one below
+    # the spacing it cannot touch the heaps beside it, and a hole in the mound is the
+    # result -- which is exactly what pockets of air in a pile of rubble are.
+    # Both shrinking factors at once: a heap at its smallest, on its narrower axis. Spread
+    # alone was checked here once and the aspect quietly undid it -- the narrow axis came
+    # out at 1.59m on a 2m grid while this assertion was passing.
+    smallest = Game::Building::Rubble::CELL * Game::Building::Rubble::SPREAD *
+               (1.0 - rubble.fetch(:spread)) / (1.0 + rubble.fetch(:aspect))
+
+    assert_operator smallest, :>=, Game::Building::Rubble::CELL,
+                    "the smallest heap is #{smallest.round(2)}m across on a " \
+                    "#{Game::Building::Rubble::CELL}m grid, so it cannot reach its neighbours"
+
     # One number, in one place. Building::Rubble computes how DEEP a heap is against this
     # same share of its cell, so a second copy of it that drifted would leave the client
     # drawing heaps of a size the server never sized -- and the volume of wreckage a house

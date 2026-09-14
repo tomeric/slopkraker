@@ -23,9 +23,12 @@ module Game
       # Coarse against the building's own 1m: a pile is a heap you bully through, not a
       # panel. Six by eight over a twelve by fifteen house.
       CELL = 2.0
-      # Share of in-footprint cells holding a pile rather than nothing. Not 1.0, so the site
-      # reads as scattered wreckage rather than as the grid it is actually on.
-      DENSITY = 0.85
+      # Share of in-footprint cells holding a pile. ONE: every square of ground the building
+      # stood on gets debris on it. Anything less leaves holes in the mound by construction,
+      # and a hole in a pile of rubble reads as a pocket of air rather than as variety --
+      # the irregularity belongs in the shapes and their overlap, not in whether a square
+      # got anything at all.
+      DENSITY = 1.0
       # How much of its cell a heap covers -- OVER one, deliberately, so lumps are wider
       # than the grid they are laid out on and overlap their neighbours by construction.
       # A lump is 3.2m across on a 2m grid, so between them they cover the footprint twice
@@ -59,7 +62,12 @@ module Game
       # So a share stays and the rest is taken to have gone to dust. Which is not entirely
       # a fiction: the shards a collapse throws are carrying that material away in front of
       # you as it lands, and they fade rather than settling.
-      SHARE = 0.3
+      #
+      # At 0.6 the mound peaks around 4.5m with a rim under half a metre. That centre is
+      # genuinely impassable -- taller than anything else in the game -- so getting through
+      # a collapsed house means clearing a path rather than driving round it. That is the
+      # point: it is wreckage that has to be cleared.
+      SHARE = 0.6
 
       # Only used by a building made of nothing, which cannot happen, but a zero depth
       # would make a heap with no height and no health at all.

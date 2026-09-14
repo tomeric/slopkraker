@@ -65,15 +65,29 @@ class Game::Building::RubbleTest < ActiveSupport::TestCase
     end
   end
 
-  test "a different seed lays the piles out differently" do
-    seven = surface(seed: 7)
-    eight = surface(seed: 8)
+  # Every square of ground the building stood on gets debris on it, whatever the seed. A
+  # cell left empty is a hole in the mound by construction, and a hole in a pile of rubble
+  # reads as a pocket of air rather than as variety -- the irregularity belongs in the
+  # shapes and how they overlap, which is the client's business and still seeded.
+  #
+  # This replaced a test that the seed changed which cells were occupied. At full density
+  # it no longer does, and that is the point rather than a regression.
+  test "every square of the footprint holds debris, whatever the seed" do
+    [ 7, 8, 99 ].each do |seed|
+      set = surface(seed: seed)
+      recipe = recipe(seed: seed)
 
-    differences = seven.rows.times.sum do |row|
-      seven.cols.times.count { |col| seven.material_at(row, col).name != eight.material_at(row, col).name }
+      set.rows.times do |row|
+        set.cols.times do |col|
+          inside = Game::Building::Rubble.inside?(recipe, row, col)
+          held = set.material_at(row, col).name == :rubble
+
+          assert_equal inside, held,
+                       "cell #{row},#{col} at seed #{seed} is #{held ? "debris" : "empty"} " \
+                       "but #{inside ? "inside" : "outside"} the footprint"
+        end
+      end
     end
-
-    assert_operator differences, :>, 0, "the seed changed nothing"
   end
 
   # It lies flat rather than standing up like a wall, and it is below every real storey so
