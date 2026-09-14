@@ -163,6 +163,42 @@ contract covers.
 This is the one place in the building code holding genuine Rapier body lifetimes, so the footgun
 below is live here in a way it is not for a standing piece.
 
+### What is left on the ground (`game/building/rubble.rb`, `world/rubble.js`)
+
+A collapsed building leaves heaps of garbage that are solid, have to be cleared, and sit in
+the same place for every player. **Rubble is not a new kind of object** — it cannot be,
+because `world_objects` belong to a *world* while `object_damages` belong to a *(match,
+object)* pair, so a rubble row created by a collapse in one match would exist in every match,
+including the ones where that house is still standing.
+
+Instead a building reserves piece indices for the wreckage it will eventually leave, carried
+by one extra `Surface` of `kind: :rubble` **appended last** — the same idea as a doorway being
+a real index holding `void`, extended to indices reserved for something that arrives later
+rather than never. Every requirement then rides machinery that already exists: positions
+derive from the recipe seed, clearing goes through `damage`/`breaks` addressed by
+`[object_id, piece_index]`, persistence is a bit in `broken_pieces`, and rejoining is
+`request_state`. No new message, no new table, no new column.
+
+- **Piece state gained a third value.** `DORMANT → INTACT → BROKEN` is still strictly
+  monotone. Two clauses hold it together and both have already been got wrong: revealing
+  moves `DORMANT → INTACT` and **never** `BROKEN → INTACT`; and `breakCell` treats `DORMANT`
+  as **breakable rather than already broken**, because `applyState` applies the broken bitset
+  *before* it reveals anything. Without the second, a cleared heap's bit is dropped in silence
+  and every heap you cleared is back on the street after a reload.
+- **A collapse must never sweep its own rubble**, and this is the one mistake here that is
+  both silent and permanent — a house that quietly never leaves any wreckage, with nothing
+  downstream looking wrong. Three independent defences: the surface's `storey: -1` (below
+  every bound `Collapse` sweeps), an explicit `kind == :rubble` skip in `each_cell`, and
+  `structural_weight: 0.0` on the material.
+- **The grid is geometry, not tuning.** `Rubble::CELL`, `DENSITY` and `HEIGHT` are Ruby
+  constants because they decide `piece_count`; a client that disagreed about them would be
+  addressing different pieces than the server. Only how a heap is *drawn* ships, in
+  `rules.collapse.rubble`.
+- **`piece_count` grows, so a stale database is a real failure mode.** The worked example
+  house went from 1454 to 1502. Existing damage stays valid because rubble was appended and
+  nothing was renumbered, but a row still holding the old count rejects every rubble index.
+  After pulling this, either reseed or update `piece_count` from `surface_set.piece_count`.
+
 ### The engine loop (`app/javascript/game/engine.js`)
 
 Fixed-step accumulator at `rules.physics_hz` (120Hz), capped at `max_substeps`, with render
@@ -315,6 +351,8 @@ The engine exposes debug/test hooks on `window`:
 | `__arenaBreak`, `__arenaRestore` | `(piece, buildingId)` — break or restore one piece outright |
 | `__arenaDamagePiece` | `(piece, amount, buildingId)` — damage without driving into anything |
 | `__arenaPieceState`, `__arenaPieceBlock` | What a piece is made of, how hurt it is, which block it breaks with |
+| `__arenaPieceMatrix` | A piece's world transform, so a test can prove two clients agree on where it is |
+| `__arenaRubble` | `{ dormant, standing, cleared }` heaps — an intact house has only the first |
 | `__arenaFalling` | How many falling slabs are in the air — zero at rest, which is what makes a fall assertable |
 | `__arenaFallingCells` | How many cells those slabs carry. Against `__arenaFalling` it says how much of the house left the ground, and how coarsely |
 | `__arenaDraws` | `renderer.info.render.calls` — turns "did the render plan regress" into an assertion |
