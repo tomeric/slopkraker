@@ -27,6 +27,10 @@ class ArenasController < ApplicationController
 
     def status_for_selection
       @worlds = World.order(:name)
+      # One fresh name per world, not one per page. Match.start binds a key to the first
+      # world it is used with and keeps it, so a name shared between two rows would send
+      # the second one somewhere else entirely.
+      @fresh_matches = @worlds.index_with { Game::MatchName.generate }
       @unknown = requested_slug
       @unknown ? :not_found : :ok
     end

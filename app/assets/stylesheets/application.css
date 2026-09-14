@@ -279,7 +279,21 @@ kbd {
   font-variant-numeric: tabular-nums;
 }
 
-.world__go { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.world__go { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+
+.world__row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+
+.world__label {
+  min-width: 76px;
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-dim, #8b8f96);
+}
+
+/* Secondary on purpose: continuing is the ordinary thing, and starting fresh is the
+   deliberate one. Same size so neither is fiddly to hit. */
+.world__button--fresh { border-style: dashed; }
 
 .world__button {
   padding: 7px 14px;

@@ -20,11 +20,28 @@
           <p class="world__summary"><%= world.summary %></p>
           <p class="world__size"><%= world.extent.map(&:to_i).join("m × ") %>m</p>
 
+          <%# Two rows rather than four bare buttons, because the difference between them
+              is not the vehicle -- it is whether you are walking into whatever the last
+              person left standing, or starting somewhere nobody has touched. %>
           <div class="world__go">
-            <%= link_to "Monster truck", root_path(world: world.slug, vehicle: "monster_truck"),
-                        class: "world__button" %>
-            <%= link_to "Buggy", root_path(world: world.slug, vehicle: "buggy"),
-                        class: "world__button" %>
+            <div class="world__row world__row--continue">
+              <span class="world__label">Continue</span>
+              <%= link_to "Monster truck", root_path(world: world.slug, vehicle: "monster_truck"),
+                          class: "world__button" %>
+              <%= link_to "Buggy", root_path(world: world.slug, vehicle: "buggy"),
+                          class: "world__button" %>
+            </div>
+
+            <div class="world__row world__row--fresh">
+              <span class="world__label">New match</span>
+              <% fresh = @fresh_matches[world] %>
+              <%= link_to "Monster truck",
+                          root_path(world: world.slug, vehicle: "monster_truck", match: fresh),
+                          class: "world__button world__button--fresh" %>
+              <%= link_to "Buggy",
+                          root_path(world: world.slug, vehicle: "buggy", match: fresh),
+                          class: "world__button world__button--fresh" %>
+            </div>
           </div>
         </li>
       <% end %>
