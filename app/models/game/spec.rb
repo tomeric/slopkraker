@@ -76,6 +76,15 @@ module Game
         max_substeps: 5,
         snapshot_hz: SNAPSHOT_HZ,
         interpolation_delay: 0.1,
+        # How long another player's car stays after it stops arriving.
+        #
+        # Leaving cannot be announced reliably: a browser closing a tab does not get to run
+        # JavaScript on the way out, so the unsubscribe never reaches the server and it
+        # falls back to noticing the dead socket -- measured at over twelve seconds. A
+        # ghost car sitting in the road that long is worse than one that vanishes a moment
+        # early, so silence is what counts as gone. The channel's own `leave` message is
+        # still honoured when it does arrive; it is the fast path, not the mechanism.
+        remote_timeout: 3.0,
         respawn_height: 2.0
       }
     end

@@ -16,6 +16,10 @@ export class RemoteVehicle {
     this.playerId = playerId
     this.delay = delay
     this.buffer = []
+    // When this car was last heard from, which is what decides it has gone. Declared here
+    // for shape, but never actually null in practice: a remote is only ever built in order
+    // to push a snapshot into it, so the first push sets it before anything reads it.
+    this.lastSeen = null
 
     const [cw, ch, cl] = spec.chassis.size
     this.body = world.createRigidBody(
@@ -62,6 +66,10 @@ export class RemoteVehicle {
   }
 
   push(snapshot, receivedAt) {
+    // Recorded before the ordering check: a late snapshot is still proof its sender is
+    // alive, even when it is too old to put in the buffer.
+    this.lastSeen = receivedAt
+
     // Snapshots can arrive out of order; a stale one must not rewind the buffer.
     const last = this.buffer[this.buffer.length - 1]
     if (last && snapshot.t <= last.tick) return

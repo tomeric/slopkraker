@@ -24,6 +24,8 @@ import { Buildings } from "game/world/buildings"
 import { Telemetry } from "game/telemetry"
 import { NetConnection } from "game/net/connection"
 import { DamageReporter } from "game/net/damage_reporter"
+import { encodeSnapshot } from "game/net/snapshot"
+import { RemoteVehicle } from "game/net/remote_vehicle"
 
 const MAX_FRAME_TIME = 0.25
 const SCRATCH_AWAY = new THREE.Vector3()
@@ -98,6 +100,11 @@ export class GameEngine {
       connection: this.connection, hz: this.spec.rules.snapshot_hz
     })
     this.collapsesSeen = 0
+    // Other players' cars, keyed by the player_id the server stamps. Nothing is ever
+    // created for ourselves: our own broadcasts are dropped in NetConnection.
+    this.remotes = new Map()
+    this.snapshotTick = 0
+    this.sinceSnapshot = 0
 
     this.buildings = new Buildings({
       RAPIER, world, scene: this.scene, spec: this.spec,
@@ -190,6 +197,7 @@ export class GameEngine {
     window.__arenaDraws = () => this.renderer.info.render.calls
     window.__arenaCollapses = () => this.collapsesSeen ?? 0
     window.__arenaDebrisSpawned = () => this.buildings?.debrisSpawned ?? 0
+    window.__arenaRemotes = () => this.remotes?.size ?? 0
     window.__arenaReported = () => this.reporter?.sent ?? 0
     window.__arenaBuildingIds = () => this.buildings?.list.map((b) => b.id) ?? []
     window.__arenaBuildingSpec = (id) => this.buildings?.find(id)?.spec ?? null
@@ -200,6 +208,69 @@ export class GameEngine {
     this.rafId = requestAnimationFrame(this.frame)
     this.onStatus(null)
     this.onMuteChange(this.muted)
+  }
+
+  // Ours goes out at snapshot_hz, the same rate damage is batched at. Every client
+  // simulates its own car and nobody simulates anybody else's, so this is the whole of
+  // what other players ever learn about us.
+  sendSnapshot(dt) {
+    this.sinceSnapshot += dt
+    const interval = 1 / this.spec.rules.snapshot_hz
+    if (this.sinceSnapshot < interval) return
+    this.sinceSnapshot = 0
+    if (!this.vehicle) return
+
+    this.connection?.sendSnapshot(
+      encodeSnapshot(this.vehicle, this.vehicleKey, ++this.snapshotTick)
+    )
+  }
+
+  // Silence is what counts as gone. A browser closing a tab does not reliably get to run
+  // JavaScript on the way out, so the unsubscribe never reaches the server and it falls
+  // back to noticing a dead socket -- measured at over twelve seconds, which is a long time
+  // for an abandoned car to sit in the road. The `leave` message is still honoured when it
+  // arrives; this is what catches every case where it does not.
+  updateRemotes() {
+    const now = performance.now() / 1000
+    const timeout = this.spec.rules.remote_timeout
+
+    for (const [ playerId, remote ] of this.remotes) {
+      if (remote.lastSeen !== null && now - remote.lastSeen > timeout) {
+        this.dropRemote(playerId)
+        continue
+      }
+      remote.update(now)
+    }
+  }
+
+  // Find or build the car belonging to another player.
+  //
+  // This creates a Rapier body, which looks like it breaks the rule in CLAUDE.md about
+  // never creating one inside a step -- it does not. A socket message is delivered on the
+  // event loop, and JavaScript is single threaded, so this can only run BETWEEN frames and
+  // never part way through world.step(). Worth stating, because it reads wrong.
+  remoteFor(playerId, vehicleKey) {
+    const existing = this.remotes.get(playerId)
+    if (existing) return existing
+
+    const spec = this.spec.vehicles[vehicleKey] || this.spec.vehicles[this.vehicleKey]
+    if (!spec || !this.world) return null
+
+    const remote = new RemoteVehicle({
+      RAPIER: this.RAPIER, world: this.world, scene: this.scene, spec,
+      colliderIndex: this.colliderIndex, playerId,
+      delay: this.spec.rules.interpolation_delay
+    })
+    this.remotes.set(playerId, remote)
+    return remote
+  }
+
+  dropRemote(playerId) {
+    const remote = this.remotes.get(playerId)
+    if (!remote) return
+
+    remote.dispose()
+    this.remotes.delete(playerId)
   }
 
   // Everything the server decides about the world arrives here. All of it is monotone --
@@ -217,6 +288,12 @@ export class GameEngine {
         break
       case "state":
         this.buildings?.applyState(data.objects)
+        break
+      case "snapshot":
+        this.remoteFor(data.player_id, data.vehicle)?.push(data, performance.now() / 1000)
+        break
+      case "leave":
+        this.dropRemote(data.player_id)
         break
       case "error":
         // Loud on purpose: the suite surfaces SEVERE console errors on a wait_for timeout,
@@ -417,6 +494,8 @@ export class GameEngine {
     this.destruction.update(dt)
     this.buildings.update(dt)
     this.reporter.update(dt)
+    this.sendSnapshot(dt)
+    this.updateRemotes()
     this.hitMarkers.update(dt)
 
     this.interpolator.endStep()
@@ -646,6 +725,8 @@ export class GameEngine {
     this.projectiles?.dispose()
     this.destruction?.dispose()
     this.connection?.dispose()
+    for (const remote of this.remotes?.values() ?? []) remote.dispose()
+    this.remotes?.clear()
     this.buildings?.dispose(this.colliderIndex)
     this.eventQueue?.free()
     this.world?.free()
