@@ -467,26 +467,53 @@ reporting damage. There is no ranked play.
 
 ### 11. Collapse
 
+> **Revised during implementation, 2026-09-14.** The wall-counting clause this section
+> originally specified — `walls_intact < min_standing_walls (2)` — does not do what the
+> prose beside it promised. Measured on the canonical house: two of four walls gone leaves
+> 0.545 of the storey's area and 2 walls intact, so it *stands*, and by the time a third
+> wall goes the area clause has already condemned it. The clause never fired on its own,
+> and counting walls makes a 15m wall worth the same as a 3m one. Replaced with the rule
+> below, which weighs how much support was removed against how much weight is still on top.
+
 Per storey, over that storey's own surfaces:
 
 ```
 weighted_area(cells) = Σ cell_area × material.structural_weight   # glass and void are 0
 
-storey s fails if  standing/total < collapse_threshold  (0.40)
-                OR walls_intact   < min_standing_walls  (2)
+capacity(s) = standing weighted_area of s's walls and partitions, over its intact total
+load(s)     = standing mass of every storey above s, over its intact total
 
-walls_intact = exterior wall surfaces at storey s whose own standing fraction >= 0.25
+storey s fails if  capacity(s) < collapse_threshold  (0.40)
+                OR load(s) / capacity(s) > safety_factor  (1.6)
 ```
 
-The second clause matters. Area alone lets a player perforate the middle of every wall and
-get nothing, and clip a corner and get nothing. With it the rule is legible from the
-driver's seat — *knock out two walls and it comes down* — and both numbers are in the rules
+Two clauses, and each catches what the other cannot.
+
+The first is integrity: a storey with almost nothing left fails whatever is above it. It is
+the only clause that can condemn a top storey, which carries nothing but its own roof — and
+a roof left hanging over a shot-out top floor is the most visible bug this feature could
+ship.
+
+The second carries the feel. Both halves are fractions of the building's own intact state,
+so the rule needs no absolute area or tonnage and reads the same on a bungalow and a tower.
+It makes the rule legible from the driver's seat — *knock two walls out and it comes down* —
+because removing a long wall removes a real share of what was holding two storeys up. And
+it gives demolition an order: take the roof and the top floor off first and those same two
+walls hold, because there is nothing left for them to carry. Both numbers are in the rules
 block, retunable without touching JavaScript.
 
 On failure: destroy every piece at `storey >= s`; set `collapsed_from` monotonically, never
 raised; apply `pancake_damage_fraction` of the falling mass to storey `s-1` and re-evaluate,
 recursing at most `storey_count` deep — which is what makes a top-floor failure sometimes
 take the whole house and usually not.
+
+The pancake spreads over storey `s-1`'s load-bearing cells only, since those are what the
+next evaluation weighs. Note what the load clause implies for the cascade: once a storey has
+come down, nothing is standing above the one below it, so its load drops to zero and only
+the integrity clause can still condemn it. A cascade has to be *earned* by the pancake
+actually breaking things rather than following automatically. In practice the falling mass
+takes out plaster partitions and timber door panels below while the brick holds, and
+finishes a storey already worn down by the fight that brought the one above down.
 
 Evaluated **server-side only**, inside `MatchState#apply_batch`, for touched storeys only.
 **Deliberately not ported to JavaScript**, unlike every other per-frame behaviour in this
