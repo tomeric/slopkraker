@@ -1,6 +1,7 @@
 import * as THREE from "three"
 import { PROP_GROUPS } from "game/physics/groups"
-import { eachBuildingCell, materialAt } from "game/world/surface"
+import { eachBuildingCell, materialAt, chunkMatrix } from "game/world/surface"
+import { tileSurface } from "game/world/chunking"
 import { absorb } from "game/damage"
 
 // One building, expanded from its surfaces into pieces that can be hit.
@@ -25,7 +26,7 @@ const BROKEN = 1
 const ABSENT = 2
 
 export class Building {
-  constructor({ RAPIER, world, spec, materials, meshes, colliderIndex, contactThreshold, spread = 0, debris = null, falling = null, grid = null, rules = {}, onDamage = null }) {
+  constructor({ RAPIER, world, spec, materials, meshes, colliderIndex, contactThreshold, spread = 0, debris = null, falling = null, grid = null, rules = {}, chunk = null, onDamage = null }) {
     this.spec = spec
     this.materials = materials
     this.meshes = meshes
@@ -36,7 +37,11 @@ export class Building {
     this.falling = falling
     this.grid = grid
     this.rules = rules
+    this.chunkSize = chunk
     this.onDamage = onDamage
+    this.origin = new THREE.Vector3().fromArray(spec.o)
+    // Bound once: the tiling asks this per cell, and it is asked a few thousand times.
+    this.standingAt = (index) => this.standing(index)
     this.id = spec.id
     this.name = spec.name
 
@@ -253,19 +258,19 @@ export class Building {
   // broken. A hit throws shards; restoring a ruin someone else left must not, or every
   // page load re-stages a demolition that happened in a session long gone.
   //
-  // `fall` is the difference between a piece being knocked out and a piece being condemned.
-  // Either way it stops being part of the building in this very frame -- state, blast grid
-  // and collider all go at once, because structurally it IS gone -- but a condemned piece
-  // hands its appearance to a body that falls, and keeps its shards for the landing.
-  breakCell(index, away = null, silent = false, fall = false) {
+  // `carried` is the difference between a piece being knocked out and a piece being
+  // condemned. Either way it stops being part of the building in this very frame -- state,
+  // blast grid and collider all go at once, because structurally it IS gone -- but a
+  // condemned cell has handed its appearance to the slab falling on its behalf, so it must
+  // not also throw shards where it stood. The slab throws them when it lands.
+  breakCell(index, away = null, silent = false, carried = false) {
     if (!this.standing(index)) return false
 
     this.state[index] = BROKEN
     // Shards before the piece goes: they are spawned from the transform the piece had,
     // which is still on hand either way, but doing it in this order keeps the two reads of
     // that matrix next to each other.
-    const fell = fall && this.falling?.drop(this.matrices[index], this.material[index])
-    if (!fell && !silent) this.debris?.spawn(this.matrices[index], this.material[index], { away })
+    if (!carried && !silent) this.debris?.spawn(this.matrices[index], this.material[index], { away })
     this.meshes.setVisible(this.material[index], this.slot[index], false)
     if (this.targets?.[index]) this.grid?.remove(this.targets[index])
     // Disabled, never removed. The handle stays valid, the registry stays consistent, and
@@ -279,33 +284,59 @@ export class Building {
   // is a filter rather than a message. Roof and gable surfaces carry storey_count, which
   // is above every real storey, so "storey >= from" reaches them without a special case.
   collapse(fromStorey, silent = false) {
-    // Gathered before anything breaks, because how many of these get to fall as bodies
-    // depends on how many there are. A ground-floor failure in a three-storey house
-    // condemns over a thousand cells, and a thousand dynamic bodies arriving in one frame
-    // is a stall -- so only every nth piece falls and the rest shatter where they stood.
+    // Roof and gable surfaces carry storey_count, which is above every real storey, so
+    // "storey >= from" reaches them without a special case.
+    const coming = this.spec.surfaces.filter((surface) => surface.storey >= fromStorey)
+
+    // What is still standing, covered in slabs. Done before anything breaks, because the
+    // tiling can only see what is standing and everything here is about to not be.
     //
-    // Every nth rather than the first n, and that is the whole of why this is worth the
-    // extra pass: taken in order, the budget would be spent on the first wall the
-    // generator happened to emit while the roof puffed away untouched. Strided, what
-    // tumbles is spread evenly through the structure, and a big collapse reads as a house
-    // coming apart rather than as one wall falling in front of a vanishing building.
-    const condemned = []
-    for (let index = 0; index < this.pieceCount; index++) {
-      const surface = this.spec.surfaces[this.surfaceOf[index]]
-      if (!surface || surface.storey < fromStorey) continue
-      if (this.standing(index)) condemned.push(index)
+    // Nothing falls on a silent restore: the pieces were broken in some earlier session,
+    // possibly by somebody else, and raining masonry onto a street on every page load is
+    // the same lie as re-staging their shards.
+    const slabs = []
+    if (!silent && this.chunkSize && this.falling) {
+      for (const surface of coming) {
+        for (const slab of tileSurface(surface, this.chunkSize, this.standingAt)) {
+          slab.surface = surface
+          slabs.push(slab)
+        }
+      }
     }
 
-    // Nothing falls on a silent restore. The pieces were broken in some earlier session,
-    // possibly by somebody else; staging their descent now would be the same lie as
-    // throwing their shards.
-    const budget = silent ? 0 : this.falling?.capacity ?? 0
-    const stride = budget > 0 ? Math.ceil(condemned.length / budget) : 0
+    // Every nth slab rather than the first n, so what tumbles is spread evenly through the
+    // structure instead of being whichever surface the generator emitted first while the
+    // rest puffs away. Since a house tiles to fewer slabs than the budget holds, the stride
+    // is normally one and all of it comes down -- the thinning is what keeps a cathedral
+    // from stalling the frame, not something a house should ever meet.
+    const budget = this.falling?.capacity ?? 0
+    const stride = budget > 0 && slabs.length > budget ? Math.ceil(slabs.length / budget) : 1
+
+    // Which cells a slab has taken responsibility for. They still break individually, and
+    // are still numbered and reported exactly as before -- they simply throw no shards of
+    // their own, because the slab carrying them will throw those when it lands.
+    const carried = new Uint8Array(this.pieceCount)
+
+    for (let n = 0; n < slabs.length; n += stride) {
+      const slab = slabs[n]
+      const matrix = chunkMatrix(
+        slab.surface, slab.row, slab.col, slab.rows, slab.cols, SLAB_MATRIX, this.origin
+      )
+      if (!this.falling.drop(matrix, slab.material, slab)) continue
+
+      for (let r = 0; r < slab.rows; r += 1) {
+        for (let c = 0; c < slab.cols; c += 1) {
+          carried[slab.surface.off + (slab.row + r) * slab.surface.cols + slab.col + c] = 1
+        }
+      }
+    }
 
     let count = 0
-    for (let n = 0; n < condemned.length; n++) {
-      const fall = stride > 0 && n % stride === 0
-      if (this.breakCell(condemned[n], null, silent, fall)) count++
+    for (const surface of coming) {
+      const end = surface.off + surface.rows * surface.cols
+      for (let index = surface.off; index < end; index += 1) {
+        if (this.breakCell(index, null, silent, carried[index] === 1)) count += 1
+      }
     }
     return count
   }
@@ -371,6 +402,8 @@ export class Building {
 // Allocated per call rather than kept, because the caller iterates it and a shared
 // array would be overwritten by a nested break.
 const SINGLE_CELL = (index) => [ index ]
+
+const SLAB_MATRIX = new THREE.Matrix4()
 
 const POSITION = new THREE.Vector3()
 const ROTATION = new THREE.Quaternion()

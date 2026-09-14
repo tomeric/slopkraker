@@ -122,27 +122,43 @@ come out ragged rather than as clean rectangles. `Game::Materials` is the frozen
 destructible thing behaves by; `void` is a real entry with zero everything, which is what keeps
 the index arithmetic uniform.
 
-### A condemned piece falls before it is gone (`game/world/falling_pieces.js`)
+### A condemned house falls as slabs (`game/world/falling_pieces.js`, `chunking.js`)
 
 A collapse used to replace a house with a cloud of shards between one frame and the next, which
-reads as the building being deleted rather than as it falling down. Now a condemned piece is
-handed to `FallingPieces`: a real dynamic body with the panel's own size, orientation and mass,
-which falls, tumbles, and throws the shards it used to throw **at the moment it lands**.
+reads as the building being deleted rather than as it falling down. Now the cells still standing
+are covered with rectangles by `tileSurface`, and each rectangle falls as ONE dynamic body which
+tumbles and throws the shards it used to throw **at the moment it lands**.
 
 Everything else about being condemned still happens in the frame it is decided — state, blast grid
-and collider all go at once, because structurally the piece *is* gone. Only its appearance is
-deferred. Three things hold it up, all commented at their sites:
+and collider all go at once, because structurally the cell *is* gone. Only its appearance is
+deferred, and only to the slab carrying it.
 
-- **The budget is spent by stride, not in order.** A ground-floor failure condemns over a thousand
-  cells, and a thousand dynamic bodies in one frame is a stall, so only every nth piece falls
-  (`ceil(condemned / rules.collapse.fall.max)`) and the rest shatter where they stood. *Every nth*
-  rather than *the first n* is why `collapse()` makes an extra pass: taken in order the budget goes
-  to whichever wall the generator emitted first while the roof puffs away untouched.
-- **Falling pieces are deaf to each other** (`FALLING_GROUPS` excludes its own layer). Condemned
+**The grouping is the whole point, and it is not `Game::Building::Blocks`.** Blocks decide what
+breaks *together when hit*, so they are small and ragged on purpose. Measured on the targets house:
+299 blocks over 690 cells, and floor and roof surfaces carry no blocks at all — 764 of its 1398
+cells are their own piece. Falling by block is 1063 units, a coarsening of 1.32, which is confetti
+with extra steps. 3×4 rectangles reach 356 units, and a wall is three rows tall, so a slab is a
+storey-high wall section rather than a metre cube. Going coarser stops paying: 4×6 saves another
+49, because walls fragment around their windows whatever the cap.
+
+**The budget is measured, not guessed.** It was 140, which was low by roughly ten times. With a
+whole house airborne, creating all of it costs 5.3ms once and `world.step` goes from 0.03ms to
+0.5ms mean / 1.6ms worst — about 6% of a 120Hz frame — and the headless software renderer the suite
+runs on took it too. So `max` is 600 and a house tiles to ~315 slabs: all of it falls, and the
+stride that thins a collapse past the budget is a cathedral's problem, not a house's.
+
+Two more things hold it up, both commented at their sites:
+
+- **Falling slabs are deaf to each other** (`FALLING_GROUPS` excludes its own layer). Condemned
   panels start out flush with the panels beside them; if they could touch each other the whole
   storey would burst on its first frame and nothing would ever be seen to fall.
 - **Silent restores drop nothing.** `applyState` passes `silent`, and a ruin arrived at is a ruin —
   raining masonry on every page load is the same lie as re-staging its shards.
+
+**Nothing here crosses the wire.** A cell is still broken, numbered and reported individually; a
+slab is only how the fall is drawn and simulated, so the server has no idea slabs exist. `chunking.js`
+is JS-only for that reason — it is not part of the piece-index arithmetic that `Surface`'s parity
+contract covers.
 
 This is the one place in the building code holding genuine Rapier body lifetimes, so the footgun
 below is live here in a way it is not for a standing piece.
@@ -299,7 +315,8 @@ The engine exposes debug/test hooks on `window`:
 | `__arenaBreak`, `__arenaRestore` | `(piece, buildingId)` — break or restore one piece outright |
 | `__arenaDamagePiece` | `(piece, amount, buildingId)` — damage without driving into anything |
 | `__arenaPieceState`, `__arenaPieceBlock` | What a piece is made of, how hurt it is, which block it breaks with |
-| `__arenaFalling` | How many condemned pieces are in the air — zero at rest, which is what makes a fall assertable |
+| `__arenaFalling` | How many falling slabs are in the air — zero at rest, which is what makes a fall assertable |
+| `__arenaFallingCells` | How many cells those slabs carry. Against `__arenaFalling` it says how much of the house left the ground, and how coarsely |
 | `__arenaDraws` | `renderer.info.render.calls` — turns "did the render plan regress" into an assertion |
 | `__arenaQuality` | Which tier the engine actually settled on |
 | `__arenaDebugVisible`, `__arenaMasterGain` | Overlay / audio assertions |

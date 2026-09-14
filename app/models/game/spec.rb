@@ -77,13 +77,28 @@ module Game
           # condemned, which reads as a building being deleted rather than falling down.
           # Now it gets a real body first, and throws those same shards when it lands.
           fall: {
-            # How many pieces may be in the air at once. This is a physics budget, not a
-            # look: a collapse can condemn a thousand cells, and a thousand dynamic bodies
-            # arriving in one frame is a stall. What does not fit falls back to shattering
-            # where it stood, and which pieces those are is spread evenly through the
-            # structure -- so a big collapse is a house coming apart, not one wall falling
-            # while the rest puffs away.
-            max: 140,
+            # How many falling units may be in the air at once. A physics budget, and now
+            # a measured one rather than the guess it started as. Measured on this machine
+            # with a whole house airborne: creating all of it costs 5.3ms once, and
+            # world.step goes from 0.03ms to 0.5ms mean, 1.6ms worst -- about 6% of a 120Hz
+            # frame. The headless software renderer the suite runs on took it too. The old
+            # value of 140 was low by roughly ten times.
+            #
+            # Grouped into slabs a house is about 356 units, so this covers a full collapse
+            # with room for a second building beside it. What does not fit still falls back
+            # to shattering where it stood, spread evenly through the structure by stride.
+            max: 600,
+            # How many cells a falling slab may span, as rows x cols of the surface grid.
+            # This is the difference between a building coming apart and a cloud of
+            # confetti: a metre cube tumbling reads as neither masonry nor debris, while a
+            # storey-high wall section toppling reads as exactly what it is.
+            #
+            # Walls are three rows tall, so rows: 3 means a wall slab is full storey height
+            # and cols: 4 makes it four metres long -- three of them to a twelve metre wall.
+            # Measured over this house, 3x4 rectangles cover 1398 cells in 356 units. Going
+            # coarser stops paying: 4x6 saves only another 49, because walls fragment around
+            # their windows and gables around their clipped corners whatever the cap.
+            chunk: { rows: 3, cols: 4 },
             # How long a piece ignores what it touches. Without this nothing survives its
             # first frame: condemned panels start out flush against their neighbours and a
             # floor deck starts sitting on the wall-head below it, so the first contact

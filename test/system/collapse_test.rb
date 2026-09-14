@@ -40,6 +40,35 @@ class CollapseTest < ApplicationSystemTestCase
     page.evaluate_script("window.__arenaDebrisSpawned()")
   end
 
+  # A collapse spends itself in one call and the first pieces start landing within half a
+  # second, so polling from here from Ruby samples the tail rather than the peak. Watch it
+  # from inside the frame loop instead and read the high-water marks afterwards.
+  def watch_the_air
+    page.execute_script(<<~JS)
+      window.__peakUnits = 0
+      window.__peakCells = 0
+      ;(function sample() {
+        const units = window.__arenaFalling ? window.__arenaFalling() : 0
+        const cells = window.__arenaFallingCells ? window.__arenaFallingCells() : 0
+        if (units > window.__peakUnits) window.__peakUnits = units
+        if (cells > window.__peakCells) window.__peakCells = cells
+        requestAnimationFrame(sample)
+      })()
+    JS
+  end
+
+  def peak_units_in_air
+    page.evaluate_script("window.__peakUnits || 0")
+  end
+
+  def peak_cells_in_air
+    page.evaluate_script("window.__peakCells || 0")
+  end
+
+  def broken_pieces
+    page.evaluate_script("window.__arena.piecesBroken")
+  end
+
   def roof_offset(building)
     page.evaluate_script(<<~JS, building)
       window.__arenaBuildingSpec(arguments[0]).surfaces.find(s => s.kind === "roof").off
@@ -191,5 +220,37 @@ class CollapseTest < ApplicationSystemTestCase
     end
 
     assert_equal 0, in_the_air, "the collapse came down under its own weight rather than on a timer"
+  end
+
+  # Two claims, and both had to be measured before they could be written down.
+  #
+  # ALL of it falls. The budget used to be a guess that let about a tenth of a house come
+  # down as pieces while the rest puffed away where it stood -- which is the original
+  # complaint, merely happening to a smaller share of the building. Grouped into slabs a
+  # whole house fits inside the budget with room to spare.
+  #
+  # And it falls as SLABS. A one metre cube tumbling is confetti; a storey-high wall
+  # section toppling is a building coming apart. Rectangles cover this house's 1398 cells
+  # in roughly 356 units, so a factor of three is a floor to clear by a wide margin rather
+  # than a target to hit -- cell-by-cell would sit at one, and the polyomino blocks that
+  # already exist only reach 1.32.
+  test "a condemned house falls as slabs rather than as a cloud of cells" do
+    building = boot("falling-slabs")
+    watch_the_air
+    wreck_storey(building, 0)
+
+    wait_for(timeout: 20, message: "the collapse put nothing in the air") do
+      peak_cells_in_air.positive?
+    end
+    wait_for(timeout: 20, message: "the falling pieces never came down") { in_the_air.zero? }
+
+    cells = peak_cells_in_air
+    units = peak_units_in_air
+    broken = broken_pieces
+
+    assert_operator cells, :>, broken * 0.8,
+                    "only #{cells} of #{broken} condemned cells ever left the ground"
+    assert_operator units * 3, :<, cells,
+                    "#{cells} cells fell as #{units} units, barely coarser than cell by cell"
   end
 end

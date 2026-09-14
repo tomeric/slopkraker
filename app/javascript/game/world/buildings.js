@@ -43,6 +43,7 @@ export class Buildings {
         spread: spec.rules.damage.spread || 0,
         debris: this.debris,
         falling: this.falling,
+        chunk: spec.rules.collapse?.fall?.chunk,
         grid,
         rules: spec.rules.damage,
         onDamage
@@ -100,6 +101,10 @@ export class Buildings {
 
   get fallingCount() {
     return this.falling.count
+  }
+
+  get fallingCells() {
+    return this.falling.cellCount
   }
 
   get debrisCount() {

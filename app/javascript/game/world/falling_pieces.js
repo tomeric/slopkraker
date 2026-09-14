@@ -37,10 +37,12 @@ export class FallingPieces {
     this.linearDamping = rules.linear_damping ?? 0.05
     this.angularDamping = rules.angular_damping ?? 0.4
     this.densityScale = rules.density_scale ?? 1.0
+    this.shardsPerSlab = rules.shards_per_slab ?? 3
 
     this.geometry = new THREE.BoxGeometry(1, 1, 1)
     this.live = []
     this.pool = []
+    this.cells = 0
   }
 
   // How many pieces a collapse may put in the air. The caller thins its condemned set down
@@ -58,7 +60,7 @@ export class FallingPieces {
   // Safe to call from a net message, which is where collapses come from -- but never from
   // inside a drain, because this creates bodies. Nothing does; the comment is here because
   // a future caller might.
-  drop(matrix, name) {
+  drop(matrix, name, shape = SINGLE_CELL) {
     if (!matrix || !this.RAPIER) return false
 
     // The ring is a safety net rather than the budget: it only bites when several
@@ -101,6 +103,11 @@ export class FallingPieces {
     entry.name = name
     entry.age = 0
     entry.touched = false
+    // The grid this slab covered, kept so its landing can be broken back down into cells.
+    entry.rows = shape.rows
+    entry.cols = shape.cols
+    entry.cells = shape.cells
+    this.cells += shape.cells
     entry.mesh.scale.copy(SCALE)
     entry.mesh.position.copy(POSITION)
     entry.mesh.quaternion.copy(ROTATION)
@@ -120,7 +127,7 @@ export class FallingPieces {
     mesh.castShadow = true
     mesh.receiveShadow = false
     this.scene.add(mesh)
-    return { mesh, body: null, collider: null, name, age: 0, touched: false }
+    return { mesh, body: null, collider: null, name, age: 0, touched: false, rows: 1, cols: 1, cells: 1 }
   }
 
   // Called from inside the collision drain, so it may only set a flag.
@@ -153,18 +160,42 @@ export class FallingPieces {
   // Read the transform BEFORE the body goes. The shards have to appear where the piece
   // came to rest rather than where it was condemned, and a body's translation is the one
   // thing that cannot be asked for afterwards.
+  //
+  // Shards are thrown ONE CELL AT A TIME across the slab, never once for the slab itself.
+  // Debris takes its fragment size from the matrix it is handed, so a single burst at slab
+  // scale would shower a four metre wall section in four metre splinters. Spreading a few
+  // cell-sized bursts through the volume keeps rubble the size rubble has always been,
+  // however large the thing that produced it got.
   shatter(entry, index = this.live.indexOf(entry)) {
     if (index < 0) return
 
     const at = entry.body.translation()
     const rot = entry.body.rotation()
-    MATRIX.compose(
-      POSITION.set(at.x, at.y, at.z),
-      ROTATION.set(rot.x, rot.y, rot.z, rot.w),
-      entry.mesh.scale
-    )
-    this.debris.spawn(MATRIX, entry.name)
+    LANDED_AT.set(at.x, at.y, at.z)
+    LANDED_ROT.set(rot.x, rot.y, rot.z, rot.w)
 
+    const size = entry.mesh.scale
+    CELL_SCALE.set(size.x / entry.cols, size.y / entry.rows, size.z)
+
+    // Strided rather than the first few, so a long slab does not throw all its rubble out
+    // of one end.
+    const total = entry.rows * entry.cols
+    const bursts = Math.min(entry.cells, this.shardsPerSlab)
+    const stride = Math.max(1, Math.floor(total / bursts))
+
+    for (let cell = 0; cell < total; cell += stride) {
+      const row = Math.floor(cell / entry.cols)
+      const col = cell % entry.cols
+      // The slab's local axes are the surface's -- x along its columns, y along its rows --
+      // which is what chunkMatrix promises and what makes this arithmetic legal.
+      OFFSET.set((col + 0.5) / entry.cols - 0.5, (row + 0.5) / entry.rows - 0.5, 0)
+        .multiply(size)
+        .applyQuaternion(LANDED_ROT)
+      MATRIX.compose(BURST_AT.copy(LANDED_AT).add(OFFSET), LANDED_ROT, CELL_SCALE)
+      this.debris.spawn(MATRIX, entry.name)
+    }
+
+    this.cells -= entry.cells
     this.colliderIndex.delete(entry.collider.handle)
     this.world.removeRigidBody(entry.body)
     entry.body = null
@@ -188,6 +219,13 @@ export class FallingPieces {
     return this.live.length
   }
 
+  // How many CELLS are in the air, as against how many bodies are carrying them. The two
+  // together are the whole measure of this file: the first says how much of the house left
+  // the ground, the second how coarsely it did it.
+  get cellCount() {
+    return this.cells
+  }
+
   dispose() {
     for (const entry of this.live) {
       this.colliderIndex.delete(entry.collider.handle)
@@ -197,6 +235,7 @@ export class FallingPieces {
     for (const entry of this.pool) entry.mesh.removeFromParent()
     this.live = []
     this.pool = []
+    this.cells = 0
     this.geometry.dispose()
   }
 }
@@ -205,7 +244,14 @@ function rand(scale) {
   return (Math.random() - 0.5) * 2 * scale
 }
 
+const SINGLE_CELL = { rows: 1, cols: 1, cells: 1 }
+
 const POSITION = new THREE.Vector3()
+const LANDED_AT = new THREE.Vector3()
+const LANDED_ROT = new THREE.Quaternion()
+const CELL_SCALE = new THREE.Vector3()
+const OFFSET = new THREE.Vector3()
+const BURST_AT = new THREE.Vector3()
 const ROTATION = new THREE.Quaternion()
 const SCALE = new THREE.Vector3()
 const MATRIX = new THREE.Matrix4()

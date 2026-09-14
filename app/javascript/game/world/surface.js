@@ -73,6 +73,36 @@ export function cellMatrix(surface, row, col, target, origin) {
   return target
 }
 
+// The transform of a RECTANGLE of cells, for a slab that falls as one body. Composed
+// exactly as cellMatrix composes one cell -- same basis, same centring on the surface
+// plane, same T * R * S order and for the same shear reason -- so a slab starts life
+// occupying precisely the space its cells did, down to the thickness straddling the plane.
+//
+// Its local axes are the surface's: x along u (columns), y along v (rows), z along the
+// normal. Callers rely on that to place things inside the slab, which is how a landing
+// slab throws one cell's worth of shards per cell it covered rather than one enormous
+// fragment per slab.
+export function chunkMatrix(surface, row, col, rows, cols, target, origin) {
+  const width = surface.w / surface.cols
+  const height = surface.h / surface.rows
+
+  u.fromArray(surface.u)
+  v.fromArray(surface.v)
+  n.fromArray(surface.n)
+
+  position
+    .fromArray(surface.o)
+    .addScaledVector(u, (col + cols / 2) * width)
+    .addScaledVector(v, (row + rows / 2) * height)
+
+  if (origin) position.add(origin)
+
+  target.makeBasis(u, v, n)
+  target.scale(scale.set(cols * width, rows * height, surface.t))
+  target.setPosition(position)
+  return target
+}
+
 // Every cell of a surface, in index order. `visit` receives the piece index, the material
 // name, and a matrix it must not hold on to -- the same one is reused for every cell.
 export function eachCell(surface, origin, visit) {
