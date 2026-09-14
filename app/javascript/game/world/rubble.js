@@ -52,7 +52,12 @@ export function rubbleMatrix(surface, row, col, target, origin, rules = {}) {
   const vary = 1 + noise(surface, row, col, 31) * spread
   const heap = vary * (1 + mound * (1 - centreDistance(surface, row, col)))
 
-  SCALE.set(SCALE.x * scale * vary, SCALE.y * scale * vary, SCALE.z * heap)
+  // Plan proportion, per heap rather than per shape, and area preserving -- so some lumps
+  // are long and narrow and others nearly square without any of them covering more ground
+  // than the coverage model counted on. This is where the per-variant stretch went when the
+  // geometry was normalised.
+  const aspect = 1 + noise(surface, row, col, 61) * 0.35
+  SCALE.set(SCALE.x * scale * vary * aspect, SCALE.y * scale * vary / aspect, SCALE.z * heap)
 
   // Lifted by however much the mound grew it, so a taller heap still stands ON the ground
   // rather than sinking its extra depth into it -- and then pushed back DOWN by its own
@@ -109,11 +114,6 @@ export function lumpGeometry(variant) {
   // straight up. Squashing y flattens a heap sideways and leaves it free to grow upward,
   // which is how these came out as vertical spikes rather than as heaps.
   //
-  // Each variant is stretched on its own horizontal axes before any vertex moves, so some
-  // lumps are long and low and others are stubby: proportion differs, not just detail.
-  const stretchX = 1 + hash(variant, 3, 1, 101) * 0.5
-  const stretchY = 1 + hash(variant, 5, 2, 103) * 0.5
-
   for (let i = 0; i < position.count; i += 1) {
     const x = position.getX(i)
     const y = position.getY(i)
@@ -122,11 +122,33 @@ export function lumpGeometry(variant) {
 
     position.setXYZ(
       i,
-      x * wobble * stretchX,
-      y * wobble * stretchY,
+      x * wobble,
+      y * wobble,
       // Up. Squashed, because a heap settles, and squashed LAST so the wobble cannot undo
       // it and put a spike back.
       z * wobble * 0.5
+    )
+  }
+
+  // NORMALISED TO FILL ITS BOX, and this is the difference between a volume model that is
+  // right on paper and rubble that is right on screen. A lump is scaled by a box whose
+  // height is the depth Ruby computed from the building's own material -- so a lump filling
+  // 42% of that box drew 42% of the debris, and left the other 58% as collider standing
+  // invisibly above the rubble. Now the box's extents ARE the lump's extents: what the
+  // model says is what you see and what you hit.
+  //
+  // Proportion variety moves to the instance (see the aspect in rubbleMatrix), because
+  // normalising every axis is exactly what throws it away here.
+  const box = new THREE.Box3().setFromBufferAttribute(position)
+  const size = box.getSize(new THREE.Vector3())
+  const centre = box.getCenter(new THREE.Vector3())
+
+  for (let i = 0; i < position.count; i += 1) {
+    position.setXYZ(
+      i,
+      size.x > 1e-6 ? (position.getX(i) - centre.x) / size.x : 0,
+      size.y > 1e-6 ? (position.getY(i) - centre.y) / size.y : 0,
+      size.z > 1e-6 ? (position.getZ(i) - centre.z) / size.z : 0
     )
   }
 

@@ -221,4 +221,50 @@ class RubbleTest < ApplicationSystemTestCase
     assert_operator measured["proud"], :<=, 1.0,
                     "a heap is floating above the ground rather than settled into it"
   end
+
+  # Measured against the LUMP and not against the box it is scaled by, which is the mistake
+  # that hid this the first time. A lump used to fill less than half its box vertically, so
+  # a model saying 0.88m of debris drew about 0.53m of it -- and left a band of collider
+  # above the rubble that you could bump into and not see.
+  #
+  # evaluate_async_script rather than evaluate_script, because reaching the geometry means
+  # importing the module, and an import is a promise.
+  test "a lump fills the box it is scaled by, so the debris is as deep as the model says" do
+    building = boot("rubble-depth")
+    wreck_storey(building, 0)
+    wait_for_the_dust_to_settle
+
+    measured = page.evaluate_async_script(<<~JS, building)
+      const [ id, done ] = [ arguments[0], arguments[1] ]
+      import("game/world/rubble").then(({ lumpGeometry, SHAPES, shapeFor }) => {
+        const r = window.__arenaBuildingSpec(id).surfaces.find(x => x.kind === "rubble")
+
+        const fill = []
+        for (let v = 0; v < SHAPES; v++) {
+          const g = lumpGeometry(v), p = g.attributes.position
+          let half = 0
+          for (let i = 0; i < p.count; i++) half = Math.max(half, Math.abs(p.getZ(i)))
+          fill.push(half * 2)
+          g.dispose()
+        }
+
+        let tallest = 0
+        for (let i = r.off; i < r.off + r.cols * r.rows; i++) {
+          if (!window.__arenaPieceState(i, id).standing) continue
+          const m = window.__arenaPieceMatrix(i, id)
+          const ez = Math.hypot(m[8], m[9], m[10])
+          const row = Math.floor((i - r.off) / r.cols), col = (i - r.off) % r.cols
+          tallest = Math.max(tallest, m[13] + ez * (fill[shapeFor(r, row, col, SHAPES)] / 2))
+        }
+        done({ fill: Math.min(...fill), tallest: tallest })
+      })
+    JS
+
+    assert_operator measured["fill"], :>, 0.95,
+                    "a lump fills only #{(measured["fill"] * 100).round}% of its box, so the " \
+                    "debris is shallower than the volume model says and the collider is taller " \
+                    "than the rubble"
+    assert_operator measured["tallest"], :>, 1.0,
+                    "the deepest rubble is only #{measured["tallest"].round(2)}m"
+  end
 end

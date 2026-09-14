@@ -196,6 +196,13 @@ derive from the recipe seed, clearing goes through `damage`/`breaks` addressed b
   because a zero-scale instance rasterises nothing but the pool still costs a draw call —
   without that, sixteen shapes of rubble cost sixteen draws in a world where nothing has
   fallen down yet.
+- **A lump is normalised to fill its box**, and that is what makes the volume model true on
+  screen rather than only on paper. A lump is scaled by a box whose height is the depth Ruby
+  derived from the building's own material, so a lump filling 42% of that box drew 42% of
+  the debris — and left the other 58% as collider standing invisibly above the rubble, which
+  you could hit and not see. Measuring the BOX rather than the geometry is what hid it.
+  Plan proportion therefore lives in the instance (`aspect` in `rubbleMatrix`), not in the
+  geometry, because normalising every axis is exactly what would throw it away.
 - **Which axis is up, in a rubble lump.** The cell matrix is `makeBasis(u, v, n)`, so a
   lump's local x and y are the surface's two HORIZONTAL axes and its local z is the normal.
   Worse, the rubble grid's normal is `u × v = (0, -1, 0)` — it points **down**. Both have
