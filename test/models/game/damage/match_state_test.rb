@@ -71,8 +71,8 @@ class Game::Damage::MatchStateTest < ActiveSupport::TestCase
     capped = Game::Damage::MatchState.new(@match, rules: Game::Spec.default_rules)
     capped.apply_batch([ [ @house.id, 0, Game::Damage::MatchState::MAX_AMOUNT_PER_HIT, "impact" ] ])
 
-    assert_equal capped.state_for([ @house.id ]).first["destroyed"],
-                 @state.state_for([ @house.id ]).first["destroyed"]
+    assert_equal capped.state_for([ @house.id ]).first["broken"],
+                 @state.state_for([ @house.id ]).first["broken"]
   end
 
   test "a malformed hit is dropped rather than fatal" do
@@ -99,7 +99,7 @@ class Game::Damage::MatchStateTest < ActiveSupport::TestCase
 
     assert_empty fresh.apply_batch([ [ @house.id, 0, 500.0, "impact" ] ])["broken"],
                  "piece 0 was already broken before the restart"
-    assert_equal 1, fresh.state_for([ @house.id ]).first["destroyed_count"]
+    assert_equal 1, fresh.state_for([ @house.id ]).first["broken_count"]
   end
 
   test "flushing twice writes nothing the second time" do
@@ -115,7 +115,7 @@ class Game::Damage::MatchStateTest < ActiveSupport::TestCase
     entry = @state.state_for([ @house.id ]).first
 
     assert_equal @house.id, entry["id"]
-    assert_equal 1, entry["destroyed_count"]
+    assert_equal 1, entry["broken_count"]
     assert_nil entry["collapsed_from"]
   end
 
@@ -125,7 +125,7 @@ class Game::Damage::MatchStateTest < ActiveSupport::TestCase
 
     entry = @state.state_for([ @house.id ]).first
 
-    assert_equal 0, entry["destroyed_count"]
+    assert_equal 0, entry["broken_count"]
     refute entry.key?("partial"), "partial health has no business on the wire"
   end
 
@@ -137,6 +137,6 @@ class Game::Damage::MatchStateTest < ActiveSupport::TestCase
     fresh = Game::Damage::MatchState.new(other, rules: Game::Spec.default_rules)
     fresh.rehydrate!
 
-    assert_equal 0, fresh.state_for([ @house.id ]).first["destroyed_count"]
+    assert_equal 0, fresh.state_for([ @house.id ]).first["broken_count"]
   end
 end

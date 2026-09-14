@@ -62,8 +62,8 @@ module Game
 
           {
             "id" => object_id.to_i,
-            "destroyed" => Base64.strict_encode64(state.destroyed_blob),
-            "destroyed_count" => state.destroyed_count,
+            "broken" => Base64.strict_encode64(state.destroyed_blob),
+            "broken_count" => state.destroyed_count,
             "collapsed_from" => state.collapsed_from
           }
         end
