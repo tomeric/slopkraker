@@ -67,7 +67,43 @@ module Game
           # What the falling storey does to the one it lands on, as a share of its mass.
           # Small on purpose: a pancake should finish a storey that is already going, and
           # bounce off one that is not.
-          pancake_damage_fraction: 0.0015
+          pancake_damage_fraction: 0.0015,
+          # How a condemned piece comes down. Everything above this line is the server's
+          # and runs nowhere else; everything below it is the client's, and is here for
+          # the same reason every other number is -- so retuning how a house falls is an
+          # edit in Ruby.
+          #
+          # A condemned piece used to be replaced by its shards in the frame it was
+          # condemned, which reads as a building being deleted rather than falling down.
+          # Now it gets a real body first, and throws those same shards when it lands.
+          fall: {
+            # How many pieces may be in the air at once. This is a physics budget, not a
+            # look: a collapse can condemn a thousand cells, and a thousand dynamic bodies
+            # arriving in one frame is a stall. What does not fit falls back to shattering
+            # where it stood, and which pieces those are is spread evenly through the
+            # structure -- so a big collapse is a house coming apart, not one wall falling
+            # while the rest puffs away.
+            max: 140,
+            # How long a piece ignores what it touches. Without this nothing survives its
+            # first frame: condemned panels start out flush against their neighbours and a
+            # floor deck starts sitting on the wall-head below it, so the first contact
+            # arrives before the piece has moved at all.
+            arm: 0.12,
+            # A backstop for a piece that lands on nothing -- thrown clear of the building
+            # and still falling, or wedged somewhere it never resolves. Nothing may hold a
+            # body forever.
+            life: 6.0,
+            # The outward shove and tumble a piece leaves with, so a storey comes apart
+            # rather than descending like a lift.
+            drift: 1.6,
+            spin: 2.2,
+            linear_damping: 0.05,
+            angular_damping: 0.4,
+            # Mass comes from the material's own density and the cell's real volume, which
+            # makes a falling brick panel around half a tonne. Scale it here if that turns
+            # out to shove the car harder than it should.
+            density_scale: 1.0
+          }
         },
         impact_force_threshold: 2000.0,
         # How long the debug overlay holds a hit readout before returning to live values.

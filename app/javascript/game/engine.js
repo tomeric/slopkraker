@@ -197,6 +197,9 @@ export class GameEngine {
     window.__arenaDraws = () => this.renderer.info.render.calls
     window.__arenaCollapses = () => this.collapsesSeen ?? 0
     window.__arenaDebrisSpawned = () => this.buildings?.debrisSpawned ?? 0
+    // How many pieces of a condemned building are in the air right now. Zero at rest, so a
+    // test can watch a collapse leave the ground and come back to it.
+    window.__arenaFalling = () => this.buildings?.fallingCount ?? 0
     window.__arenaRemotes = () => this.remotes?.size ?? 0
     window.__arenaReported = () => this.reporter?.sent ?? 0
     window.__arenaBuildingIds = () => this.buildings?.list.map((b) => b.id) ?? []
@@ -526,6 +529,11 @@ export class GameEngine {
       const b = this.colliderIndex.get(handle2)
       if (a?.kind === "rocket") this.projectiles.markDead(a.rocket)
       if (b?.kind === "rocket") this.projectiles.markDead(b.rocket)
+      // A piece of a collapsing building has hit something. Marked and not acted on, for
+      // the reason the comment above this method gives: shattering frees a body, and the
+      // world is borrowed mutably until the drain finishes.
+      if (a?.kind === "falling") this.buildings?.falling.markTouched(a.falling)
+      if (b?.kind === "falling") this.buildings?.falling.markTouched(b.falling)
     })
 
     const rules = this.spec.rules.damage
@@ -648,6 +656,7 @@ export class GameEngine {
       this.projectiles.sync(frameTime)
       this.explosions.sync()
       this.destruction.sync()
+      this.buildings?.sync()
 
       this.chaseCamera.update(
         frameTime, entity.renderPos, entity.renderRot,

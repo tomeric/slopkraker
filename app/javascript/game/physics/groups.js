@@ -24,6 +24,16 @@ export const WORLD_GROUPS = groups(LAYER.WORLD, ALL)
 export const PROP_GROUPS = groups(LAYER.PROP, ALL)
 export const DEBRIS_GROUPS = groups(LAYER.DEBRIS, ALL & ~LAYER.ROCKET)
 
+// A piece of a collapsing building on its way down. On the DEBRIS layer, but deaf to its
+// own kind, and that exclusion is the whole reason this is not just DEBRIS_GROUPS.
+//
+// A falling piece shatters on the first thing it touches. Condemned panels start out flush
+// against the panels that were beside them, so if they could touch each other the entire
+// storey would burst on its first frame and nothing would ever be seen to fall. Deaf to
+// each other, they meet the ground, the masonry still standing, and your car -- which is
+// everything worth hitting.
+export const FALLING_GROUPS = groups(LAYER.DEBRIS, ALL & ~LAYER.ROCKET & ~LAYER.DEBRIS)
+
 export function vehicleGroups(owner) {
   const layer = owner === "local" ? LAYER.OWN_VEHICLE : LAYER.OTHER_VEHICLE
   return groups(layer, ALL)

@@ -30,6 +30,16 @@ class CollapseTest < ApplicationSystemTestCase
     page.evaluate_script("window.__arenaPieceState(arguments[0], arguments[1]).standing", index, building)
   end
 
+  # Defensive rather than bare, so a missing hook fails as "nothing ever went up" with the
+  # console errors attached, instead of as a ReferenceError from inside a poll.
+  def in_the_air
+    page.evaluate_script("window.__arenaFalling ? window.__arenaFalling() : 0")
+  end
+
+  def shards_thrown
+    page.evaluate_script("window.__arenaDebrisSpawned()")
+  end
+
   def roof_offset(building)
     page.evaluate_script(<<~JS, building)
       window.__arenaBuildingSpec(arguments[0]).surfaces.find(s => s.kind === "roof").off
@@ -117,5 +127,69 @@ class CollapseTest < ApplicationSystemTestCase
     assert_equal 0, page.evaluate_script("window.__arenaReported()"),
                  "this session reported nothing, so anything broken came from the rows"
     refute piece_standing?(building, 0), "the wreckage did not come back"
+  end
+
+  # The point of the whole exercise. A house that has been condemned must come DOWN --
+  # pieces in the air, under gravity, landing -- rather than being replaced by a cloud of
+  # shards between one frame and the next.
+  #
+  # The ordering is what is actually asserted, and it is asserted without racing the
+  # simulation: whatever shards had been thrown at the moment pieces were still in the air,
+  # there are more of them once those pieces are down. A build that shatters on condemnation
+  # never gets a positive reading out of __arenaFalling at all, and fails on the wait.
+  test "a condemned storey falls before it shatters" do
+    building = boot("collapse-falling")
+    wreck_storey(building, 0)
+
+    shards_at_launch = wait_for(timeout: 20, message: "the collapse put nothing in the air") do
+      in_the_air.positive? && shards_thrown
+    end
+
+    wait_for(timeout: 20, message: "the falling pieces never came down") { in_the_air.zero? }
+
+    assert_operator shards_thrown, :>, shards_at_launch,
+                    "the pieces came down without shattering"
+  end
+
+  # The silent rule again, for the stage that did not exist when the test above it was
+  # written. A ruin must not put anything in the air either: pieces raining onto a street
+  # they came down in some session last week is the same lie as their shards, and a slower
+  # one to notice, because this one lands on your car.
+  test "returning to a wrecked building puts nothing in the air" do
+    building = boot("falling-restore")
+    wreck_storey(building, 0)
+    wait_for(timeout: 15, message: "the server never reported a collapse") do
+      page.evaluate_script("window.__arenaCollapses()").positive?
+    end
+    Game::Damage::Registry.flush_all!
+
+    boot("falling-restore")
+    wait_for(timeout: 15, message: "the wreckage never came back") { !piece_standing?(building, 0) }
+
+    assert_equal 0, in_the_air, "a ruin restaged its own descent"
+  end
+  # The backstop is not the mechanism, and this is the test that says so.
+  #
+  # A piece that is already resting on something when it is condemned -- a ground floor
+  # panel standing on the ground it is about to become rubble on -- gets exactly one
+  # "contact started" from Rapier, at the moment it spawns. Throw that away and no second
+  # one is ever coming, because it never stops touching what it is sitting on. Those pieces
+  # then sit there for the whole of `life` and vanish together, which looks precisely as
+  # wrong as it sounds.
+  #
+  # So: everything a collapse puts in the air is down long before the backstop could
+  # explain it. The margin is what makes the assertion mean anything -- pieces genuinely
+  # fall for about a second and a half, and `life` is six.
+  test "every piece a collapse drops lands rather than timing out" do
+    building = boot("falling-backstop")
+    wreck_storey(building, 0)
+
+    wait_for(timeout: 20, message: "the collapse put nothing in the air") { in_the_air.positive? }
+
+    wait_for(timeout: 4, message: "pieces were still in the air, waiting out the backstop") do
+      in_the_air.zero?
+    end
+
+    assert_equal 0, in_the_air, "the collapse came down under its own weight rather than on a timer"
   end
 end

@@ -2,6 +2,7 @@ import { Building } from "game/world/building"
 import { PieceMeshes } from "game/render/piece_meshes"
 import { Patterns } from "game/fracture/patterns"
 import { Debris } from "game/render/debris"
+import { FallingPieces } from "game/world/falling_pieces"
 
 // Every building in the world, and the instanced meshes they share.
 //
@@ -18,6 +19,12 @@ export class Buildings {
     this.meshes = new PieceMeshes(scene, materials)
     this.patterns = new Patterns(materials)
     this.debris = new Debris({ scene, materials, patterns: this.patterns })
+    // Built whether or not there are buildings, so the engine can wire its drain hook and
+    // its telemetry to something real on a world made of nothing but ground.
+    this.falling = new FallingPieces({
+      RAPIER, world, scene, colliderIndex, materials, debris: this.debris,
+      rules: spec.rules.collapse?.fall
+    })
     if (specs.length === 0) return
 
     // Counted across every building first, because an InstancedMesh is allocated once at
@@ -35,6 +42,7 @@ export class Buildings {
         contactThreshold: spec.rules.impact_force_threshold,
         spread: spec.rules.damage.spread || 0,
         debris: this.debris,
+        falling: this.falling,
         grid,
         rules: spec.rules.damage,
         onDamage
@@ -48,6 +56,13 @@ export class Buildings {
 
   update(dt) {
     this.debris.update(dt)
+    this.falling.update(dt)
+  }
+
+  // Bodies, so their meshes are read back like any other simulated thing. Called from the
+  // render pass beside the prop debris, which does exactly this for the same reason.
+  sync() {
+    this.falling.sync()
   }
 
   // What the server says is gone. Everything below is monotone -- it only ever breaks --
@@ -83,6 +98,10 @@ export class Buildings {
     return this.debris.spawnedTotal
   }
 
+  get fallingCount() {
+    return this.falling.count
+  }
+
   get debrisCount() {
     return this.debris.count
   }
@@ -115,6 +134,7 @@ export class Buildings {
 
   dispose(colliderIndex) {
     for (const building of this.list) building.dispose(colliderIndex)
+    this.falling.dispose()
     this.debris.dispose()
     this.patterns.dispose()
     this.meshes.dispose()

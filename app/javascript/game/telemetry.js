@@ -38,7 +38,7 @@ export class Telemetry {
       debris: 0, broken: 0, hitMarkers: 0, damage: [], lastDamage: 0,
 
       // Buildings: how much of the world is still standing.
-      pieces: 0, piecesStanding: 0, piecesBroken: 0, shards: 0, buildings: [],
+      pieces: 0, piecesStanding: 0, piecesBroken: 0, shards: 0, falling: 0, buildings: [],
 
       vehicle: null, muted: false
     }
@@ -119,6 +119,7 @@ export class Telemetry {
       stats.piecesBroken = buildings.brokenCount
       stats.buildings = buildings.readout()
       stats.shards = buildings.debrisCount
+      stats.falling = buildings.fallingCount
     }
 
     stats.audio = {

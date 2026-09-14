@@ -25,7 +25,7 @@ const BROKEN = 1
 const ABSENT = 2
 
 export class Building {
-  constructor({ RAPIER, world, spec, materials, meshes, colliderIndex, contactThreshold, spread = 0, debris = null, grid = null, rules = {}, onDamage = null }) {
+  constructor({ RAPIER, world, spec, materials, meshes, colliderIndex, contactThreshold, spread = 0, debris = null, falling = null, grid = null, rules = {}, onDamage = null }) {
     this.spec = spec
     this.materials = materials
     this.meshes = meshes
@@ -33,6 +33,7 @@ export class Building {
     this.contactThreshold = contactThreshold
     this.spread = spread
     this.debris = debris
+    this.falling = falling
     this.grid = grid
     this.rules = rules
     this.onDamage = onDamage
@@ -251,14 +252,20 @@ export class Building {
   // `silent` is the difference between something breaking and something having been
   // broken. A hit throws shards; restoring a ruin someone else left must not, or every
   // page load re-stages a demolition that happened in a session long gone.
-  breakCell(index, away = null, silent = false) {
+  //
+  // `fall` is the difference between a piece being knocked out and a piece being condemned.
+  // Either way it stops being part of the building in this very frame -- state, blast grid
+  // and collider all go at once, because structurally it IS gone -- but a condemned piece
+  // hands its appearance to a body that falls, and keeps its shards for the landing.
+  breakCell(index, away = null, silent = false, fall = false) {
     if (!this.standing(index)) return false
 
     this.state[index] = BROKEN
     // Shards before the piece goes: they are spawned from the transform the piece had,
     // which is still on hand either way, but doing it in this order keeps the two reads of
     // that matrix next to each other.
-    if (!silent) this.debris?.spawn(this.matrices[index], this.material[index], { away })
+    const fell = fall && this.falling?.drop(this.matrices[index], this.material[index])
+    if (!fell && !silent) this.debris?.spawn(this.matrices[index], this.material[index], { away })
     this.meshes.setVisible(this.material[index], this.slot[index], false)
     if (this.targets?.[index]) this.grid?.remove(this.targets[index])
     // Disabled, never removed. The handle stays valid, the registry stays consistent, and
@@ -272,11 +279,33 @@ export class Building {
   // is a filter rather than a message. Roof and gable surfaces carry storey_count, which
   // is above every real storey, so "storey >= from" reaches them without a special case.
   collapse(fromStorey, silent = false) {
-    let count = 0
+    // Gathered before anything breaks, because how many of these get to fall as bodies
+    // depends on how many there are. A ground-floor failure in a three-storey house
+    // condemns over a thousand cells, and a thousand dynamic bodies arriving in one frame
+    // is a stall -- so only every nth piece falls and the rest shatter where they stood.
+    //
+    // Every nth rather than the first n, and that is the whole of why this is worth the
+    // extra pass: taken in order, the budget would be spent on the first wall the
+    // generator happened to emit while the roof puffed away untouched. Strided, what
+    // tumbles is spread evenly through the structure, and a big collapse reads as a house
+    // coming apart rather than as one wall falling in front of a vanishing building.
+    const condemned = []
     for (let index = 0; index < this.pieceCount; index++) {
       const surface = this.spec.surfaces[this.surfaceOf[index]]
       if (!surface || surface.storey < fromStorey) continue
-      if (this.breakCell(index, null, silent)) count++
+      if (this.standing(index)) condemned.push(index)
+    }
+
+    // Nothing falls on a silent restore. The pieces were broken in some earlier session,
+    // possibly by somebody else; staging their descent now would be the same lie as
+    // throwing their shards.
+    const budget = silent ? 0 : this.falling?.capacity ?? 0
+    const stride = budget > 0 ? Math.ceil(condemned.length / budget) : 0
+
+    let count = 0
+    for (let n = 0; n < condemned.length; n++) {
+      const fall = stride > 0 && n % stride === 0
+      if (this.breakCell(condemned[n], null, silent, fall)) count++
     }
     return count
   }
