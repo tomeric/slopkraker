@@ -254,9 +254,17 @@ class AbilitiesTest < ApplicationSystemTestCase
     assert_equal before + 2, telemetry["rocketsFired"]
   end
 
+  # Twenty taps for the ten rockets a full bar buys, which is ten more than the arithmetic
+  # needs. The spare ones are not sloppiness, they are the point: press flags are consumed
+  # once a frame, so when the suite is under load and a frame runs longer than the 120ms
+  # between taps, two taps land in one frame and one of them is simply lost. At twelve
+  # taps that left the bar with charge in it, and this test failed in its SETUP -- "bar
+  # never ran dry" -- while the recharge it exists to check went untested. Extra taps
+  # cost nothing: a tap that finds an empty bar fires nothing, and a draw that fails does
+  # not restart the recharge delay, so they cannot buy an eleventh rocket either.
   test "rockets recharge into further shots after a pause" do
     boot("buggy")
-    tap_action_repeatedly(times: 12, every: 0.12)
+    tap_action_repeatedly(times: 20, every: 0.12)
     wait_for(timeout: 8, message: "bar never ran dry") { telemetry["turbo"] < 0.01 }
     stop_tapping
     spent = telemetry["rocketsFired"]
