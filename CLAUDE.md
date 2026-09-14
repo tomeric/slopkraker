@@ -157,15 +157,27 @@ Keyboard, pointer and gamepad sources each write into one normalised `InputState
 controls panel — so the panel can never drift from the bindings it documents. Keyboard entries are
 `KeyboardEvent.code` values.
 
-### Multiplayer — destruction is wired, vehicles are not
+### Multiplayer
 
-`ArenaChannel` now has two halves with deliberately opposite rules.
+`ArenaChannel` has two halves with deliberately opposite rules.
 
 **Vehicles are relayed and never simulated.** Each client authoritatively simulates its own
 car; the server stamps `player_id` from the session cookie (`ApplicationCable::Connection`)
-and fans out. Simulating would cap feel at the network tick rate.
-`game/net/{snapshot,remote_vehicle}.js` still exist and **nothing imports them** — remote
-vehicles are the open piece of work. `net/connection.js` is imported now.
+and fans out. Simulating would cap feel at the network tick rate. Every module under
+`game/net/` is imported now.
+
+Two things about remote cars that are not obvious:
+
+- **Leaving cannot be announced.** A browser closing a tab does not reliably get to run
+  JavaScript on the way out, so the unsubscribe never reaches the server and it falls back
+  to noticing a dead socket — measured at **12.5 seconds**. So silence is what counts as
+  gone: a remote unheard from for `rules.remote_timeout` is dropped. The channel's `leave`
+  message is honoured when it arrives, but it is the fast path, not the mechanism.
+- **One browser is one player.** `player_id` comes from the session cookie, so two tabs
+  share it and each correctly discards the other's snapshots as its own echo. Testing
+  multiplayer needs two Capybara sessions (`Capybara.using_session`), not two tabs — and
+  the backgrounded one has its `requestAnimationFrame` throttled, so it sends far fewer
+  snapshots than it would in front of a player.
 
 **Destruction is the other way round: the server decides.** A client predicts its own
 breaks — it must, or driving through a wall would bounce you off while a round trip
