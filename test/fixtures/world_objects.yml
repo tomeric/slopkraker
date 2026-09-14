@@ -109,7 +109,7 @@ targets_house:
   z: 8.0
   yaw: 0.0
   radius: 20.0
-  piece_count: 1454
+  piece_count: 1502
   storey_count: 3
   recipe:
     kind: building

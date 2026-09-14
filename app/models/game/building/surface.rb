@@ -17,7 +17,7 @@ module Game
     # the building -- so damage recorded against one wall would come back applied to
     # another.
     class Surface
-      KINDS = %i[wall partition floor roof gable].freeze
+      KINDS = %i[wall partition floor roof gable rubble].freeze
 
       attr_reader :kind, :storey, :material, :origin, :u, :v, :normal,
                   :width, :height, :cols, :rows, :thickness, :patches, :piece_offset, :seed

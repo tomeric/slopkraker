@@ -17,16 +17,29 @@ class Game::Building::GeneratorTest < ActiveSupport::TestCase
   test "the worked example generates exactly what it is supposed to" do
     set = house
 
-    assert_equal 22, set.surfaces.length
-    assert_equal 1454, set.piece_count
+    assert_equal 23, set.surfaces.length
+    assert_equal 1502, set.piece_count
     assert_equal 3, set.storey_count
 
     assert_equal %i[wall wall wall wall wall wall wall wall wall wall wall wall
-                    floor floor floor partition partition partition roof roof gable gable],
+                    floor floor floor partition partition partition roof roof gable gable
+                    rubble],
                  set.surfaces.map(&:kind)
     assert_equal [ 0, 36, 72, 108, 153, 198, 243, 279, 315, 351, 396, 441,
-                   486, 666, 846, 1026, 1062, 1098, 1134, 1246, 1358, 1406 ],
+                   486, 666, 846, 1026, 1062, 1098, 1134, 1246, 1358, 1406, 1454 ],
                  set.surfaces.map(&:piece_offset)
+  end
+
+  # Rubble is generated last and must stay last. Every index before it keeps the number it
+  # had before rubble existed, which is what let a building start reserving space for its
+  # own wreckage without renumbering a world that had already been played and damaged.
+  test "rubble is appended after every surface the building is made of" do
+    set = house
+
+    assert_equal :rubble, set.surfaces.last.kind
+    assert_equal 1, set.surfaces.count { |s| s.kind == :rubble }
+    assert_equal 1454, set.surfaces.last.piece_offset,
+                 "the building's own pieces must keep the indices they had"
   end
 
   test "offsets are contiguous and cover every piece exactly once" do
