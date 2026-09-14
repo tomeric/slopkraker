@@ -18,6 +18,7 @@ export function rubbleMatrix(surface, row, col, target, origin, rules = {}) {
   const tilt = rules.tilt ?? 0.28
   const mound = rules.mound ?? 0.7
   const spread = rules.spread ?? 0.55
+  const sink = rules.sink ?? [ 0.05, 0.45 ]
 
   cellMatrix(surface, row, col, target, origin)
   target.decompose(POSITION, ROTATION, SCALE)
@@ -52,9 +53,21 @@ export function rubbleMatrix(surface, row, col, target, origin, rules = {}) {
   const heap = vary * (1 + mound * (1 - centreDistance(surface, row, col)))
 
   SCALE.set(SCALE.x * scale * vary, SCALE.y * scale * vary, SCALE.z * heap)
+
   // Lifted by however much the mound grew it, so a taller heap still stands ON the ground
-  // rather than sinking its extra depth into it.
-  POSITION.addScaledVector(N, (SCALE.z - Math.abs(surface.t)) / 2)
+  // rather than sinking its extra depth into it -- and then pushed back DOWN by its own
+  // sink, because rubble settles into the ground it lands on and a lump resting exactly on
+  // the surface reads as an object that was placed there.
+  //
+  // The sink is bounded well short of the two thirds that would bury a heap: a third of it
+  // has to stand proud or it stops being something you have to get around.
+  //
+  // Applied along WORLD UP and not along the surface normal. The rubble grid's normal is
+  // u x v = (0, -1, 0), which points straight DOWN -- so lifting along it buried the heap
+  // and sinking along it floated it, and the two errors were quiet enough to look almost
+  // right. The grid is always flat on the ground, so world up is both correct and honest.
+  const buried = sink[0] + ((noise(surface, row, col, 59) + 1) / 2) * (sink[1] - sink[0])
+  POSITION.y += (SCALE.z - Math.abs(surface.t)) / 2 - SCALE.z * buried
 
   return target.compose(POSITION, ROTATION, SCALE)
 }
@@ -66,13 +79,13 @@ function centreDistance(surface, row, col) {
   return Math.min(1, Math.hypot(dx, dy) * 2)
 }
 
-// How many different lumps exist. Each is its own instanced pool and therefore its own
-// draw call, so this is a handful rather than a heap per shape -- with yaw, lean and size
-// on top of it, four is enough that no two heaps read the same.
-export const SHAPES = 4
+// How many different lumps exist, when Ruby has not said. The real number ships in
+// rules.collapse.rubble.shapes -- it decides how many instanced pools are allocated, so
+// the two sides cannot be allowed to disagree about it.
+export const SHAPES = 16
 
-export function shapeFor(surface, row, col) {
-  return Math.floor(((noise(surface, row, col, 53) + 1) / 2) * SHAPES) % SHAPES
+export function shapeFor(surface, row, col, shapes = SHAPES) {
+  return Math.floor(((noise(surface, row, col, 53) + 1) / 2) * shapes) % shapes
 }
 
 // A lump of debris, not a box.
@@ -84,27 +97,50 @@ export function shapeFor(surface, row, col) {
 // and in every session -- these are geometry, not decoration, and a heap you drive around
 // has to be the heap everybody else drives around.
 export function lumpGeometry(variant) {
-  const geometry = new THREE.IcosahedronGeometry(0.5, 0)
+  // Alternating the base solid as well as the wobble. Sixteen wobbles of one icosahedron
+  // are sixteen versions of the same silhouette; a dodecahedron and a subdivided
+  // icosahedron bring genuinely different face counts and profiles, and the eye reads that
+  // long before it reads a displaced vertex.
+  const geometry = baseSolid(variant)
   const position = geometry.attributes.position
+
+  // WHICH AXIS IS UP: the cell matrix is built with makeBasis(u, v, n), so a lump's local
+  // x and y are the two HORIZONTAL axes of the surface and its local z is the normal --
+  // straight up. Squashing y flattens a heap sideways and leaves it free to grow upward,
+  // which is how these came out as vertical spikes rather than as heaps.
+  //
+  // Each variant is stretched on its own horizontal axes before any vertex moves, so some
+  // lumps are long and low and others are stubby: proportion differs, not just detail.
+  const stretchX = 1 + hash(variant, 3, 1, 101) * 0.5
+  const stretchY = 1 + hash(variant, 5, 2, 103) * 0.5
 
   for (let i = 0; i < position.count; i += 1) {
     const x = position.getX(i)
     const y = position.getY(i)
     const z = position.getZ(i)
-    const wobble = 1 + hash(x, y, z, variant) * 0.45
+    const wobble = 1 + hash(x, y, z, variant) * 0.6
 
     position.setXYZ(
       i,
-      x * wobble,
-      // Squashed, because a heap settles. Flattened last so the wobble does not undo it.
-      y * wobble * 0.55,
-      z * wobble * (1 + hash(z, x, y, variant + 7) * 0.3)
+      x * wobble * stretchX,
+      y * wobble * stretchY,
+      // Up. Squashed, because a heap settles, and squashed LAST so the wobble cannot undo
+      // it and put a spike back.
+      z * wobble * 0.5
     )
   }
 
   position.needsUpdate = true
   geometry.computeVertexNormals()
   return geometry
+}
+
+function baseSolid(variant) {
+  switch (variant % 3) {
+    case 0: return new THREE.IcosahedronGeometry(0.5, 0)
+    case 1: return new THREE.DodecahedronGeometry(0.5, 0)
+    default: return new THREE.IcosahedronGeometry(0.5, 1)
+  }
 }
 
 // Deterministic in the vertex's own position, so the same variant is the same lump

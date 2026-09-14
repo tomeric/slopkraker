@@ -184,4 +184,41 @@ class RubbleTest < ApplicationSystemTestCase
                  "#{peak["heapsThen"]} heaps were already down while #{peak["falling"]} pieces were still in the air"
     assert_operator settled, :>, 0, "the pieces landed and left nothing behind"
   end
+
+  # Two numbers that have both been quietly wrong already, and neither was visible in a
+  # screenshot: a lump flattened on a horizontal axis grew vertical spikes, and a lift
+  # applied along the grid's own normal -- which points DOWN -- floated every heap instead
+  # of settling it. Both looked almost right.
+  #
+  # So: heaps cover the ground the house stood on, and every one of them stands proud of it.
+  test "the wreckage covers the footprint and stands proud of it" do
+    building = boot("rubble-shape")
+    wreck_storey(building, 0)
+    wait_for_the_dust_to_settle
+
+    measured = page.evaluate_script(<<~JS, building)
+      (function (id) {
+        const spec = window.__arenaBuildingSpec(id)
+        const r = spec.surfaces.find(x => x.kind === "rubble")
+        let area = 0, lowest = 1
+        for (let i = r.off; i < r.off + r.cols * r.rows; i++) {
+          if (!window.__arenaPieceState(i, id).standing) continue
+          const m = window.__arenaPieceMatrix(i, id)
+          const ex = Math.hypot(m[0], m[1], m[2])
+          const ey = Math.hypot(m[4], m[5], m[6])
+          const ez = Math.hypot(m[8], m[9], m[10])
+          area += ex * ey
+          lowest = Math.min(lowest, (m[13] + ez / 2) / ez)
+        }
+        return { area: area, proud: lowest }
+      })(arguments[0])
+    JS
+
+    assert_operator measured["area"], :>, 180.0,
+                    "the wreckage covers #{measured["area"].round} m2 of a 180 m2 footprint"
+    assert_operator measured["proud"], :>, 0.35,
+                    "a heap stood only #{(measured["proud"] * 100).round}% out of the ground"
+    assert_operator measured["proud"], :<=, 1.0,
+                    "a heap is floating above the ground rather than settled into it"
+  end
 end

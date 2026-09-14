@@ -79,7 +79,11 @@ export class PieceMeshes {
       // recomputed once the pool is full.
       mesh.frustumCulled = false
       this.scene.add(mesh)
-      this.pools.set(name, { mesh, next: 0 })
+      // `live` is how many of this pool's instances are actually showing. A zero-scale
+      // instance rasterises nothing but the POOL still costs a draw call, so a pool with
+      // nothing in it is switched off entirely -- which is what stops sixteen shapes of
+      // rubble being sixteen draw calls in a world where nothing has fallen down yet.
+      this.pools.set(name, { mesh, next: 0, live: 0, shown: new Uint8Array(count) })
     }
   }
 
@@ -106,6 +110,9 @@ export class PieceMeshes {
     pool.mesh.count = pool.next
     pool.mesh.setMatrixAt(slot, matrix)
     pool.mesh.setColorAt(slot, WHITE)
+    pool.shown[slot] = 1
+    pool.live += 1
+    pool.mesh.visible = true
     return slot
   }
 
@@ -135,6 +142,13 @@ export class PieceMeshes {
       pool.mesh.setMatrixAt(slot, SCRATCH_MATRIX)
     }
     pool.mesh.instanceMatrix.needsUpdate = true
+
+    const now = visible ? 1 : 0
+    if (pool.shown[slot] !== now) {
+      pool.shown[slot] = now
+      pool.live += now ? 1 : -1
+      pool.mesh.visible = pool.live > 0
+    }
   }
 
   finalise() {

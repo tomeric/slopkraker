@@ -30,11 +30,12 @@ export class Buildings {
 
     // Counted across every building first, because an InstancedMesh is allocated once at
     // its final capacity and cannot grow afterwards.
+    const shapes = spec.rules.collapse?.rubble?.shapes ?? SHAPES
     const counts = new Map()
-    for (const building of specs) Building.countMaterials(building, counts)
+    for (const building of specs) Building.countMaterials(building, counts, shapes)
     // Before allocate, and that ordering is the contract: a pool is handed its geometry
     // when its InstancedMesh is built and cannot be given a different one afterwards.
-    for (let variant = 0; variant < SHAPES; variant += 1) {
+    for (let variant = 0; variant < shapes; variant += 1) {
       this.meshes.useShape(`rubble#${variant}`, lumpGeometry(variant))
     }
     this.meshes.allocate(counts)

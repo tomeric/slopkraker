@@ -135,6 +135,18 @@ module Game
             # so a second copy that drifted would leave the client drawing heaps of a size
             # the server never sized.
             scale: Building::Rubble::SPREAD,
+            # How many different lumps there are. Read from the constant for the same
+            # reason scale is: the client builds one instanced pool per shape, and a
+            # disagreement would leave heaps drawn from a pool nobody allocated.
+            shapes: Building::Rubble::SHAPES,
+            # How far a heap sinks into the ground, as a share of its own height. Rubble
+            # settles INTO the ground it lands on; a lump resting exactly on the surface
+            # reads as an object that was placed there.
+            #
+            # Never more than 0.65: a third of a heap has to stand proud or it stops being
+            # something you have to get around. The range below keeps clear of that rather
+            # than riding it.
+            sink: [ 0.05, 0.45 ],
             # How far a heap leans off level. A heap is not a paving slab, and this is what
             # stops it reading as one -- it was the last thing making them look laid rather
             # than dropped.

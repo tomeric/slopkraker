@@ -121,11 +121,35 @@ class Game::Building::RubbleTest < ActiveSupport::TestCase
   # metres of material and 559 tonnes of it, and heaps sized by a constant would be the
   # same on a bungalow and a tower -- which is the difference between wreckage and a
   # decoration that happens to be lying where a building used to be.
-  test "the heaps hold a share of what the building was made of" do
+  #
+  # Measured as DEPTH OVER THE FOOTPRINT rather than as the sum of the lumps, because the
+  # lumps overlap by design and overlapping lumps do not stack their heights. What the
+  # material comes to when it is spread over the ground the house stood on is the honest
+  # figure, and it is what a collapsed house actually looks like: under a metre, mounded.
+  test "the heaps are as deep as the material comes to over the footprint" do
     set = surface
-    expected = material_volume * Game::Building::Rubble::BULK * Game::Building::Rubble::SHARE
+    kept = material_volume * Game::Building::Rubble::BULK * Game::Building::Rubble::SHARE
 
-    assert_in_delta expected, heap_volume(set), expected * 0.02
+    assert_in_delta kept / (12.0 * 15.0), set.thickness, 0.02
+  end
+
+  # Wreckage covers the ground the building stood on. At 58% it read as scattered lumps on
+  # a site rather than as the site being buried, which is the wrong picture: a house does
+  # not fall down and leave most of its own floor showing.
+  test "the wreckage covers the ground the house stood on" do
+    set = surface
+    side = Game::Building::Rubble::CELL * Game::Building::Rubble::SPREAD
+    covered = Game::Building::Rubble.total_piles(set) * side * side
+
+    assert_operator covered, :>, 12.0 * 15.0,
+                    "the lumps do not between them cover the footprint even once"
+  end
+
+  # Enough shapes that a site does not read as one lump repeated. They cost a draw call
+  # each, but the pools are shared by every building in the world, so this is the cost for
+  # a city and not the cost per house.
+  test "there are enough different lumps to go round" do
+    assert_operator Game::Building::Rubble::SHAPES, :>=, 12
   end
 
   # The consequence that matters, and the reason this is derived rather than tuned: a

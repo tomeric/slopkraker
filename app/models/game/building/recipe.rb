@@ -61,6 +61,16 @@ module Game
 
       def rise = [ ridge - eaves, 0.0 ].max
 
+      # The ground the building actually stands on, by the shoelace formula. Not the
+      # bounding box: an L-shaped house does not stand on the square it fits inside, and
+      # the wreckage it leaves has to cover what it stood on rather than what it fitted in.
+      def footprint_area
+        footprint.each_with_index.sum { |(x1, z1), index|
+          x2, z2 = footprint[(index + 1) % footprint.length]
+          x1 * z2 - x2 * z1
+        }.abs / 2.0
+      end
+
       # Edges as pairs of points, closing the ring.
       def edges
         footprint.each_with_index.map do |point, index|

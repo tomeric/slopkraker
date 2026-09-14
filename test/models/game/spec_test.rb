@@ -335,5 +335,11 @@ class Game::SpecTest < ActiveSupport::TestCase
     # drawing heaps of a size the server never sized -- and the volume of wreckage a house
     # leaves would quietly stop being the volume the house was made of.
     assert_equal Game::Building::Rubble::SPREAD, rubble.fetch(:scale)
+    assert_equal Game::Building::Rubble::SHAPES, rubble.fetch(:shapes)
+
+    # A third of every heap stands proud, whatever the seed picks. Below that a heap stops
+    # being something you have to get around and becomes a stain on the ground.
+    assert_operator rubble.fetch(:sink).max, :<=, 0.65
+    assert_operator rubble.fetch(:sink).min, :>=, 0.0
   end
 end

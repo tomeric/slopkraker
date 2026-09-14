@@ -186,12 +186,28 @@ derive from the recipe seed, clearing goes through `damage`/`breaks` addressed b
   *through* the rubble they are supposedly becoming. A restore has no slabs to wait for, so
   it reveals everything at once. Only the local timing varies: the COUNT is still derived
   from `collapsed_from`, so two clients converge on the same set.
-- **A heap is a lump, not a box.** `lumpGeometry` wobbles an icosahedron's vertices and
-  squashes it; there are four variants and a heap picks one by seed. They are separate
-  instanced pools, because an `InstancedMesh` has one geometry — so `PieceMeshes` pools are
-  keyed by a POOL name (`rubble#2`) rather than by material, and `Building#pool` holds which
-  one each piece draws from. The suffix chooses a shape and never a material: colour, health
-  and damage all stay the material's.
+- **A heap is a lump, not a box.** `lumpGeometry` wobbles the vertices of an icosahedron or
+  dodecahedron, stretches it per variant and squashes it flat; `Rubble::SHAPES` of them
+  exist and a heap picks one by seed. They are separate instanced pools, because an
+  `InstancedMesh` has one geometry — so `PieceMeshes` pools are keyed by a POOL name
+  (`rubble#2`) rather than by material, and `Building#pool` holds which one each piece draws
+  from. The suffix chooses a shape and never a material: colour, health and damage all stay
+  the material's. **A pool with nothing visible in it is switched off** (`mesh.visible`),
+  because a zero-scale instance rasterises nothing but the pool still costs a draw call —
+  without that, sixteen shapes of rubble cost sixteen draws in a world where nothing has
+  fallen down yet.
+- **Which axis is up, in a rubble lump.** The cell matrix is `makeBasis(u, v, n)`, so a
+  lump's local x and y are the surface's two HORIZONTAL axes and its local z is the normal.
+  Worse, the rubble grid's normal is `u × v = (0, -1, 0)` — it points **down**. Both have
+  already caused bugs that looked almost right: flattening the lump on `y` squashed it
+  sideways and let it grow vertical spikes, and lifting a heap along `n` buried it while
+  sinking it floated it. Heaps are flattened on `z` and moved along **world up**.
+- **Wreckage is spread over the footprint, not over the lumps.** Lumps are wider than the
+  grid they sit on (`SPREAD` > 1) and overlap by construction, and overlapping lumps
+  interpenetrate rather than stacking their heights — so `depth_for` divides the kept volume
+  by the ground the building stood on. Dividing by the lumps' own area assumes they sit side
+  by side, and under that assumption widening them makes them thinner, which turns a field
+  of debris back into a floor of tiles.
 - **Piece state gained a third value.** `DORMANT → INTACT → BROKEN` is still strictly
   monotone. Two clauses hold it together and both have already been got wrong: revealing
   moves `DORMANT → INTACT` and **never** `BROKEN → INTACT`; and `breakCell` treats `DORMANT`

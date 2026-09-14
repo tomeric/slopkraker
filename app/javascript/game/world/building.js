@@ -82,14 +82,14 @@ export class Building {
   }
 
   // Tallied first, because an InstancedMesh cannot grow once allocated.
-  static countMaterials(spec, into = new Map()) {
+  static countMaterials(spec, into = new Map(), shapes = SHAPES) {
     for (const surface of spec.surfaces) {
       for (let row = 0; row < surface.rows; row += 1) {
         for (let col = 0; col < surface.cols; col += 1) {
           const name = materialAt(surface, row, col)
           if (name === "void") continue
 
-          const pool = Building.poolName(surface, row, col, name)
+          const pool = Building.poolName(surface, row, col, name, shapes)
           into.set(pool, (into.get(pool) || 0) + 1)
         }
       }
@@ -100,8 +100,8 @@ export class Building {
   // Which instanced pool a cell is drawn from. Everything but rubble is drawn from its
   // material's own pool; a heap picks one of several lumps, so that a cleared site is not
   // the same shape repeated forty times. The suffix chooses a SHAPE and never a material.
-  static poolName(surface, row, col, name) {
-    return surface.kind === "rubble" ? `${name}#${shapeFor(surface, row, col)}` : name
+  static poolName(surface, row, col, name, shapes = SHAPES) {
+    return surface.kind === "rubble" ? `${name}#${shapeFor(surface, row, col, shapes)}` : name
   }
 
   build(RAPIER, colliderIndex) {
@@ -136,7 +136,7 @@ export class Building {
       // The pool a piece is DRAWN from, which is its material for everything except a heap
       // of rubble. Kept per piece, because hiding and tinting address the pool while damage
       // and breaking address the material.
-      this.pool[index] = Building.poolName(surface, row, col, name)
+      this.pool[index] = Building.poolName(surface, row, col, name, this.rubbleRules.shapes)
       this.slot[index] = this.meshes.add(this.pool[index], matrix)
       this.colliders[index] = this.createCollider(RAPIER, matrix, surface, name, index, colliderIndex)
 

@@ -26,11 +26,23 @@ module Game
       # Share of in-footprint cells holding a pile rather than nothing. Not 1.0, so the site
       # reads as scattered wreckage rather than as the grid it is actually on.
       DENSITY = 0.85
-      # How much of its cell a heap covers. Well under 1, so heaps are separate things you
-      # drive between rather than a continuous floor of rubbish. Shipped to the client as
-      # `rules.collapse.rubble.scale` from this constant, because the depth below is
-      # computed against it and the two must not be able to disagree.
-      SPREAD = 0.85
+      # How much of its cell a heap covers -- OVER one, deliberately, so lumps are wider
+      # than the grid they are laid out on and overlap their neighbours by construction.
+      # A lump is 3.2m across on a 2m grid, so between them they cover the footprint twice
+      # over and the grid stops being visible at all.
+      #
+      # At 0.85 they covered 58% of the site, which read as lumps scattered on a floor
+      # rather than as a floor buried. A house does not fall down and leave most of its own
+      # ground showing.
+      #
+      # Shipped to the client as `rules.collapse.rubble.scale` from this constant, so the
+      # two cannot disagree about how big a lump is.
+      SPREAD = 1.59
+
+      # How many different lumps there are to go round. They cost a draw call each, but the
+      # pools are shared by every building in the world -- so this is what a city costs, not
+      # what a house costs, and it can afford to be generous.
+      SHAPES = 16
 
       # How much broken masonry swells as it breaks. Rubble does not pack back into the
       # space the wall occupied: roughly half as much again.
@@ -63,7 +75,7 @@ module Game
         cols = cells(recipe.width)
         rows = cells(recipe.depth)
         gaps = gaps(recipe, cols, rows)
-        depth = depth_for(built, cols * rows - gaps.length)
+        depth = depth_for(built, recipe.footprint_area)
 
         [ Surface.new(
           kind: :rubble,
@@ -85,14 +97,20 @@ module Game
         ) ]
       end
 
-      # How deep one heap stands: the building's own material, swollen by breaking, the
-      # share of it that stays, spread over the heaps that are left to hold it.
-      def self.depth_for(built, piles)
-        return MINIMUM_DEPTH if piles <= 0
+      # How deep the wreckage lies: the building's own material, swollen by breaking, the
+      # share of it that stays, spread over THE GROUND THE BUILDING STOOD ON.
+      #
+      # Over the footprint and not over the lumps, because the lumps overlap by design and
+      # overlapping lumps do not stack their heights -- they interpenetrate. Dividing by the
+      # lumps' own area assumes they sit side by side, and under that assumption widening
+      # them makes them thinner, which is how a field of debris turns back into a floor of
+      # tiles. What the material comes to over the footprint is the honest figure, and for
+      # this house it is 0.88m, mounded by the client to about 1.5m at the centre.
+      def self.depth_for(built, footprint_area)
+        return MINIMUM_DEPTH if footprint_area <= 0
 
         kept = material_volume(built) * BULK * SHARE
-        footprint = (CELL * SPREAD)**2
-        [ kept / piles / footprint, MINIMUM_DEPTH ].max
+        [ kept / footprint_area, MINIMUM_DEPTH ].max
       end
 
       # Every cubic metre the building is made of. Voids are holes and weigh nothing.
