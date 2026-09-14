@@ -328,7 +328,11 @@ class Game::SpecTest < ActiveSupport::TestCase
     assert rubble, "the rubble drawing rules never shipped"
     assert_operator rubble.fetch(:jitter), :>, 0
     assert_operator rubble.fetch(:tilt), :>, 0, "heaps that cannot lean read as paving"
-    assert_operator rubble.fetch(:mound), :>, 0
+    # A pile, not a carpet: the profile has to actually fall away from its middle, and it
+    # must never reach zero or the rim becomes invisible pieces with degenerate colliders.
+    assert_operator rubble.fetch(:falloff), :>, 1.0
+    assert_operator rubble.fetch(:edge), :>, 0.0
+    assert_operator rubble.fetch(:edge), :<, 0.5
 
     # One number, in one place. Building::Rubble computes how DEEP a heap is against this
     # same share of its cell, so a second copy of it that drifted would leave the client

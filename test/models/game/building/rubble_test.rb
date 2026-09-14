@@ -171,4 +171,34 @@ class Game::Building::RubbleTest < ActiveSupport::TestCase
 
     assert_in_delta set.thickness / 2.0, set.origin.y, 0.001
   end
+
+  # Wreckage piles up in the middle of what fell, so the heaps nearest the centre are the
+  # ones that exist first -- a half-collapsed building leaves a mound where it stood rather
+  # than a ring around its edge.
+  #
+  # The ORDER is shared with the client, not just the count. The server gates damage on the
+  # revealed prefix, so a client revealing a different subset would show you heaps you
+  # cannot clear and hide heaps it thinks are there.
+  test "piles are ordered outward from the middle" do
+    set = surface
+    indices = Game::Building::Rubble.pile_indices(set)
+
+    # Quantised, exactly as the ordering quantises. Cells mirrored across the grid are the
+    # same distance out in every sense that matters, and comparing raw floats here would be
+    # asserting a last-bit tie-break that the implementation deliberately does not have.
+    radii = indices.map do |index|
+      local = index - set.piece_offset
+      (Game::Building::Rubble.radius(set, local / set.cols, local % set.cols) * 1_000_000).round
+    end
+
+    assert_equal radii.sort, radii, "the piles are not ordered by distance from the centre"
+    assert_operator radii.first, :<, radii.last
+  end
+
+  # Ordering must be total and stable, or two processes could disagree about which heaps a
+  # partial collapse left -- and disagree permanently, since collapsed_from never moves back.
+  test "the order does not depend on how the piles were found" do
+    assert_equal Game::Building::Rubble.pile_indices(surface),
+                 Game::Building::Rubble.pile_indices(surface)
+  end
 end

@@ -142,13 +142,37 @@ module Game
         (total_piles(surface) * fell.to_f / storey_count).round
       end
 
-      # The piles in index order, which is the order they are revealed in.
+      # The piles OUTWARD FROM THE MIDDLE, which is the order they are revealed in. Wreckage
+      # piles up where the building stood, so a half-collapsed house leaves a mound in the
+      # middle rather than a ring around its edge.
+      #
+      # This order is shared with the client and not merely the count of it. The server
+      # gates damage on the revealed prefix, so a client revealing a different subset would
+      # show you heaps you cannot clear and hide heaps the server thinks are there -- and
+      # for a partial collapse it would do so permanently, because collapsed_from never
+      # moves back.
+      #
+      # Distance is quantised before sorting and ties fall back to the index. Two languages
+      # agreeing on a float comparison is not something to rest a shared order on.
       def self.pile_indices(surface)
-        surface.rows.times.flat_map do |row|
+        piles = surface.rows.times.flat_map do |row|
           surface.cols.times.filter_map do |col|
-            surface.piece_index(row, col) if surface.material_at(row, col).name == :rubble
+            next unless surface.material_at(row, col).name == :rubble
+
+            [ (radius(surface, row, col) * 1_000_000).round, surface.piece_index(row, col) ]
           end
         end
+
+        piles.sort.map(&:last)
+      end
+
+      # How far a cell sits from the middle of the grid, as a share of its half-extent: 0 in
+      # the middle, 1 at the corners.
+      def self.radius(surface, row, col)
+        Math.hypot(
+          (col + 0.5) / surface.cols.to_f - 0.5,
+          (row + 0.5) / surface.rows.to_f - 0.5
+        )
       end
 
       def self.total_piles(surface) = pile_indices(surface).length

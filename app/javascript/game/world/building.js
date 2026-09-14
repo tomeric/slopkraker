@@ -2,7 +2,7 @@ import * as THREE from "three"
 import { PROP_GROUPS } from "game/physics/groups"
 import { eachBuildingCell, materialAt, chunkMatrix } from "game/world/surface"
 import { tileSurface } from "game/world/chunking"
-import { rubbleMatrix, shapeFor, SHAPES } from "game/world/rubble"
+import { rubbleMatrix, shapeFor, pileOrder, SHAPES } from "game/world/rubble"
 import { absorb } from "game/damage"
 
 // One building, expanded from its surfaces into pieces that can be hit.
@@ -454,15 +454,18 @@ export class Building {
   // The first `count` heaps in index order -- the same order and the same count the server
   // works out from collapsed_from, so the two never disagree about which heaps exist.
   revealRubble(count) {
+    const surface = this.spec.surfaces.find((s) => s.kind === "rubble")
+    if (!surface) return 0
+
+    // Outward from the middle, and in exactly the order Building::Rubble.pile_indices
+    // returns -- the server gates damage on the revealed prefix, so revealing a different
+    // subset would show heaps that cannot be cleared and hide heaps the server thinks are
+    // there. For a partial collapse it would do so permanently.
+    const order = pileOrder(surface)
     let revealed = 0
-    let seen = 0
 
-    for (let index = 0; index < this.pieceCount; index += 1) {
-      if (this.material[index] !== "rubble") continue
-      if (seen >= count) break
-
-      seen += 1
-      if (this.reveal(index)) revealed += 1
+    for (let n = 0; n < order.length && n < count; n += 1) {
+      if (this.reveal(order[n])) revealed += 1
     }
     return revealed
   }

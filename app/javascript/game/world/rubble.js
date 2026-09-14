@@ -1,5 +1,5 @@
 import * as THREE from "three"
-import { cellMatrix } from "game/world/surface"
+import { cellMatrix, materialAt } from "game/world/surface"
 
 // Where one heap of garbage actually sits.
 //
@@ -16,7 +16,8 @@ export function rubbleMatrix(surface, row, col, target, origin, rules = {}) {
   const jitter = rules.jitter ?? 0.55
   const scale = rules.scale ?? 0.85
   const tilt = rules.tilt ?? 0.28
-  const mound = rules.mound ?? 0.7
+  const falloff = rules.falloff ?? 2.5
+  const edge = rules.edge ?? 0.06
   const spread = rules.spread ?? 0.55
   const sink = rules.sink ?? [ 0.05, 0.45 ]
 
@@ -46,11 +47,13 @@ export function rubbleMatrix(surface, row, col, target, origin, rules = {}) {
     ROTATION.premultiply(SPIN)
   }
 
-  // Rubble piles toward the middle of what fell rather than settling evenly, so the site
-  // reads as a mound rather than as a field of identical lumps. Volume is not conserved by
-  // this; it is a silhouette, and the honest volume is already in the depth Ruby computed.
+  // Rubble piles toward the middle of what fell. A dome, and a VOLUME CONSERVING one: the
+  // profile is divided by its own mean over the heaps, so the material Ruby computed is
+  // neither created nor destroyed -- it is simply put where a pile puts it instead of being
+  // spread flat. That is the whole difference between a pile of debris and a bumpy area,
+  // and it is free.
   const vary = 1 + noise(surface, row, col, 31) * spread
-  const heap = vary * (1 + mound * (1 - centreDistance(surface, row, col)))
+  const heap = vary * dome(surface, row, col, falloff, edge) / domeMean(surface, falloff, edge)
 
   // Plan proportion, per heap rather than per shape, and area preserving -- so some lumps
   // are long and narrow and others nearly square without any of them covering more ground
@@ -83,6 +86,66 @@ function centreDistance(surface, row, col) {
   const dy = (row + 0.5) / surface.rows - 0.5
   return Math.min(1, Math.hypot(dx, dy) * 2)
 }
+
+// The dome never reaches zero. At the corners (1 - d) is exactly 0, and a heap of zero
+// height is an invisible piece with a degenerate collider -- something you can neither see
+// nor drive over nor clear. The edge of a pile still has debris on it; there is just not
+// much of it.
+function dome(surface, row, col, falloff, edge) {
+  return edge + (1 - edge) * Math.pow(1 - centreDistance(surface, row, col), falloff)
+}
+
+// The mean of the dome across the heaps this surface actually holds, so dividing by it
+// leaves the average depth exactly where Ruby put it. Memoised per surface: it walks the
+// whole grid, and the same answer is wanted once per heap.
+const MEANS = new WeakMap()
+
+function domeMean(surface, falloff, edge) {
+  let cached = MEANS.get(surface)
+  if (cached && cached.falloff === falloff && cached.edge === edge) return cached.mean
+
+  let total = 0
+  let count = 0
+  for (let row = 0; row < surface.rows; row += 1) {
+    for (let col = 0; col < surface.cols; col += 1) {
+      if (materialAt(surface, row, col) === "void") continue
+
+      total += dome(surface, row, col, falloff, edge)
+      count += 1
+    }
+  }
+
+  const mean = count > 0 && total > 0 ? total / count : 1
+  MEANS.set(surface, { falloff, edge, mean })
+  return mean
+}
+
+// The heaps outward from the middle, which is the order they are revealed in -- and which
+// MUST match Building::Rubble.pile_indices, because the server gates damage on the revealed
+// prefix. Quantised and index-tied for the same reason it is in Ruby: two languages
+// agreeing on a float comparison is not something to rest a shared order on.
+export function pileOrder(surface) {
+  let cached = ORDERS.get(surface)
+  if (cached) return cached
+
+  const piles = []
+  for (let row = 0; row < surface.rows; row += 1) {
+    for (let col = 0; col < surface.cols; col += 1) {
+      if (materialAt(surface, row, col) === "void") continue
+
+      const dx = (col + 0.5) / surface.cols - 0.5
+      const dy = (row + 0.5) / surface.rows - 0.5
+      piles.push([ Math.round(Math.hypot(dx, dy) * 1000000), surface.off + row * surface.cols + col ])
+    }
+  }
+
+  piles.sort((a, b) => a[0] - b[0] || a[1] - b[1])
+  cached = piles.map((pile) => pile[1])
+  ORDERS.set(surface, cached)
+  return cached
+}
+
+const ORDERS = new WeakMap()
 
 // How many different lumps exist, when Ruby has not said. The real number ships in
 // rules.collapse.rubble.shapes -- it decides how many instanced pools are allocated, so

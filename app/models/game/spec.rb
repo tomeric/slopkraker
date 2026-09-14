@@ -151,10 +151,26 @@ module Game
             # stops it reading as one -- it was the last thing making them look laid rather
             # than dropped.
             tilt: 0.28,
-            # How much taller the middle of the site is than its edges. Rubble does not
-            # settle evenly: it piles toward the centre of what fell, and a flat field of
-            # identical heaps reads as scenery rather than as a collapse.
-            mound: 0.7,
+            # How sharply the pile falls away from its middle, as the exponent of a dome.
+            #
+            # This is what makes wreckage a PILE rather than a carpet, and it costs nothing:
+            # the profile is normalised so that its mean over the heaps is exactly one, so
+            # the same material is simply put where a pile actually puts it. On this house
+            # the centre goes from 1.5m to about 3m and the edges thin to a third of a
+            # metre -- which also leaves the perimeter more driveable than it was, because
+            # the material moved inward off it.
+            #
+            # Higher is steeper. Measured on this house, against the nearest heap to the
+            # middle rather than an idealised centre: 1.5 gives a 2.5m peak, 2.5 gives 3.0m,
+            # 3.5 gives 3.2m and stops paying.
+            falloff: 2.5,
+            # What is left at the rim, as a share of the peak. The dome must never reach
+            # zero: a heap of no height is an invisible piece with a degenerate collider,
+            # something you can neither see nor drive over nor clear. The edge of a pile
+            # still has debris on it, there is just not much -- about a third of a metre
+            # here. It is also a lever on the whole shape, because raising it lifts the
+            # MEAN and so flattens everything the peak is measured against.
+            edge: 0.06,
             # How much heaps differ in size from one another. Wide, because real debris is
             # a range from slabs down to fragments, and heaps within a few percent of each
             # other read as a manufactured thing however irregular each one is.

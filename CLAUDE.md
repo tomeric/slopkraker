@@ -209,6 +209,20 @@ derive from the recipe seed, clearing goes through `damage`/`breaks` addressed b
   already caused bugs that looked almost right: flattening the lump on `y` squashed it
   sideways and let it grow vertical spikes, and lifting a heap along `n` buried it while
   sinking it floated it. Heaps are flattened on `z` and moved along **world up**.
+- **The wreckage is a PILE, not a carpet, and the profile is what makes it one.** The dome
+  in `rubbleMatrix` is normalised by its own mean over the heaps, so the volume Ruby derived
+  is neither created nor destroyed — the same material is simply put where a pile puts it.
+  That is free: it took the peak from 1.07m to 2.08m and thinned the rim to 0.14m without
+  changing `SHARE` at all, which also leaves the perimeter more driveable than a flat spread
+  did. `edge` must never be zero — at the corners `(1 - d)` is exactly 0, and a heap of no
+  height is an invisible piece with a degenerate collider.
+- **Heaps are revealed outward from the middle**, and the ORDER is shared with the server
+  rather than merely the count. `Building::Rubble.pile_indices` and `pileOrder` must return
+  the same sequence, because the server gates damage on the revealed prefix — a client
+  revealing a different subset would show heaps that cannot be cleared and hide heaps the
+  server believes are there, and for a partial collapse it would do so permanently. Both
+  sort by a quantised radius with the index as tie-break: two languages agreeing on a raw
+  float comparison is not something to rest a shared order on.
 - **Wreckage is spread over the footprint, not over the lumps.** Lumps are wider than the
   grid they sit on (`SPREAD` > 1) and overlap by construction, and overlapping lumps
   interpenetrate rather than stacking their heights — so `depth_for` divides the kept volume
