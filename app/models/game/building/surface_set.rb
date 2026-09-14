@@ -46,16 +46,13 @@ module Game
       end
 
       # What the collapse rule weighs: the load-bearing area of one storey. Glass and empty
-      # doorways contribute nothing, so a wall of windows holds nothing up.
-      def structural_area(storey)
+      # doorways contribute nothing, so a wall of windows holds nothing up. With a block,
+      # only the cells it accepts -- which is how Damage::Collapse asks what is still up.
+      def structural_area(storey, &standing)
         for_storey(storey).sum do |surface|
-          next 0.0 unless %i[wall partition].include?(surface.kind)
+          next 0.0 unless Damage::Collapse::LOAD_BEARING.include?(surface.kind)
 
-          surface.rows.times.sum do |row|
-            surface.cols.times.sum do |col|
-              surface.material_at(row, col).structural_weight * surface.cell_area
-            end
-          end
+          surface.structural_area(&standing)
         end
       end
 

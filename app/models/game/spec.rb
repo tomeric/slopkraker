@@ -50,6 +50,25 @@ module Game
           # cleared five blocks, which is most of a wall.
           spread: 0.45
         },
+        # When a storey stops holding itself up. Server-side only -- Damage::Collapse says
+        # why at length -- but the numbers live here with every other tuning number, so
+        # retuning how easily a house comes down is one edit in Ruby.
+        collapse: {
+          # The share of a storey's load-bearing area that has to survive for it to keep
+          # standing.
+          threshold: 0.40,
+          # How far the weight still standing on a storey may outrun the support still
+          # holding it, each as a fraction of what the building started with. This is the
+          # clause with the character in it: what condemns a storey is how much support
+          # went with the walls you took out, measured against how much is still up there
+          # needing carrying. Lower it and houses come down in a hurry; raise it and they
+          # have to be gutted.
+          safety_factor: 1.6,
+          # What the falling storey does to the one it lands on, as a share of its mass.
+          # Small on purpose: a pancake should finish a storey that is already going, and
+          # bounce off one that is not.
+          pancake_damage_fraction: 0.0015
+        },
         impact_force_threshold: 2000.0,
         # How long the debug overlay holds a hit readout before returning to live values.
         damage_flash: 1.1,

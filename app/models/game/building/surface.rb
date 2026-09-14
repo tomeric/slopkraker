@@ -62,6 +62,20 @@ module Game
       def cell_height = height / rows
       def cell_area = cell_width * cell_height
 
+      # How much of this surface actually holds something up: cell area weighted by the
+      # material in each cell, so a window and an empty doorway weigh nothing. With a
+      # block, only the cells it accepts are counted -- which is how the collapse rule
+      # asks what is left standing without a second traversal that could disagree.
+      def structural_area
+        rows.times.sum do |row|
+          cols.times.sum do |col|
+            next 0.0 if block_given? && !yield(piece_index(row, col))
+
+            material_at(row, col).structural_weight * cell_area
+          end
+        end
+      end
+
       # The material at one cell: the last patch covering it wins, so a lintel laid over a
       # window opening reads as the lintel.
       def material_at(row, col)
