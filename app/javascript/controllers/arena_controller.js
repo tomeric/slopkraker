@@ -4,7 +4,7 @@ import { Controller } from "@hotwired/stimulus"
 // on every page, and a top-level three.js import would parse ~4MB app-wide.
 export default class extends Controller {
   static targets = ["canvas", "status", "spec", "mute", "muteIcon", "muteLabel"]
-  static values = { playerId: String, match: String, quality: String }
+  static values = { playerId: String, match: String, world: String, quality: String }
 
   async connect() {
     const token = (this.bootToken = Symbol("boot"))
@@ -18,6 +18,7 @@ export default class extends Controller {
       spec: JSON.parse(this.specTarget.textContent),
       playerId: this.playerIdValue,
       match: this.matchValue,
+      world: this.worldValue,
       quality: this.qualityValue,
       vehicleKey: new URLSearchParams(window.location.search).get("vehicle") || "monster_truck",
       onStatus: (message) => this.showStatus(message),

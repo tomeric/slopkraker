@@ -4,6 +4,11 @@ class ArenaChannelTest < ActionCable::Channel::TestCase
   tests ArenaChannel
 
   setup { stub_connection(player_id: "player-1") }
+  teardown { Game::Damage::Registry.reset! }
+
+  def house
+    World.find_by!(slug: "targets").world_objects.find_by!(kind: "building")
+  end
 
   test "streams from the requested match" do
     subscribe(match: "night-shift")
@@ -54,4 +59,92 @@ class ArenaChannelTest < ActionCable::Channel::TestCase
       assert_not_empty new_messages, "expected a broadcast on #{stream}"
       JSON.parse(new_messages.last)
     end
+
+  test "damage comes back as breaks" do
+    target = house
+    subscribe(match: "damage-test", world: "targets")
+
+    broadcast = capture_broadcast("arena:damage-test") do
+      perform :damage, "seq" => 1, "hits" => [ [ target.id, 0, 500.0, "impact" ] ]
+    end
+
+    assert_equal "breaks", broadcast["type"]
+    assert_equal [ [ target.id, 0 ] ], broadcast["broken"]
+  end
+
+  # The sender has to receive this one. NetConnection drops anything stamped with its own
+  # player_id, and the client that knocked the walls out is exactly the one that most needs
+  # to hear the house came down.
+  test "breaks are not stamped with the sender" do
+    target = house
+    subscribe(match: "damage-stamp", world: "targets")
+
+    broadcast = capture_broadcast("arena:damage-stamp") do
+      perform :damage, "seq" => 1, "hits" => [ [ target.id, 0, 500.0, "impact" ] ]
+    end
+
+    assert_nil broadcast["player_id"]
+    assert broadcast["authority"].present?, "every breaks message says who decided it"
+  end
+
+  test "taking out two walls broadcasts the collapse" do
+    target = house
+    set = target.surface_set
+    hits = set.for_storey(0).select { |s| s.kind == :wall }.first(2).flat_map do |surface|
+      (surface.piece_offset...(surface.piece_offset + surface.piece_count)).map do |index|
+        [ target.id, index, 500.0, "impact" ]
+      end
+    end
+    subscribe(match: "collapse-test", world: "targets")
+
+    broadcast = capture_broadcast("arena:collapse-test") do
+      perform :damage, "seq" => 1, "hits" => hits
+    end
+
+    assert_equal [ [ target.id, 0 ] ], broadcast["collapses"]
+  end
+
+  test "a batch that changes nothing broadcasts nothing" do
+    subscribe(match: "damage-quiet", world: "targets")
+
+    assert_no_broadcasts("arena:damage-quiet") do
+      perform :damage, "seq" => 1, "hits" => []
+    end
+  end
+
+  test "damage without a world is refused" do
+    subscribe(match: "damage-worldless")
+
+    assert_no_broadcasts("arena:damage-worldless") do
+      perform :damage, "seq" => 1, "hits" => [ [ 1, 0, 500.0, "impact" ] ]
+    end
+  end
+
+  test "request_state answers the asker alone" do
+    target = house
+    subscribe(match: "state-test", world: "targets")
+    perform :damage, "seq" => 1, "hits" => [ [ target.id, 0, 500.0, "impact" ] ]
+
+    perform :request_state, "ids" => [ target.id ]
+
+    reply = transmissions.last
+    assert_equal "state", reply["type"]
+    assert_equal 1, reply["objects"].first["broken_count"]
+  end
+
+  # Destruction is authoritative in one process. A process that loses the claim has to say
+  # so rather than quietly applying damage nobody else will ever see.
+  test "a process that does not hold the match refuses damage" do
+    target = house
+    world = World.find_by!(slug: "targets")
+    Match.start(key: "taken", world: world).update!(
+      authority: "somebody-else", authority_claimed_at: Time.current
+    )
+    subscribe(match: "taken", world: "targets")
+
+    assert_no_broadcasts("arena:taken") do
+      perform :damage, "seq" => 1, "hits" => [ [ target.id, 0, 500.0, "impact" ] ]
+    end
+    assert_equal "not_authoritative", transmissions.last["reason"]
+  end
 end

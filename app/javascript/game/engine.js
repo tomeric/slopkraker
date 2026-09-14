@@ -30,12 +30,15 @@ const SCRATCH_AWAY = new THREE.Vector3()
 // specifies regardless of display refresh; meshes are interpolated between the last two
 // physics states so a 60Hz display still looks smooth at 120Hz physics.
 export class GameEngine {
-  constructor({ canvas, root, spec, vehicleKey, playerId, match, quality, onStatus, onMuteChange }) {
+  constructor({ canvas, root, spec, vehicleKey, playerId, match, world, quality, onStatus, onMuteChange }) {
     this.canvas = canvas
     this.root = root || canvas.parentElement
     this.spec = spec
     this.playerId = playerId
     this.match = match
+    // Named slug, not `world`: this.world is the Rapier physics world, and the collision
+    // would be silent -- physics would win, since it is assigned later.
+    this.worldSlug = world
     this.vehicleKey = vehicleKey || "monster_truck"
     this.qualityName = quality || "high"
     this.quality = qualityFor(quality)
