@@ -318,4 +318,17 @@ class Game::SpecTest < ActiveSupport::TestCase
     def flick(path, node)
       flunk "#{path} serialised as #{node.class}: #{node.inspect}"
     end
+
+  # Only the LOOK ships. The grid, the density and the height of a heap are constants in
+  # Building::Rubble because they decide piece_count, and a client that disagreed about
+  # those would be addressing different pieces than the server.
+  test "the client is told how to draw a heap of rubble" do
+    rubble = Game::Spec.default_rules.dig(:collapse, :rubble)
+
+    assert rubble, "the rubble drawing rules never shipped"
+    assert_operator rubble.fetch(:jitter), :>, 0
+    assert_operator rubble.fetch(:scale), :>, 0
+    assert_operator rubble.fetch(:scale), :<=, 1.0
+    assert_operator rubble.fetch(:height), :>, 0
+  end
 end

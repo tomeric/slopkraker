@@ -118,6 +118,20 @@ module Game
             # makes a falling brick panel around half a tonne. Scale it here if that turns
             # out to shove the car harder than it should.
             density_scale: 1.0
+          },
+          # How a heap on the ground is drawn. Only the look lives here: the grid, how
+          # densely it is filled and how tall a heap is are constants in Building::Rubble,
+          # because those decide piece_count -- and a client that disagreed about them
+          # would be addressing different pieces than the server.
+          rubble: {
+            # How far a heap may sit from its cell's centre, as a share of the cell, so a
+            # cleared site does not read as the grid it is actually laid out on.
+            jitter: 0.3,
+            # How much of its cell a heap fills. Well under 1, so heaps are separate things
+            # you drive between rather than a continuous floor of rubbish.
+            scale: 0.55,
+            # Squashed rather than cubic, because a heap settles.
+            height: 0.6
           }
         },
         impact_force_threshold: 2000.0,
