@@ -37,6 +37,15 @@ class RubbleTest < ApplicationSystemTestCase
 
   # An IIFE because evaluate_script wraps its body as a single expression, so a bare
   # `const` is a syntax error there. execute_script is the one that takes statements.
+  # Heaps now arrive as the slabs carrying them land, so "some wreckage exists" and "the
+  # wreckage is all there" are a second and a half apart. Anything asserting about the
+  # finished site has to wait for the dust rather than for the first heap.
+  def wait_for_the_dust_to_settle(message: "the site never settled")
+    wait_for(timeout: 25, message: message) do
+      page.evaluate_script("window.__arenaFalling()").zero? && rubble["dormant"].zero?
+    end
+  end
+
   def a_standing_pile(building)
     page.evaluate_script(<<~JS, building)
       (function (id) {
@@ -53,10 +62,9 @@ class RubbleTest < ApplicationSystemTestCase
     building = boot("rubble-appears")
     wreck_storey(building, 0)
 
-    wait_for(timeout: 20, message: "the house never left any wreckage") do
-      rubble["standing"].positive?
-    end
+    wait_for_the_dust_to_settle(message: "the house never left any wreckage")
 
+    assert_operator rubble["standing"], :>, 0, "the house left nothing behind"
     assert_equal 0, rubble["dormant"], "a house gutted to the ground should leave all of it"
   end
 
@@ -65,7 +73,7 @@ class RubbleTest < ApplicationSystemTestCase
   test "a heap is something you can hit and clear" do
     building = boot("rubble-solid")
     wreck_storey(building, 0)
-    wait_for(timeout: 20, message: "the house never left any wreckage") { rubble["standing"].positive? }
+    wait_for_the_dust_to_settle(message: "the house never left any wreckage")
 
     pile = a_standing_pile(building)
     assert_operator pile, :>=, 0, "no standing heap to clear"
@@ -80,7 +88,7 @@ class RubbleTest < ApplicationSystemTestCase
   test "a cleared heap stays cleared after the process that recorded it" do
     building = boot("rubble-persist")
     wreck_storey(building, 0)
-    wait_for(timeout: 20, message: "the house never left any wreckage") { rubble["standing"].positive? }
+    wait_for_the_dust_to_settle(message: "the house never left any wreckage")
 
     pile = a_standing_pile(building)
     assert_operator pile, :>=, 0, "no standing heap to clear"
@@ -98,7 +106,7 @@ class RubbleTest < ApplicationSystemTestCase
     Game::Damage::Registry.reset!
     boot("rubble-persist")
 
-    wait_for(timeout: 20, message: "the wreckage never came back") { rubble["standing"].positive? }
+    wait_for_the_dust_to_settle(message: "the wreckage never came back")
     refute page.evaluate_script("window.__arenaPieceState(arguments[0], arguments[1]).standing", pile, building),
            "a heap that had been cleared was back on the street"
   end
@@ -117,9 +125,11 @@ class RubbleTest < ApplicationSystemTestCase
         building = boot("rubble-agreement")
         wreck_storey(building, 0) if index.zero?
 
-        wait_for(timeout: 25, message: "#{session} never saw any wreckage") do
-          rubble["standing"].positive?
-        end
+        # Compared once both sites have finished arriving. The first player reveals heaps
+        # as its own slabs land; the second joins afterwards and is told what is already
+        # down. They converge on the same set and only the local timing differs, which is
+        # the whole reason the count is derived rather than sent.
+        wait_for_the_dust_to_settle(message: "#{session} never saw any wreckage")
 
         seen[session] = page.evaluate_script(<<~JS, building)
           (function (id) {
@@ -138,5 +148,40 @@ class RubbleTest < ApplicationSystemTestCase
 
     assert_operator seen["one"].length, :>, 0, "nobody saw any wreckage"
     assert_equal seen["one"], seen["two"], "the two players are looking at different rubble"
+  end
+
+  # Wreckage arrives by falling on the ground, not by being there already. The heaps used
+  # to exist a second and a half before the walls did, so the wall sections fell THROUGH
+  # the rubble they were supposedly becoming.
+  #
+  # Sampled from inside the frame loop rather than polled from here, because the whole
+  # claim is about a window that is over in about 1.6 seconds.
+  test "no heap is on the ground before the pieces that make it" do
+    building = boot("rubble-timing")
+
+    page.execute_script(<<~JS)
+      window.__peak = { falling: 0, heapsThen: 0 }
+      window.__settled = null
+      ;(function sample() {
+        const f = window.__arenaFalling()
+        const h = window.__arenaRubble().standing
+        if (f > window.__peak.falling) window.__peak = { falling: f, heapsThen: h }
+        if (window.__peak.falling > 0 && f === 0 && window.__settled === null) window.__settled = h
+        requestAnimationFrame(sample)
+      })()
+    JS
+
+    wreck_storey(building, 0)
+    wait_for(timeout: 25, message: "the house never came down") do
+      page.evaluate_script("window.__settled")
+    end
+
+    peak = page.evaluate_script("window.__peak")
+    settled = page.evaluate_script("window.__settled")
+
+    assert_operator peak["falling"], :>, 0, "nothing ever fell, so this proves nothing"
+    assert_equal 0, peak["heapsThen"],
+                 "#{peak["heapsThen"]} heaps were already down while #{peak["falling"]} pieces were still in the air"
+    assert_operator settled, :>, 0, "the pieces landed and left nothing behind"
   end
 end

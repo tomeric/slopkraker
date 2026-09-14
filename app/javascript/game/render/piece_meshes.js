@@ -23,10 +23,24 @@ import * as THREE from "three"
 // the old code had to give every prop its own material precisely because it tinted by
 // mutating one.
 function unitCube() {
-  const geometry = new THREE.BoxGeometry(1, 1, 1)
+  return withVertexColour(new THREE.BoxGeometry(1, 1, 1))
+}
+
+// See the note above: vertexColors is on for every one of these materials, so any geometry
+// handed to a pool needs a constant-1.0 colour of its own or it renders black.
+function withVertexColour(geometry) {
+  if (geometry.getAttribute("color")) return geometry
+
   const white = new Float32Array(geometry.attributes.position.count * 3).fill(1)
   geometry.setAttribute("color", new THREE.BufferAttribute(white, 3))
   return geometry
+}
+
+// A pool named `rubble#2` is still made of `rubble`. The suffix picks a shape, never a
+// material -- colour, health and everything else stay the material's.
+export function baseMaterial(name) {
+  const cut = name.indexOf("#")
+  return cut < 0 ? name : name.slice(0, cut)
 }
 
 export class PieceMeshes {
@@ -35,6 +49,17 @@ export class PieceMeshes {
     this.specs = materialSpecs
     this.geometry = unitCube()
     this.pools = new Map()
+    // Pools whose shape is not the unit cube. A wall panel is a box and every one of them
+    // shares a single geometry; a heap of rubble is a lump, and there are several lumps so
+    // that no two heaps read the same. Keyed by pool name, so a pool can carry a shape
+    // without the material table knowing anything about it.
+    this.shapes = new Map()
+  }
+
+  // Must be called before allocate: the geometry is handed to the InstancedMesh when the
+  // pool is built and an InstancedMesh cannot be given a different one afterwards.
+  useShape(name, geometry) {
+    this.shapes.set(name, withVertexColour(geometry))
   }
 
   // Sized up front from the counts the caller has already tallied, because an
@@ -43,7 +68,9 @@ export class PieceMeshes {
     for (const [ name, count ] of counts) {
       if (count === 0) continue
 
-      const mesh = new THREE.InstancedMesh(this.geometry, this.materialFor(name), count)
+      const mesh = new THREE.InstancedMesh(
+        this.shapes.get(name) || this.geometry, this.materialFor(name), count
+      )
       mesh.name = `pieces:${name}`
       mesh.castShadow = true
       mesh.receiveShadow = true
@@ -57,7 +84,7 @@ export class PieceMeshes {
   }
 
   materialFor(name) {
-    const spec = this.specs[name] || {}
+    const spec = this.specs[name] || this.specs[baseMaterial(name)] || {}
     return new THREE.MeshStandardMaterial({
       color: spec.colour || "#888888",
       roughness: spec.roughness ?? 0.85,
@@ -129,7 +156,9 @@ export class PieceMeshes {
       mesh.material.dispose()
       mesh.dispose()
     }
+    for (const shape of this.shapes.values()) shape.dispose()
     this.pools.clear()
+    this.shapes.clear()
     this.geometry.dispose()
   }
 }

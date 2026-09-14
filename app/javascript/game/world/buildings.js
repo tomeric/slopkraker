@@ -3,6 +3,7 @@ import { PieceMeshes } from "game/render/piece_meshes"
 import { Patterns } from "game/fracture/patterns"
 import { Debris } from "game/render/debris"
 import { FallingPieces } from "game/world/falling_pieces"
+import { lumpGeometry, SHAPES } from "game/world/rubble"
 
 // Every building in the world, and the instanced meshes they share.
 //
@@ -31,6 +32,11 @@ export class Buildings {
     // its final capacity and cannot grow afterwards.
     const counts = new Map()
     for (const building of specs) Building.countMaterials(building, counts)
+    // Before allocate, and that ordering is the contract: a pool is handed its geometry
+    // when its InstancedMesh is built and cannot be given a different one afterwards.
+    for (let variant = 0; variant < SHAPES; variant += 1) {
+      this.meshes.useShape(`rubble#${variant}`, lumpGeometry(variant))
+    }
     this.meshes.allocate(counts)
     // Before the loop starts, so the first explosion is not also the first tessellation.
     this.patterns.warm(counts.keys())
@@ -81,7 +87,9 @@ export class Buildings {
     if (!building) return 0
 
     const count = building.collapse(fromStorey)
-    building.revealRubble(this.revealedRubble(building, fromStorey))
+    // Owed, not given. The heaps appear as the slabs carrying them land -- which is what
+    // stops a wall section falling through the rubble it is about to become.
+    building.expectRubble(this.revealedRubble(building, fromStorey))
     return count
   }
 

@@ -2,7 +2,7 @@ import * as THREE from "three"
 import { PROP_GROUPS } from "game/physics/groups"
 import { eachBuildingCell, materialAt, chunkMatrix } from "game/world/surface"
 import { tileSurface } from "game/world/chunking"
-import { rubbleMatrix } from "game/world/rubble"
+import { rubbleMatrix, shapeFor, SHAPES } from "game/world/rubble"
 import { absorb } from "game/damage"
 
 // One building, expanded from its surfaces into pieces that can be hit.
@@ -46,6 +46,10 @@ export class Building {
     this.rules = rules
     this.chunkSize = chunk
     this.rubbleRules = rubbleRules || {}
+    // How much wreckage is owed, and how many falling slabs are still to deliver it.
+    this.pendingRubble = 0
+    this.expectedSlabs = 0
+    this.landedSlabs = 0
     this.onDamage = onDamage
     this.origin = new THREE.Vector3().fromArray(spec.o)
     // Bound once: the tiling asks this per cell, and it is asked a few thousand times.
@@ -59,6 +63,7 @@ export class Building {
     this.maxHealth = new Float32Array(count)
     this.slot = new Int32Array(count).fill(-1)
     this.material = new Array(count)
+    this.pool = new Array(count)
     this.colliders = new Array(count)
     this.matrices = new Array(count)
     // Which surface each piece belongs to, so a hit can find the cells around it. -1 for
@@ -83,11 +88,20 @@ export class Building {
         for (let col = 0; col < surface.cols; col += 1) {
           const name = materialAt(surface, row, col)
           if (name === "void") continue
-          into.set(name, (into.get(name) || 0) + 1)
+
+          const pool = Building.poolName(surface, row, col, name)
+          into.set(pool, (into.get(pool) || 0) + 1)
         }
       }
     }
     return into
+  }
+
+  // Which instanced pool a cell is drawn from. Everything but rubble is drawn from its
+  // material's own pool; a heap picks one of several lumps, so that a cleared site is not
+  // the same shape repeated forty times. The suffix chooses a SHAPE and never a material.
+  static poolName(surface, row, col, name) {
+    return surface.kind === "rubble" ? `${name}#${shapeFor(surface, row, col)}` : name
   }
 
   build(RAPIER, colliderIndex) {
@@ -119,7 +133,11 @@ export class Building {
       const health = surface.hp[name] ?? 0
       this.health[index] = health
       this.maxHealth[index] = health
-      this.slot[index] = this.meshes.add(name, matrix)
+      // The pool a piece is DRAWN from, which is its material for everything except a heap
+      // of rubble. Kept per piece, because hiding and tinting address the pool while damage
+      // and breaking address the material.
+      this.pool[index] = Building.poolName(surface, row, col, name)
+      this.slot[index] = this.meshes.add(this.pool[index], matrix)
       this.colliders[index] = this.createCollider(RAPIER, matrix, surface, name, index, colliderIndex)
 
       // Built now and revealed later. The collider array and the instance pool are both
@@ -127,7 +145,7 @@ export class Building {
       // comes down is for it to have been here, switched off, all along.
       if (rubble) {
         this.state[index] = DORMANT
-        this.meshes.setVisible(name, this.slot[index], false)
+        this.meshes.setVisible(this.pool[index], this.slot[index], false)
         this.colliders[index]?.setEnabled(false)
         return
       }
@@ -262,7 +280,7 @@ export class Building {
 
     this.health[index] -= amount
     if (this.health[index] > 0) {
-      this.meshes.tint(this.material[index], this.slot[index], this.health[index] / this.maxHealth[index])
+      this.meshes.tint(this.pool[index], this.slot[index], this.health[index] / this.maxHealth[index])
       return false
     }
 
@@ -301,7 +319,7 @@ export class Building {
     // which is still on hand either way, but doing it in this order keeps the two reads of
     // that matrix next to each other.
     if (!carried && !silent) this.debris?.spawn(this.matrices[index], this.material[index], { away })
-    this.meshes.setVisible(this.material[index], this.slot[index], false)
+    this.meshes.setVisible(this.pool[index], this.slot[index], false)
     if (this.targets?.[index]) this.grid?.remove(this.targets[index])
     // Disabled, never removed. The handle stays valid, the registry stays consistent, and
     // restoring is the same call with the other argument.
@@ -346,13 +364,16 @@ export class Building {
     // are still numbered and reported exactly as before -- they simply throw no shards of
     // their own, because the slab carrying them will throw those when it lands.
     const carried = new Uint8Array(this.pieceCount)
+    let dropped = 0
 
     for (let n = 0; n < slabs.length; n += stride) {
       const slab = slabs[n]
       const matrix = chunkMatrix(
         slab.surface, slab.row, slab.col, slab.rows, slab.cols, SLAB_MATRIX, this.origin
       )
+      slab.owner = this
       if (!this.falling.drop(matrix, slab.material, slab)) continue
+      dropped += 1
 
       for (let r = 0; r < slab.rows; r += 1) {
         for (let c = 0; c < slab.cols; c += 1) {
@@ -368,7 +389,32 @@ export class Building {
         if (this.breakCell(index, null, silent, carried[index] === 1)) count += 1
       }
     }
+
+    this.expectedSlabs = dropped
+    this.landedSlabs = 0
     return count
+  }
+
+  // How much wreckage this collapse will eventually leave. Held rather than revealed,
+  // because the heaps arrive as the pieces carrying them hit the ground.
+  //
+  // A restore has no slabs to wait for -- the house came down in some earlier session and
+  // the wreckage simply IS there -- so with nothing in the air it all appears at once.
+  expectRubble(total) {
+    this.pendingRubble = total
+    if (!this.expectedSlabs) return this.revealRubble(total)
+
+    return 0
+  }
+
+  // One falling slab has landed. Reveal wreckage in proportion, so the site fills in as
+  // the house comes apart and is complete the moment the last piece is down.
+  slabLanded() {
+    this.landedSlabs = (this.landedSlabs ?? 0) + 1
+    if (!this.pendingRubble || !this.expectedSlabs) return 0
+
+    const share = Math.min(1, this.landedSlabs / this.expectedSlabs)
+    return this.revealRubble(Math.round(this.pendingRubble * share))
   }
 
   // Monotone, and that is the whole of the reconciliation design. This only ever breaks.
@@ -395,8 +441,8 @@ export class Building {
 
     this.state[index] = INTACT
     this.health[index] = this.maxHealth[index]
-    this.meshes.setVisible(this.material[index], this.slot[index], true, this.matrices[index])
-    this.meshes.tint(this.material[index], this.slot[index], 1)
+    this.meshes.setVisible(this.pool[index], this.slot[index], true, this.matrices[index])
+    this.meshes.tint(this.pool[index], this.slot[index], 1)
     this.colliders[index]?.setEnabled(true)
     if (this.grid && this.matrices[index]) {
       this.matrices[index].decompose(POSITION, ROTATION, SCALE)
@@ -445,8 +491,8 @@ export class Building {
 
     this.state[index] = INTACT
     this.health[index] = this.maxHealth[index]
-    this.meshes.setVisible(this.material[index], this.slot[index], true, this.matrices[index])
-    this.meshes.tint(this.material[index], this.slot[index], 1)
+    this.meshes.setVisible(this.pool[index], this.slot[index], true, this.matrices[index])
+    this.meshes.tint(this.pool[index], this.slot[index], 1)
     this.colliders[index]?.setEnabled(true)
     if (this.grid && this.matrices[index]) {
       this.matrices[index].decompose(POSITION, ROTATION, SCALE)

@@ -107,6 +107,11 @@ export class FallingPieces {
     entry.rows = shape.rows
     entry.cols = shape.cols
     entry.cells = shape.cells
+    // Who to tell when this lands. A building's wreckage arrives by falling on the ground,
+    // so the heaps are revealed by the slabs arriving rather than by the collapse being
+    // decided -- otherwise the wall sections fall through rubble that is already lying
+    // where they are about to land.
+    entry.owner = shape.owner ?? null
     this.cells += shape.cells
     entry.mesh.scale.copy(SCALE)
     entry.mesh.position.copy(POSITION)
@@ -127,7 +132,10 @@ export class FallingPieces {
     mesh.castShadow = true
     mesh.receiveShadow = false
     this.scene.add(mesh)
-    return { mesh, body: null, collider: null, name, age: 0, touched: false, rows: 1, cols: 1, cells: 1 }
+    return {
+      mesh, body: null, collider: null, name, age: 0, touched: false,
+      rows: 1, cols: 1, cells: 1, owner: null
+    }
   }
 
   // Called from inside the collision drain, so it may only set a flag.
@@ -196,6 +204,8 @@ export class FallingPieces {
     }
 
     this.cells -= entry.cells
+    entry.owner?.slabLanded()
+    entry.owner = null
     this.colliderIndex.delete(entry.collider.handle)
     this.world.removeRigidBody(entry.body)
     entry.body = null
@@ -231,6 +241,7 @@ export class FallingPieces {
       this.colliderIndex.delete(entry.collider.handle)
       this.world.removeRigidBody(entry.body)
       entry.mesh.removeFromParent()
+      entry.owner = null
     }
     for (const entry of this.pool) entry.mesh.removeFromParent()
     this.live = []

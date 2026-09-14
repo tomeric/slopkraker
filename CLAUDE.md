@@ -179,6 +179,19 @@ derive from the recipe seed, clearing goes through `damage`/`breaks` addressed b
 `[object_id, piece_index]`, persistence is a bit in `broken_pieces`, and rejoining is
 `request_state`. No new message, no new table, no new column.
 
+- **Heaps arrive as the pieces carrying them land**, not when the collapse is decided. A
+  collapse works out how much wreckage it owes (`expectRubble`) and reveals none of it; each
+  falling slab reports home when it shatters and the building reveals its share. Otherwise
+  the heaps exist a second and a half before the walls do, and the wall sections fall
+  *through* the rubble they are supposedly becoming. A restore has no slabs to wait for, so
+  it reveals everything at once. Only the local timing varies: the COUNT is still derived
+  from `collapsed_from`, so two clients converge on the same set.
+- **A heap is a lump, not a box.** `lumpGeometry` wobbles an icosahedron's vertices and
+  squashes it; there are four variants and a heap picks one by seed. They are separate
+  instanced pools, because an `InstancedMesh` has one geometry — so `PieceMeshes` pools are
+  keyed by a POOL name (`rubble#2`) rather than by material, and `Building#pool` holds which
+  one each piece draws from. The suffix chooses a shape and never a material: colour, health
+  and damage all stay the material's.
 - **Piece state gained a third value.** `DORMANT → INTACT → BROKEN` is still strictly
   monotone. Two clauses hold it together and both have already been got wrong: revealing
   moves `DORMANT → INTACT` and **never** `BROKEN → INTACT`; and `breakCell` treats `DORMANT`

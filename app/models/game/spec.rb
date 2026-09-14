@@ -124,9 +124,12 @@ module Game
           # because those decide piece_count -- and a client that disagreed about them
           # would be addressing different pieces than the server.
           rubble: {
-            # How far a heap may sit from its cell's centre, as a share of the cell, so a
-            # cleared site does not read as the grid it is actually laid out on.
-            jitter: 0.3,
+            # How far a heap may sit from its cell's centre, as a share of the cell. Over
+            # a half, so heaps are pushed well off their grid and INTO each other: rubble
+            # that interpenetrates reads as one pile, where rubble that politely keeps to
+            # its own square reads as forty objects. They are fixed colliders and never
+            # move, so nothing pushes them apart again.
+            jitter: 0.55,
             # How much of its cell a heap fills. Read from the constant rather than written
             # again: Building::Rubble computes how DEEP a heap is against this same number,
             # so a second copy that drifted would leave the client drawing heaps of a size
@@ -139,7 +142,11 @@ module Game
             # How much taller the middle of the site is than its edges. Rubble does not
             # settle evenly: it piles toward the centre of what fell, and a flat field of
             # identical heaps reads as scenery rather than as a collapse.
-            mound: 0.7
+            mound: 0.7,
+            # How much heaps differ in size from one another. Wide, because real debris is
+            # a range from slabs down to fragments, and heaps within a few percent of each
+            # other read as a manufactured thing however irregular each one is.
+            spread: 0.55
           }
         },
         impact_force_threshold: 2000.0,
