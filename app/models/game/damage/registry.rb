@@ -14,18 +14,29 @@ module Game
       @monitor = Monitor.new
       @states = {}
       @locks = {}
-      @flushed_at = {}
+      @sweeper = nil
 
       class << self
         # Yields the match's state with nobody else inside it. A batch has to land whole:
         # two threads interleaving inside one would each read the health of a piece the
         # other was about to break.
         def checkout(match)
+          sweeping!
           lock_for(match.id).synchronize do
             state = state_for(match)
-            result = yield state
-            flush_if_due(match.id, state)
-            result
+            yield state
+          end
+        end
+
+        # Every live match, written down. One pass, each match under its own lock, and
+        # only the objects that actually changed.
+        def flush_all!
+          ids = @monitor.synchronize { @states.keys }
+
+          ids.sum do |match_id|
+            lock_for(match_id).synchronize do
+              @monitor.synchronize { @states[match_id] }&.flush! || 0
+            end
           end
         end
 
@@ -33,9 +44,7 @@ module Game
         # from the rows rather than from memory.
         def release(match)
           lock_for(match.id).synchronize do
-            state = @monitor.synchronize { @states.delete(match.id) }
-            state&.flush!
-            @monitor.synchronize { @flushed_at.delete(match.id) }
+            @monitor.synchronize { @states.delete(match.id) }&.flush!
           end
           @monitor.synchronize { @locks.delete(match.id) }
         end
@@ -44,9 +53,10 @@ module Game
         # release always flushes first.
         def reset!
           @monitor.synchronize do
+            @sweeper&.shutdown
+            @sweeper = nil
             @states.clear
             @locks.clear
-            @flushed_at.clear
           end
         end
 
@@ -61,16 +71,26 @@ module Game
             end
           end
 
-          # Debounced rather than scheduled. A timer thread per match is a thread per match
-          # to own and shut down, and the only moment a flush is worth anything is just
-          # after something changed -- which is exactly when a batch has come through here.
-          def flush_if_due(match_id, state)
-            now = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-            last = @monitor.synchronize { @flushed_at[match_id] }
-            return if last && now - last < FLUSH_EVERY
+          # One sweeper for every match, not one timer per match, and not a flush on the
+          # way out of each checkout.
+          #
+          # Debouncing inside checkout was the obvious thing and it is wrong: it can only
+          # flush when the NEXT batch arrives, so a player who knocks a wall out and then
+          # stops driving leaves that wall in memory indefinitely. The promise is that a
+          # restart costs at most FLUSH_EVERY of damage, and only something running on its
+          # own can keep it.
+          #
+          # Not started under test, where a write landing between two assertions is exactly
+          # the kind of timing no test should have to reason about. The suite calls
+          # flush_all! when it wants the rows.
+          def sweeping!
+            return if @sweeper || Rails.env.test?
 
-            state.flush!
-            @monitor.synchronize { @flushed_at[match_id] = now }
+            @monitor.synchronize do
+              @sweeper ||= Concurrent::TimerTask.execute(execution_interval: FLUSH_EVERY) do
+                ActiveRecord::Base.connection_pool.with_connection { flush_all! }
+              end
+            end
           end
       end
     end

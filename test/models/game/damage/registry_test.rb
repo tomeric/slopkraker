@@ -51,6 +51,23 @@ class Game::Damage::RegistryTest < ActiveSupport::TestCase
     assert_equal 1, broken_count(@match)
   end
 
+  # The gap a debounce inside checkout leaves: a player who knocks a wall out and then
+  # stops driving sends no further batch, so nothing would ever trigger the write. Only
+  # something sweeping on its own keeps the promise that a restart costs at most a second.
+  test "a match that goes quiet still gets written down" do
+    break_piece(@match, 0)
+
+    assert_equal 1, Game::Damage::Registry.flush_all!
+    assert_equal 1, ObjectDamage.where(match: @match).count
+  end
+
+  test "sweeping a match with nothing new writes nothing" do
+    break_piece(@match, 0)
+    Game::Damage::Registry.flush_all!
+
+    assert_equal 0, Game::Damage::Registry.flush_all!
+  end
+
   # Two threads hammering the same match must not interleave inside a batch.
   test "concurrent checkouts do not lose damage" do
     threads = 4.times.map { |n| Thread.new { break_piece(@match, n) } }

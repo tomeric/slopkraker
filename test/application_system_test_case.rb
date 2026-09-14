@@ -62,7 +62,14 @@ class ApplicationSystemTestCase < ActionDispatch::SystemTestCase
   # Selenium keeps one browser session across tests, so a test that fails while holding a
   # key leaves it held for every test that follows -- which shows up much later as an
   # unrelated flake. Reset input state after every test.
+  #
+  # The damage registry needs the same treatment for the same reason, and it is easier to
+  # miss: it is process-global and lives in memory, so the transaction that rolls the rows
+  # back at the end of a test does not touch it. A later test reusing a match id would boot
+  # into wreckage from a match that no longer exists.
   teardown do
+    Game::Damage::Registry.reset!
+
     begin
       page.driver.browser.action.release_actions
     rescue StandardError
@@ -95,8 +102,15 @@ class ApplicationSystemTestCase < ActionDispatch::SystemTestCase
   # shadow pass -- at which point the fixed-step loop caps its substeps and the SIMULATION
   # drops to about 65% of real time. Every timed assertion then under-runs, consistently
   # enough to read as a physics change rather than as a frame rate.
-  def visit_world(slug, vehicle: nil, quality: "low")
-    visit root_path(params: { world: slug, vehicle: vehicle, quality: quality }.compact)
+  #
+  # `match` is worth naming explicitly in any test that breaks something. Damage is scoped
+  # to a match and now genuinely persists, so two tests sharing the default lobby share
+  # their wreckage -- the second one boots into whatever the first knocked down, which
+  # reads as a mysterious order dependency rather than as the feature working.
+  def visit_world(slug, vehicle: nil, quality: "low", match: nil)
+    visit root_path(params: {
+      world: slug, vehicle: vehicle, quality: quality, match: match
+    }.compact)
   end
 
   # Capybara does not retry evaluate_script, so poll for engine milestones.
