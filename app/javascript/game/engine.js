@@ -205,6 +205,12 @@ export class GameEngine {
     window.__arenaFallingCells = () => this.buildings?.fallingCells ?? 0
     // Reserved, standing and cleared heaps. An intact house has only the first.
     window.__arenaRubble = () => this.buildings?.rubbleCounts ?? null
+    // A piece's world transform, flattened. Exists so a test can prove two clients put a
+    // piece in the SAME PLACE, which is the whole claim rubble makes and which comparing
+    // piece indices alone would not catch -- identical indices in different positions
+    // would look exactly like this working.
+    window.__arenaPieceMatrix = (piece, buildingId) =>
+      this.buildings?.find(buildingId)?.matrices[piece]?.toArray() ?? null
     window.__arenaRemotes = () => this.remotes?.size ?? 0
     window.__arenaReported = () => this.reporter?.sent ?? 0
     window.__arenaBuildingIds = () => this.buildings?.list.map((b) => b.id) ?? []

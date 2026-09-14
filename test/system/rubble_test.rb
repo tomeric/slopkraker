@@ -73,4 +73,70 @@ class RubbleTest < ApplicationSystemTestCase
     page.execute_script("window.__arenaDamagePiece(arguments[0], 5000, arguments[1])", pile, building)
     wait_for(timeout: 15, message: "the heap would not clear") { rubble["cleared"].positive? }
   end
+
+  # The requirement in one assertion: a heap you cleared is still cleared tomorrow.
+  # Dropping the registry is what makes it real -- the server's memory of this match is
+  # gone, so anything that comes back can only have come from object_damages.
+  test "a cleared heap stays cleared after the process that recorded it" do
+    building = boot("rubble-persist")
+    wreck_storey(building, 0)
+    wait_for(timeout: 20, message: "the house never left any wreckage") { rubble["standing"].positive? }
+
+    pile = a_standing_pile(building)
+    assert_operator pile, :>=, 0, "no standing heap to clear"
+
+    # Wait for the count to GROW, not merely to be positive: bringing the house down
+    # already reported eighty-odd hits, so "positive" is true before the heap is touched,
+    # and flushing on that signal writes the rows a beat before the clearing reaches them.
+    before = page.evaluate_script("window.__arenaReported()")
+    page.execute_script("window.__arenaDamagePiece(arguments[0], 5000, arguments[1])", pile, building)
+    wait_for(timeout: 15, message: "the clearing never reached the server") do
+      page.evaluate_script("window.__arenaReported()") > before
+    end
+
+    Game::Damage::Registry.flush_all!
+    Game::Damage::Registry.reset!
+    boot("rubble-persist")
+
+    wait_for(timeout: 20, message: "the wreckage never came back") { rubble["standing"].positive? }
+    refute page.evaluate_script("window.__arenaPieceState(arguments[0], arguments[1]).standing", pile, building),
+           "a heap that had been cleared was back on the street"
+  end
+
+  # The requirement that started this. Two Capybara sessions and not two tabs: one browser
+  # is one player, because player_id comes from the session cookie, so two tabs would share
+  # it and discard each other's traffic as their own echo.
+  #
+  # Compares the heaps' TRANSFORMS and not merely which indices exist. Identical indices in
+  # different positions would look exactly like this feature working and would not be.
+  test "two players see the same heaps in the same places" do
+    seen = {}
+
+    %w[one two].each_with_index do |session, index|
+      Capybara.using_session(session) do
+        building = boot("rubble-agreement")
+        wreck_storey(building, 0) if index.zero?
+
+        wait_for(timeout: 25, message: "#{session} never saw any wreckage") do
+          rubble["standing"].positive?
+        end
+
+        seen[session] = page.evaluate_script(<<~JS, building)
+          (function (id) {
+            const s = window.__arenaBuildingSpec(id).surfaces.find(x => x.kind === "rubble")
+            const out = []
+            for (let i = s.off; i < s.off + s.cols * s.rows; i++) {
+              if (!window.__arenaPieceState(i, id).standing) continue
+              const m = window.__arenaPieceMatrix(i, id)
+              out.push([ i ].concat(m.map(v => Math.round(v * 1000) / 1000)))
+            }
+            return out
+          })(arguments[0])
+        JS
+      end
+    end
+
+    assert_operator seen["one"].length, :>, 0, "nobody saw any wreckage"
+    assert_equal seen["one"], seen["two"], "the two players are looking at different rubble"
+  end
 end

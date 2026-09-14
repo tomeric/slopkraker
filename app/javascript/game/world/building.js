@@ -288,7 +288,13 @@ export class Building {
   // condemned cell has handed its appearance to the slab falling on its behalf, so it must
   // not also throw shards where it stood. The slab throws them when it lands.
   breakCell(index, away = null, silent = false, carried = false) {
-    if (!this.standing(index)) return false
+    // DORMANT counts as breakable, not as already broken, and that distinction is load
+    // bearing. A heap the server says was cleared in some earlier session has to be able
+    // to go straight to BROKEN without ever being revealed -- because applyState applies
+    // the broken bitset BEFORE it reveals anything, and a dormant pile is not standing.
+    // Asking `standing` here dropped the bit silently, reveal then put the heap back, and
+    // clearing a street did not survive a reload.
+    if (this.state[index] !== INTACT && this.state[index] !== DORMANT) return false
 
     this.state[index] = BROKEN
     // Shards before the piece goes: they are spawned from the transform the piece had,
