@@ -129,4 +129,21 @@ class Game::MaterialsTest < ActiveSupport::TestCase
 
     assert_operator blast, :>, shunt * 20, "explosives should be the answer to steel"
   end
+
+  # Rubble holds nothing up, ever. This is the third of three independent defences against
+  # a collapse weighing its own wreckage as structure -- the other two are the surface's
+  # storey of -1 and Collapse's own filter -- and it is the one that holds even if somebody
+  # later gives a rubble surface a real storey.
+  test "rubble is never structural" do
+    assert_equal 0.0, Game::Materials.fetch(:rubble).structural_weight
+    refute Game::Materials.fetch(:rubble).structural?
+  end
+
+  # A pile is one 2m cell half a metre high, so this is what one costs to clear. Low on
+  # purpose: clearing a street should be a job you enjoy, not a wall.
+  test "a pile clears in about one good hit" do
+    rubble = Game::Materials.fetch(:rubble)
+
+    assert_in_delta 14.1, rubble.health_for(4.0, 0.5), 0.5
+  end
 end
