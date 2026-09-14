@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_13_120000) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_14_090000) do
   create_table "matches", force: :cascade do |t|
     t.string "authority"
     t.datetime "authority_claimed_at"
@@ -26,9 +26,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_13_120000) do
   end
 
   create_table "object_damages", force: :cascade do |t|
+    t.integer "broken_count", default: 0, null: false
+    t.binary "broken_pieces", null: false
     t.integer "collapsed_from"
-    t.binary "destroyed", null: false
-    t.integer "destroyed_count", default: 0, null: false
     t.integer "match_id", null: false
     t.json "partial", default: {}, null: false
     t.datetime "updated_at", null: false
