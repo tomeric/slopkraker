@@ -203,6 +203,8 @@ export class GameEngine {
     // Cells rather than bodies. The two together say how much of the house left the ground
     // and how coarsely it did it, which is the whole of what a collapse is judged on.
     window.__arenaFallingCells = () => this.buildings?.fallingCells ?? 0
+    // Reserved, standing and cleared heaps. An intact house has only the first.
+    window.__arenaRubble = () => this.buildings?.rubbleCounts ?? null
     window.__arenaRemotes = () => this.remotes?.size ?? 0
     window.__arenaReported = () => this.reporter?.sent ?? 0
     window.__arenaBuildingIds = () => this.buildings?.list.map((b) => b.id) ?? []

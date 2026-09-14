@@ -112,7 +112,9 @@ export function eachCell(surface, origin, visit) {
         pieceIndex(surface, row, col),
         materialAt(surface, row, col),
         cellMatrix(surface, row, col, matrix, origin),
-        surface
+        surface,
+        row,
+        col
       )
     }
   }

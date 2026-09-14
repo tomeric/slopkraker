@@ -122,6 +122,11 @@ module Game
           rows: rows,
           t: thickness,
           off: piece_offset,
+          # The client lays rubble out from this. Two players seeing heaps in the same
+          # place depends entirely on both deriving them from the same seed, so a surface
+          # that did not carry its own seed would have every building's wreckage laid out
+          # identically -- which passes for one building and fails for a street.
+          seed: seed,
           # Per cell, per material -- not per surface. A window is a glass cell in a brick
           # wall, and giving it the wall's health would make it as hard to break as the
           # wall, which is the opposite of the point. Keyed by name and covering the

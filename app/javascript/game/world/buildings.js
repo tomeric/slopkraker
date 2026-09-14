@@ -44,6 +44,7 @@ export class Buildings {
         debris: this.debris,
         falling: this.falling,
         chunk: spec.rules.collapse?.fall?.chunk,
+        rubbleRules: spec.rules.collapse?.rubble,
         grid,
         rules: spec.rules.damage,
         onDamage
@@ -105,6 +106,18 @@ export class Buildings {
 
   get fallingCells() {
     return this.falling.cellCount
+  }
+
+  // Reserved, on the ground, and cleared away. An intact world has only the first.
+  get rubbleCounts() {
+    return this.list.reduce((total, building) => {
+      const counts = building.rubbleCounts
+      return {
+        dormant: total.dormant + counts.dormant,
+        standing: total.standing + counts.standing,
+        cleared: total.cleared + counts.cleared
+      }
+    }, { dormant: 0, standing: 0, cleared: 0 })
   }
 
   get debrisCount() {

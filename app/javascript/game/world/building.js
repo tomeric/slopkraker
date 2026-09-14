@@ -2,6 +2,7 @@ import * as THREE from "three"
 import { PROP_GROUPS } from "game/physics/groups"
 import { eachBuildingCell, materialAt, chunkMatrix } from "game/world/surface"
 import { tileSurface } from "game/world/chunking"
+import { rubbleMatrix } from "game/world/rubble"
 import { absorb } from "game/damage"
 
 // One building, expanded from its surfaces into pieces that can be hit.
@@ -24,9 +25,15 @@ import { absorb } from "game/damage"
 const INTACT = 0
 const BROKEN = 1
 const ABSENT = 2
+// A heap of rubble the building has not yet fallen down to produce. Reserved index space
+// like ABSENT, but unlike ABSENT it is waiting rather than permanently empty.
+//
+// DORMANT -> INTACT -> BROKEN is still strictly monotone: a piece enters one state earlier
+// than it used to and never moves backwards, so every server message stays idempotent.
+const DORMANT = 3
 
 export class Building {
-  constructor({ RAPIER, world, spec, materials, meshes, colliderIndex, contactThreshold, spread = 0, debris = null, falling = null, grid = null, rules = {}, chunk = null, onDamage = null }) {
+  constructor({ RAPIER, world, spec, materials, meshes, colliderIndex, contactThreshold, spread = 0, debris = null, falling = null, grid = null, rules = {}, chunk = null, rubbleRules = null, onDamage = null }) {
     this.spec = spec
     this.materials = materials
     this.meshes = meshes
@@ -38,6 +45,7 @@ export class Building {
     this.grid = grid
     this.rules = rules
     this.chunkSize = chunk
+    this.rubbleRules = rubbleRules || {}
     this.onDamage = onDamage
     this.origin = new THREE.Vector3().fromArray(spec.o)
     // Bound once: the tiling asks this per cell, and it is asked a few thousand times.
@@ -88,7 +96,7 @@ export class Building {
     // as each surface is walked.
     const blockBase = new Map()
 
-    eachBuildingCell(this.spec, (index, name, matrix, surface) => {
+    eachBuildingCell(this.spec, (index, name, matrix, surface, row, col) => {
       this.material[index] = name
       this.surfaceOf[index] = surfaceIndex.get(surface)
       this.assignBlock(index, surface, blockBase)
@@ -99,6 +107,12 @@ export class Building {
         return
       }
 
+      // A heap sits where its cell is, shrunk, spun and nudged off centre so a cleared
+      // site does not read as the grid it is laid out on. Deterministic in the surface's
+      // seed, which is what makes two players agree about where it is.
+      const rubble = surface.kind === "rubble"
+      if (rubble) rubbleMatrix(surface, row, col, matrix, this.origin, this.rubbleRules)
+
       this.matrices[index] = matrix.clone()
       // Keyed by material, not per surface: a glass window in a brick wall has to break
       // like glass, not like the wall it is set into.
@@ -107,6 +121,16 @@ export class Building {
       this.maxHealth[index] = health
       this.slot[index] = this.meshes.add(name, matrix)
       this.colliders[index] = this.createCollider(RAPIER, matrix, surface, name, index, colliderIndex)
+
+      // Built now and revealed later. The collider array and the instance pool are both
+      // allocated at boot and cannot grow, so the only way a heap can appear when a house
+      // comes down is for it to have been here, switched off, all along.
+      if (rubble) {
+        this.state[index] = DORMANT
+        this.meshes.setVisible(name, this.slot[index], false)
+        this.colliders[index]?.setEnabled(false)
+        return
+      }
 
       // Into the blast grid, so an explosion can find this piece. Static: a wall panel
       // never moves, so it is placed once and never revisited -- which is the property
@@ -354,6 +378,54 @@ export class Building {
       if (byte & (1 << (index & 7)) && this.breakCell(index, null, silent)) count++
     }
     return count
+  }
+
+  // DORMANT -> INTACT, and NEVER BROKEN -> INTACT. That clause is the whole of why the
+  // order of applyState's two halves does not matter: it applies the broken bitset first
+  // and the collapse second, so without it, rejoining a match where heaps had been cleared
+  // would put every one of them back on the street.
+  reveal(index) {
+    if (this.state[index] !== DORMANT) return false
+
+    this.state[index] = INTACT
+    this.health[index] = this.maxHealth[index]
+    this.meshes.setVisible(this.material[index], this.slot[index], true, this.matrices[index])
+    this.meshes.tint(this.material[index], this.slot[index], 1)
+    this.colliders[index]?.setEnabled(true)
+    if (this.grid && this.matrices[index]) {
+      this.matrices[index].decompose(POSITION, ROTATION, SCALE)
+      this.grid.insert(this.target(index), POSITION.x, POSITION.y, POSITION.z)
+    }
+    return true
+  }
+
+  // The first `count` heaps in index order -- the same order and the same count the server
+  // works out from collapsed_from, so the two never disagree about which heaps exist.
+  revealRubble(count) {
+    let revealed = 0
+    let seen = 0
+
+    for (let index = 0; index < this.pieceCount; index += 1) {
+      if (this.material[index] !== "rubble") continue
+      if (seen >= count) break
+
+      seen += 1
+      if (this.reveal(index)) revealed += 1
+    }
+    return revealed
+  }
+
+  get rubbleCounts() {
+    const counts = { dormant: 0, standing: 0, cleared: 0 }
+
+    for (let index = 0; index < this.pieceCount; index += 1) {
+      if (this.material[index] !== "rubble") continue
+
+      if (this.state[index] === DORMANT) counts.dormant += 1
+      else if (this.state[index] === INTACT) counts.standing += 1
+      else if (this.state[index] === BROKEN) counts.cleared += 1
+    }
+    return counts
   }
 
   restore(index) {
