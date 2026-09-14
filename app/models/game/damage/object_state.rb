@@ -35,6 +35,13 @@ module Game
         material = @surfaces.material_at(piece_index)
         # A doorway is a real index holding void. There is nothing there to break.
         return [] if material.nil? || material.name == :void
+        # Nor is there anything to break in a heap of rubble that does not exist yet. A
+        # pile is DORMANT until the building falls on top of it -- reserved index space,
+        # like a doorway, but reserved for something that arrives later rather than never.
+        # The transition is not stored: it is implied by collapsed_from, which is monotone
+        # and already persisted, so this answer is the same on every client and after every
+        # reload without a byte of it going on the wire.
+        return [] if material.name == :rubble && !revealed?(piece_index)
 
         amount = material.absorb(raw.to_f * material.multiplier_for(kind), minimum_fraction)
         return [] if amount <= 0
@@ -64,6 +71,8 @@ module Game
         result.broken.each { |index| destroy!(index) }
         @partial = result.health.except(*result.broken)
         @collapsed_from = result.collapsed_from
+        # More of the house came down, so more of its wreckage is on the ground.
+        @revealed_rubble = nil
         @dirty = true
         @collapsed_from
       end
@@ -77,6 +86,28 @@ module Game
 
       private
         def minimum_fraction = @rules.fetch(:damage).fetch(:minimum_fraction, 0.0)
+
+        def revealed?(piece_index) = revealed_rubble.include?(piece_index)
+
+        # Which heaps are actually on the ground. Recomputed whenever the collapse moves
+        # and cached in between, because apply is on the hot path and this walks the grid.
+        def revealed_rubble
+          @revealed_rubble ||= begin
+            surface = @surfaces.surfaces.find { |s| s.kind == :rubble }
+
+            if surface.nil? || @collapsed_from.nil?
+              []
+            else
+              Building::Rubble.pile_indices(surface).first(
+                Building::Rubble.revealed_count(
+                  surface,
+                  storey_count: @surfaces.storey_count,
+                  collapsed_from: @collapsed_from
+                )
+              )
+            end
+          end
+        end
 
         def in_range?(piece_index)
           piece_index.is_a?(Integer) && piece_index >= 0 && piece_index < @piece_count

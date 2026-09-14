@@ -97,7 +97,8 @@ class Game::Damage::ObjectStateTest < ActiveSupport::TestCase
 
     assert_equal 0, object.settle
     assert_equal 0, object.collapsed_from
-    refute object.standing?(set.piece_count - 1), "the roof should have come down too"
+    roof = set.surfaces.find { |surface| surface.kind == :roof }
+    refute object.standing?(roof.piece_offset), "the roof should have come down too"
   end
 
   test "settle reports nothing when the building still stands" do
@@ -149,5 +150,47 @@ class Game::Damage::ObjectStateTest < ActiveSupport::TestCase
     assert_predicate object, :dirty?
     object.clean!
     refute_predicate object, :dirty?
+  end
+
+  def rubble_surface(set) = set.surfaces.find { |surface| surface.kind == :rubble }
+  def first_pile(set) = Game::Building::Rubble.pile_indices(rubble_surface(set)).first
+
+  def flatten!(set, object)
+    walls = set.for_storey(0).select { |s| s.kind == :wall }.first(2)
+    indices_of(walls).each { |index| object.apply(index, 500.0, "impact") }
+    object.settle
+  end
+
+  # A pile that does not exist yet cannot be cleared. Without this a client could report
+  # damage to dormant rubble and have the house arrive already tidied up -- and because
+  # breaking is monotone, there would be no way to put it back.
+  test "damage to a pile is dropped while the building is still standing" do
+    set = house
+    object = state(set)
+
+    assert_empty object.apply(first_pile(set), 5_000.0, "impact")
+    assert object.standing?(first_pile(set)), "a dormant pile was cleared"
+  end
+
+  test "a pile clears once the building has come down on top of it" do
+    set = house
+    object = state(set)
+    flatten!(set, object)
+
+    assert_equal 0, object.collapsed_from, "the house did not collapse, so there is no rubble"
+    assert_equal [ first_pile(set) ], object.apply(first_pile(set), 5_000.0, "impact")
+    refute object.standing?(first_pile(set)), "the pile did not clear"
+  end
+
+  # Monotone, like everything else here: a cleared pile stays cleared, and settling again
+  # cannot bring it back.
+  test "a cleared pile is not restored by a later settle" do
+    set = house
+    object = state(set)
+    flatten!(set, object)
+    object.apply(first_pile(set), 5_000.0, "impact")
+
+    object.settle
+    refute object.standing?(first_pile(set)), "clearing was undone"
   end
 end
