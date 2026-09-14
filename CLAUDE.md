@@ -51,7 +51,9 @@ run servers on this machine at once and 3000/3001 are taken by other apps.
 ### Active Record at the top level, plain Ruby under `game/`
 
 `app/models/*.rb` are Active Record: `World`, `TerrainTile`, `WorldObject`, `Match`,
-`ObjectDamage`. `app/models/game/**` are plain Ruby objects that **never touch the database** —
+`ObjectDamage` — whose bitset column is `broken_pieces`, not `destroyed`, because `destroyed`
+collides with Active Record's own `destroyed?` and the collision is fatal: defining the
+attribute raises and the model cannot be instantiated at all. `app/models/game/**` are plain Ruby objects that **never touch the database** —
 they are handed what they need and return value objects. A `World` builds a `Game::Scene`; a
 `Game::Scene` never looks a `World` up. That split is what keeps almost all of the game's
 logic testable without fixtures, and it is worth preserving.
@@ -155,12 +157,61 @@ Keyboard, pointer and gamepad sources each write into one normalised `InputState
 controls panel — so the panel can never drift from the bindings it documents. Keyboard entries are
 `KeyboardEvent.code` values.
 
-### Multiplayer — scaffolded, not wired up
+### Multiplayer — destruction is wired, vehicles are not
 
-`ArenaChannel` relays snapshots between clients; the server stamps `player_id` from the session
-cookie (`ApplicationCable::Connection`) and never simulates. `game/net/{connection,snapshot,remote_vehicle}.js`
-exist and are tested on the Ruby side, but **nothing imports them** — `engine.js` has no net layer
-yet. Wiring them in is the open piece of work.
+`ArenaChannel` now has two halves with deliberately opposite rules.
+
+**Vehicles are relayed and never simulated.** Each client authoritatively simulates its own
+car; the server stamps `player_id` from the session cookie (`ApplicationCable::Connection`)
+and fans out. Simulating would cap feel at the network tick rate.
+`game/net/{snapshot,remote_vehicle}.js` still exist and **nothing imports them** — remote
+vehicles are the open piece of work. `net/connection.js` is imported now.
+
+**Destruction is the other way round: the server decides.** A client predicts its own
+breaks — it must, or driving through a wall would bounce you off while a round trip
+completed — but what is actually gone is the server's call, because a collapse follows from
+the sum of what every player has done to a building and no client can see that sum.
+
+```
+client  damage {seq, hits: [[object_id, piece_index, raw, kind], …]}   batched at snapshot_hz
+        request_state {ids}                                            on every connect
+server  breaks {broken, collapses, authority}                          broadcast
+        state  {objects, authority}                                    to the asker alone
+        error  {reason}                                                to the asker alone
+```
+
+Four rules hold it together:
+
+- **Everything is monotone.** A piece goes standing → broken and never back; `collapsed_from`
+  goes NULL → lower and is never raised. So every message is idempotent, a self-predicted
+  break is always confirmed, and a client that already broke a piece ignores any `state`
+  saying it stands — which is what makes a rollback after a restart invisible.
+- **`breaks` is broadcast without a `player_id`.** Every other broadcast is stamped, and
+  `NetConnection` drops its own echo — but the client that knocked the walls out is exactly
+  the one that most needs to hear the house came down.
+- **Clients report RAW damage per cell**, after their own spread and block expansion, before
+  absorb. The server runs the same absorb from the same table. Sending the absorbed figure
+  would apply the material twice; sending only the cell that was touched would mean porting
+  spread and block tiling to the server.
+- **Reporting lives in `damageCell`, never `breakCell`.** `breakCell` is also how a
+  server-applied break lands, so reporting there would echo every broadcast back at the server.
+
+**Destruction is authoritative in exactly one process.** `config/puma.rb` has no `workers`
+line, so that is true by construction; `ArenaChannel::AUTHORITY` and `Match#claim` make it
+*enforced*. A process that loses the claim refuses `damage` and replies
+`error: "not_authoritative"`, so destruction degrades to nothing rather than diverging
+silently. `Game::Damage::Registry` is process-global, holds one `MatchState` per match behind
+its own `Monitor`, and a single sweeper thread flushes dirty matches to `object_damages` every
+second. That sweeper does **not** run under test — the suite calls `Registry.flush_all!` when
+it wants rows, and `Registry.reset!` in teardown, because the registry is memory and no test
+transaction rolls it back.
+
+Caps (`MAX_HITS_PER_BATCH`, `MAX_AMOUNT_PER_HIT`) bound what one bad client can reach. They
+are **not security** — the server cannot recompute damage without simulating, which is the
+accepted price of clients reporting it.
+
+Any system test that breaks something must pass `visit_world(..., match: "its-own-name")`.
+Damage persists, so two tests sharing the default lobby share their wreckage.
 
 ## Testing
 

@@ -1,7 +1,19 @@
 # A persistent, destructible city in the database
 
 Date: 2026-09-13
-Status: approved, not yet implemented
+Status: partly implemented.
+
+- **Built:** §1 frame, §2 schema, §4 materials, §5 buildings, §9 destruction and debris,
+  §10 server-authoritative damage, §11 collapse.
+- **Not built:** §3 terrain heightfields, §6 chunk delivery over HTTP, §7 instanced
+  rendering and quality tiers beyond the existing `?quality=`, §8 promotion tiers.
+- **Revised during implementation:** §11's collapse rule (see the note in that section),
+  and §10's `request_state`, which takes object ids rather than `{cx, cz}` because chunk
+  streaming does not exist yet. §10's PREDICTED/DENY reconciliation window was deliberately
+  not built: nothing in the implementation can deny a break, since the server's rule is
+  that any reported damage which would break a piece breaks it, so a self-predicted break
+  is always confirmed. That machinery earns its place when the server starts rejecting
+  hits, and not before.
 
 ## Why
 
