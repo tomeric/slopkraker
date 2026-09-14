@@ -15,17 +15,18 @@ module Game
         recipe = Recipe.from(recipe) unless recipe.is_a?(Recipe)
         openings = Openings.new(seed: recipe.seed)
 
+        built = Walls.build(recipe, openings: openings) + Interior.build(recipe) + Roof.build(recipe)
+
         SurfaceSet.new(
-          Walls.build(recipe, openings: openings) +
-            Interior.build(recipe) +
-            Roof.build(recipe) +
+          built +
             # LAST, and this is the contract rather than a preference. Offsets are handed
             # out by walking surfaces in sequence, so a surface inserted anywhere earlier
             # renumbers every piece after it -- and damage recorded against a wall would
             # come back applied to the roof. Last is the only position that leaves every
             # existing index exactly where it was, which is what let this be added to a
             # world that had already been played and damaged.
-            Rubble.build(recipe),
+            # Handed what the building is made of, because that is what its wreckage is.
+            Rubble.build(recipe, built),
           storey_count: recipe.storeys
         )
       end

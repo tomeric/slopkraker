@@ -26,31 +26,88 @@ module Game
       # Share of in-footprint cells holding a pile rather than nothing. Not 1.0, so the site
       # reads as scattered wreckage rather than as the grid it is actually on.
       DENSITY = 0.85
-      # Knee high.
-      HEIGHT = 0.5
+      # How much of its cell a heap covers. Well under 1, so heaps are separate things you
+      # drive between rather than a continuous floor of rubbish. Shipped to the client as
+      # `rules.collapse.rubble.scale` from this constant, because the depth below is
+      # computed against it and the two must not be able to disagree.
+      SPREAD = 0.85
+
+      # How much broken masonry swells as it breaks. Rubble does not pack back into the
+      # space the wall occupied: roughly half as much again.
+      BULK = 1.5
+
+      # And how much of that is still in the way afterwards.
+      #
+      # Be honest about what this number is doing. A three-storey house is 353 cubic metres
+      # of material and 559 tonnes of it, so the truthful answer is 530 cubic metres over a
+      # 180 square metre footprint -- nearly THREE METRES DEEP, wall to wall. That is not a
+      # pile you clear, it is a hill you cannot get onto, and it would bury the car that
+      # knocked it down.
+      #
+      # So a share stays and the rest is taken to have gone to dust. Which is not entirely
+      # a fiction: the shards a collapse throws are carrying that material away in front of
+      # you as it lands, and they fade rather than settling.
+      SHARE = 0.3
+
+      # Only used by a building made of nothing, which cannot happen, but a zero depth
+      # would make a heap with no height and no health at all.
+      MINIMUM_DEPTH = 0.25
 
       EAST = Vector3.new(1, 0, 0)
       SOUTH = Vector3.new(0, 0, 1)
 
-      def self.build(recipe)
+      # `built` is everything the building is made of. The heaps are sized from it, so a
+      # bigger building leaves a bigger mess -- for ever, and without anybody choosing a
+      # number. A constant here would pile a bungalow and a tower block identically.
+      def self.build(recipe, built = [])
         cols = cells(recipe.width)
         rows = cells(recipe.depth)
+        gaps = gaps(recipe, cols, rows)
+        depth = depth_for(built, cols * rows - gaps.length)
 
         [ Surface.new(
           kind: :rubble,
           storey: -1,
           material: Materials.fetch(:rubble),
-          origin: Vector3.new(recipe.min_x, 0.0, recipe.min_z),
+          # Lifted by half its depth so a heap SITS ON the ground. Cells are centred on
+          # their surface plane, which is right for a wall -- its thickness straddles the
+          # line its origin describes -- and buries a heap to its waist.
+          origin: Vector3.new(recipe.min_x, depth / 2.0, recipe.min_z),
           u: EAST,
           v: SOUTH,
           width: cols * CELL,
           height: rows * CELL,
           cols: cols,
           rows: rows,
-          thickness: HEIGHT,
-          patches: gaps(recipe, cols, rows),
+          thickness: depth,
+          patches: gaps,
           seed: recipe.seed
         ) ]
+      end
+
+      # How deep one heap stands: the building's own material, swollen by breaking, the
+      # share of it that stays, spread over the heaps that are left to hold it.
+      def self.depth_for(built, piles)
+        return MINIMUM_DEPTH if piles <= 0
+
+        kept = material_volume(built) * BULK * SHARE
+        footprint = (CELL * SPREAD)**2
+        [ kept / piles / footprint, MINIMUM_DEPTH ].max
+      end
+
+      # Every cubic metre the building is made of. Voids are holes and weigh nothing.
+      def self.material_volume(built)
+        Array(built).sum do |surface|
+          next 0.0 if surface.kind == :rubble
+
+          surface.rows.times.sum do |row|
+            surface.cols.times.sum do |col|
+              next 0.0 if surface.material_at(row, col).name == :void
+
+              surface.cell_area * surface.thickness
+            end
+          end
+        end
       end
 
       # How many of the piles a collapse from `collapsed_from` actually leaves. A house

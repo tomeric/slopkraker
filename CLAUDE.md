@@ -190,10 +190,18 @@ derive from the recipe seed, clearing goes through `damage`/`breaks` addressed b
   downstream looking wrong. Three independent defences: the surface's `storey: -1` (below
   every bound `Collapse` sweeps), an explicit `kind == :rubble` skip in `each_cell`, and
   `structural_weight: 0.0` on the material.
-- **The grid is geometry, not tuning.** `Rubble::CELL`, `DENSITY` and `HEIGHT` are Ruby
-  constants because they decide `piece_count`; a client that disagreed about them would be
-  addressing different pieces than the server. Only how a heap is *drawn* ships, in
-  `rules.collapse.rubble`.
+- **A heap is sized from what the building was made of.** `Rubble.build` is handed the
+  generated walls, floors and roof, totals their real volume, swells it by `BULK` for
+  breaking and keeps `SHARE` of it — so a bigger building leaves a bigger mess for ever,
+  with nobody choosing a number. Be honest about `SHARE`: a three-storey house is 353m³ and
+  559 tonnes, and all of it bulked would be **three metres deep wall to wall**, which is a
+  hill rather than a pile. The rest is taken to have gone to dust, which the shards a
+  collapse throws are already selling.
+- **The grid is geometry, not tuning.** `Rubble::CELL`, `DENSITY`, `SPREAD`, `BULK` and
+  `SHARE` are Ruby constants: the first two decide `piece_count`, and the rest decide a
+  heap's depth, which `health_for` is computed from on both sides. `rules.collapse.rubble`
+  ships only how a heap is *drawn* — and its `scale` is read from `Rubble::SPREAD` rather
+  than written again, because the depth is computed against that same number.
 - **`piece_count` grows, so a stale database is a real failure mode.** The worked example
   house went from 1454 to 1502. Existing damage stays valid because rubble was appended and
   nothing was renumbered, but a row still holding the old count rejects every rubble index.

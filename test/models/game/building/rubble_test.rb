@@ -11,7 +11,25 @@ class Game::Building::RubbleTest < ActiveSupport::TestCase
   end
 
   def surface(**overrides)
-    Game::Building::Rubble.build(recipe(**overrides)).first
+    Game::Building::Generator.call(recipe(**overrides)).surfaces.last
+  end
+
+  def heap_volume(set)
+    piles = Game::Building::Rubble.total_piles(set)
+    spread = Game::Building::Rubble::SPREAD * Game::Building::Rubble::CELL
+    piles * spread * spread * set.thickness
+  end
+
+  def material_volume(**overrides)
+    Game::Building::Generator.call(recipe(**overrides)).surfaces.sum do |s|
+      next 0.0 if s.kind == :rubble
+
+      s.rows.times.sum do |row|
+        s.cols.times.sum do |col|
+          s.material_at(row, col).name == :void ? 0.0 : s.cell_area * s.thickness
+        end
+      end
+    end
   end
 
   def pile_count(set)
@@ -58,14 +76,15 @@ class Game::Building::RubbleTest < ActiveSupport::TestCase
     assert_operator differences, :>, 0, "the seed changed nothing"
   end
 
-  # It lies flat on the ground rather than standing up like a wall, and it is below every
-  # real storey so that no sweep in the collapse rule can reach it.
-  test "the grid lies on the ground, below every storey" do
+  # It lies flat rather than standing up like a wall, and it is below every real storey so
+  # that no sweep in the collapse rule can reach it. How deep it is is a separate question,
+  # answered by what the building was made of -- see below.
+  test "the grid lies flat, below every storey" do
     set = surface
 
     assert_equal(-1, set.storey)
-    assert_in_delta 0.0, set.origin.y, 0.001
-    assert_in_delta Game::Building::Rubble::HEIGHT, set.thickness, 0.001
+    assert_equal Game::Building::Rubble::EAST, set.u
+    assert_equal Game::Building::Rubble::SOUTH, set.v
   end
 
   # A house gutted to the ground leaves all of it; one that lost only its top floor leaves
@@ -96,5 +115,36 @@ class Game::Building::RubbleTest < ActiveSupport::TestCase
         refute(x > 6 && z > 6, "a pile landed in the notch of the L at #{x}, #{z}")
       end
     end
+  end
+
+  # What a house leaves is what a house was MADE of. A three storey house is 353 cubic
+  # metres of material and 559 tonnes of it, and heaps sized by a constant would be the
+  # same on a bungalow and a tower -- which is the difference between wreckage and a
+  # decoration that happens to be lying where a building used to be.
+  test "the heaps hold a share of what the building was made of" do
+    set = surface
+    expected = material_volume * Game::Building::Rubble::BULK * Game::Building::Rubble::SHARE
+
+    assert_in_delta expected, heap_volume(set), expected * 0.02
+  end
+
+  # The consequence that matters, and the reason this is derived rather than tuned: a
+  # bigger building leaves a bigger mess, for ever, without anybody choosing a number.
+  test "a taller house leaves deeper heaps on the same footprint" do
+    one = surface(storeys: 1, eaves: 3.0, ridge: 5.0)
+    three = surface
+
+    assert_operator three.thickness, :>, one.thickness * 2,
+                    "three storeys of material should not pile up like one"
+  end
+
+  # Cells are centred on their surface plane, which is right for a wall -- its thickness
+  # straddles the line its origin describes -- and wrong for a heap on the ground, which
+  # would be buried to its waist. Half of every heap was underground, and that is most of
+  # why they read as paving slabs rather than as rubble.
+  test "a heap sits on the ground rather than half in it" do
+    set = surface
+
+    assert_in_delta set.thickness / 2.0, set.origin.y, 0.001
   end
 end

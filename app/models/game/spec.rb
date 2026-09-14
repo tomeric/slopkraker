@@ -127,11 +127,19 @@ module Game
             # How far a heap may sit from its cell's centre, as a share of the cell, so a
             # cleared site does not read as the grid it is actually laid out on.
             jitter: 0.3,
-            # How much of its cell a heap fills. Well under 1, so heaps are separate things
-            # you drive between rather than a continuous floor of rubbish.
-            scale: 0.55,
-            # Squashed rather than cubic, because a heap settles.
-            height: 0.6
+            # How much of its cell a heap fills. Read from the constant rather than written
+            # again: Building::Rubble computes how DEEP a heap is against this same number,
+            # so a second copy that drifted would leave the client drawing heaps of a size
+            # the server never sized.
+            scale: Building::Rubble::SPREAD,
+            # How far a heap leans off level. A heap is not a paving slab, and this is what
+            # stops it reading as one -- it was the last thing making them look laid rather
+            # than dropped.
+            tilt: 0.28,
+            # How much taller the middle of the site is than its edges. Rubble does not
+            # settle evenly: it piles toward the centre of what fell, and a flat field of
+            # identical heaps reads as scenery rather than as a collapse.
+            mound: 0.7
           }
         },
         impact_force_threshold: 2000.0,
