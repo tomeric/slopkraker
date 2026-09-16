@@ -26,10 +26,24 @@ class WallImpactTest < ApplicationSystemTestCase
     assert_operator telemetry["piecesBroken"], :>, 0, "the house took the hit and stood there"
   end
 
+  # Watched from inside the page for the PEAK, not read off the end. Since a car that breaks
+  # a wall carries on through the hole, the buggy goes through the front wall, the partition
+  # and out through the back, and its final contact is a slow scrape against whatever it
+  # comes to rest on -- which scores nought and overwrote a perfectly good hit. Measured: 33
+  # on the front wall, 24 on the back, then 1 or 0 at the end of the run.
   test "the hit lands on the wall rather than stopping short of it" do
+    page.execute_script(<<~JS)
+      window.__peakDamage = 0
+      ;(function sample() {
+        const a = window.__arena
+        if (a && a.lastDamage > window.__peakDamage) window.__peakDamage = a.lastDamage
+        requestAnimationFrame(sample)
+      })()
+    JS
     charge
 
-    assert_operator telemetry["lastDamage"], :>, 0, "nothing was ever scored against the house"
+    assert_operator page.evaluate_script("window.__peakDamage"), :>, 0,
+                    "nothing was ever scored against the house"
   end
 
   # The point of hardness: the same run at the same speed should take out brick and leave
