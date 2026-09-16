@@ -838,7 +838,8 @@ export class GameEngine {
       this.chaseCamera.update(
         frameTime, entity.renderPos, entity.renderRot,
         this.vehicle.speed, input, this.vehicle.turboActive,
-        this.vehicle.drifting ? this.vehicle.driftDirection : 0
+        this.vehicle.drifting ? this.vehicle.driftDirection : 0,
+        this.ground
       )
 
       // Keep the shadow frustum centred on the action.

@@ -33,7 +33,8 @@ export class ChaseCamera {
     this.orbitPitch = 0
   }
 
-  update(dt, targetPosition, targetQuaternion, speed, input, turboActive, driftDirection = 0) {
+  // `ground` is (x, z) => the height of the terrain there, or null on a flat world.
+  update(dt, targetPosition, targetQuaternion, speed, input, turboActive, driftDirection = 0, ground = null) {
     const s = this.spec
 
     // A single non-finite value would poison the camera transform forever and render a
@@ -86,6 +87,15 @@ export class ChaseCamera {
       // Exponential smoothing keyed off real frame time, so feel is frame-rate independent.
       this.position.lerp(this._desired, 1 - Math.exp(-s.follow_stiffness * dt))
       this.lookAt.lerp(this._desiredLook, 1 - Math.exp(-s.look_stiffness * dt))
+    }
+
+    // Never under the ground. On a downhill slope the camera behind the car would sink
+    // through the heightfield and look up at a single-sided world; a clamp against the
+    // terrain under it, with a little clearance, is what keeps the picture. Nothing
+    // without terrain passes a ground, so flat worlds are untouched.
+    if (ground) {
+      const floor = ground(this.position.x, this.position.z) + (s.ground_clearance ?? 0)
+      if (this.position.y < floor) this.position.y = floor
     }
 
     const targetFov = Math.min(
