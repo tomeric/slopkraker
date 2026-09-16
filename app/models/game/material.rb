@@ -15,12 +15,12 @@ module Game
 
     attr_reader :name, :health_per_m2, :density, :hardness, :structural_weight,
                 :multipliers, :fracture, :colour, :friction, :restitution,
-                :opacity, :metalness, :roughness
+                :opacity, :metalness, :roughness, :chunk
 
     def initialize(name:, health_per_m2:, density:, colour:,
                    hardness: 0.0, structural_weight: 1.0, multipliers: {}, fracture: {},
                    friction: 0.8, restitution: 0.05,
-                   opacity: 1.0, metalness: 0.05, roughness: 0.85)
+                   opacity: 1.0, metalness: 0.05, roughness: 0.85, chunk: nil)
       @name = name.to_sym
       @health_per_m2 = health_per_m2.to_f
       @density = density.to_f
@@ -37,6 +37,11 @@ module Game
       @opacity = opacity.to_f
       @metalness = metalness.to_f
       @roughness = roughness.to_f
+      # What a broken chunk of this looks like once it is lying in a heap: a mean size on
+      # each axis in metres, how much that varies, and how far off a box the shape is.
+      # Local Y is the THICKNESS, so a plank and a tile lie flat and a brick is a block.
+      # Nil for anything that is never a chunk -- a hole, and the heap itself.
+      @chunk = chunk&.transform_keys(&:to_sym)&.freeze
       freeze
     end
 
@@ -88,7 +93,8 @@ module Game
         restitution: restitution,
         opacity: opacity,
         metalness: metalness,
-        roughness: roughness
+        roughness: roughness,
+        chunk: chunk
       }
     end
   end

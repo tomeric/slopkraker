@@ -146,4 +146,26 @@ class Game::MaterialsTest < ActiveSupport::TestCase
 
     assert_in_delta 14.1, rubble.health_for(4.0, 0.5), 0.5
   end
+
+  # What a heap of wreckage is drawn from. Every material a building can be made of has
+  # to say what a broken chunk of it looks like -- a plank, a plate, a block -- or the
+  # client would have to invent one, and the client holds no numbers of its own.
+  test "every material a building is made of says how it breaks into chunks" do
+    Game::Materials.names.each do |name|
+      material = Game::Materials.fetch(name)
+      # Void is a hole and rubble is what the chunks sit IN; neither is ever a chunk.
+      next if %i[void rubble].include?(name)
+
+      chunk = material.chunk
+      assert chunk, "#{name} has no chunk profile"
+      assert_equal 3, chunk[:size].length, "#{name} chunk size is not x, y, z"
+      chunk[:size].each { |extent| assert_operator extent, :>, 0, "#{name} chunk has a zero extent" }
+      assert_operator chunk[:vary], :>=, 0
+      assert_operator chunk[:vary], :<, 1.0, "#{name} chunks could shrink to nothing"
+      assert_operator chunk[:jitter], :>=, 0
+      assert_equal chunk, material.to_spec[:chunk], "#{name} does not ship its chunk"
+    end
+
+    assert_nil Game::Materials.fetch(:void).chunk
+  end
 end
