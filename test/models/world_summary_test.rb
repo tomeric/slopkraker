@@ -25,10 +25,29 @@ class WorldSummaryTest < ActiveSupport::TestCase
   # The stored counts are what the server bounds-checks a reported piece index against. If
   # they drift from what the generator actually produces, a real index gets rejected or a
   # bogus one accepted -- and neither failure says anything useful about why.
-  test "a building's stored piece count matches what it generates" do
-    house = world_objects(:targets_house)
+  # EVERY building, not one of them. While a single house existed anywhere this was the
+  # same assertion either way; a street of twelve is twelve chances for a hand-written
+  # count to be wrong, and a wrong one is silent -- the server simply starts rejecting
+  # real indices for that one house, which reads as damage mysteriously not registering.
+  test "every building's stored piece count matches what it generates" do
+    buildings = WorldObject.where(kind: "building")
+    assert_operator buildings.count, :>, 1, "this stopped covering more than one building"
 
-    assert_equal house.surface_set.piece_count, house.piece_count
-    assert_equal house.surface_set.storey_count, house.storey_count
+    buildings.each do |building|
+      set = building.surface_set
+      assert_equal set.piece_count, building.piece_count,
+                   "#{building.world.slug}/#{building.name} has a stale piece_count"
+      assert_equal set.storey_count, building.storey_count,
+                   "#{building.world.slug}/#{building.name} has a stale storey_count"
+    end
+  end
+
+  test "the street is built on both sides of its road" do
+    street = worlds(:street)
+    houses = street.world_objects.where(kind: "building")
+
+    assert_equal 12, houses.count
+    assert_equal 6, houses.count { |house| house.x.positive? }, "the east side"
+    assert_equal 6, houses.count { |house| house.x.negative? }, "the west side"
   end
 end

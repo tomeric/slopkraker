@@ -30,6 +30,7 @@ export class FallingPieces {
     this.debris = debris
 
     this.max = rules.max ?? 140
+    this.perBuilding = rules.per_building ?? this.max
     this.arm = rules.arm ?? 0.12
     this.maxLife = rules.life ?? 6.0
     this.drift = rules.drift ?? 1.6
@@ -45,12 +46,23 @@ export class FallingPieces {
     this.cells = 0
   }
 
-  // How many pieces a collapse may put in the air. The caller thins its condemned set down
-  // to this before it starts breaking, rather than handing over a thousand and letting the
-  // ring chew through them -- a piece that is retired to make room for the next one never
-  // got to fall, which is the entire point.
-  get capacity() {
-    return this.max
+  // How many slabs THIS collapse may put in the air. The caller thins its condemned set
+  // down to this before it starts breaking, rather than handing over a thousand and
+  // letting the pool chew through them -- a piece that is dropped to make room for the
+  // next one never got to fall, which is the entire point.
+  //
+  // TWO limits, and the difference between them is what a street costs and one house did
+  // not. `perBuilding` is how coarsely one house is allowed to come apart, which is a
+  // question about that house. What is FREE is a question about the world, and it is the
+  // one this used to skip: it returned the ceiling whole, so a second collapse read six
+  // hundred as available while six hundred were already up there, dropped its full
+  // complement on top, and left the pool to make room out of a building that was still
+  // falling.
+  //
+  // With one building in the world the two were the same number, which is exactly why
+  // this survived being read and re-read.
+  budgetForCollapse() {
+    return Math.max(Math.min(this.perBuilding, this.max - this.live.length), 0)
   }
 
   // Takes over drawing the piece: the caller hides its instance and throws no shards,
@@ -63,10 +75,16 @@ export class FallingPieces {
   drop(matrix, name, shape = SINGLE_CELL) {
     if (!matrix || !this.RAPIER) return false
 
-    // The ring is a safety net rather than the budget: it only bites when several
-    // buildings come down at once, each one individually within capacity. The piece that
-    // has been in the air longest is the one nearest the end of its fall anyway.
-    if (this.live.length >= this.max) this.shatter(this.live[0], 0)
+    // Full means NO, never "make room". A slab already in the air belongs to a building
+    // that is still coming down, and taking it back is the one thing this file exists to
+    // prevent: it shatters in the sky, and its owner counts it as landed and reveals the
+    // wreckage it was carrying under a house that has not finished falling.
+    //
+    // The caller has already asked budgetForCollapse() and thinned itself to fit, so this
+    // is a backstop rather than the mechanism. Returning false is not a failure -- the
+    // cell simply breaks where it stands, which is what everything did before slabs
+    // existed.
+    if (this.live.length >= this.max) return false
 
     matrix.decompose(POSITION, ROTATION, SCALE)
     const spec = this.materials[name] || {}

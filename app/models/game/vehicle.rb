@@ -8,11 +8,12 @@ module Game
   # numbers can be detected rather than silently desyncing.
   class Vehicle
     attr_reader :key, :name, :action_label, :chassis, :engine, :steering, :slide, :slam, :turbo,
-                :turbo_bar, :flip_recovery, :air_control, :wheels, :parts, :camera, :audio
+                :turbo_bar, :flip_recovery, :air_control, :breakthrough, :wheels, :parts,
+                :camera, :audio
 
     def initialize(key:, name:, action_label:, chassis:, engine:, steering:, slide:, turbo:,
-                   turbo_bar:, flip_recovery:, air_control:, wheels:, parts:, camera:, audio:,
-                   slam: nil)
+                   turbo_bar:, flip_recovery:, air_control:, breakthrough:, wheels:, parts:,
+                   camera:, audio:, slam: nil)
       @key = key.to_sym
       @name = name
       @action_label = action_label
@@ -25,6 +26,7 @@ module Game
       @turbo_bar = turbo_bar
       @flip_recovery = flip_recovery
       @air_control = air_control
+      @breakthrough = breakthrough
       @wheels = wheels
       @parts = parts
       @camera = camera
@@ -53,6 +55,7 @@ module Game
         turbo_bar: turbo_bar,
         flip_recovery: flip_recovery,
         air_control: air_control,
+        breakthrough: breakthrough,
         wheels: wheels.map(&:to_spec),
         parts: parts.map(&:to_spec),
         camera: camera,

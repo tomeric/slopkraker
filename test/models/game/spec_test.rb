@@ -77,13 +77,31 @@ class Game::SpecTest < ActiveSupport::TestCase
     spec[:vehicles].each_value do |vehicle|
       assert_equal 4, vehicle[:wheels].length, "#{vehicle[:key]} wheels"
       assert_equal %i[chassis engine steering slide slam turbo turbo_bar flip_recovery
-                      air_control wheels parts camera audio key name action_label].sort,
+                      air_control breakthrough wheels parts camera audio key name
+                      action_label].sort,
                    vehicle.keys.sort
       vehicle[:wheels].each do |wheel|
         assert_operator wheel[:radius], :>, 0
         assert_includes wheel.keys, :suspension
       end
     end
+  end
+
+  # What a wall costs to go through. The numbers themselves are feel and will move; which
+  # car pays less is the design, and is what the truck being the one that ploughs through
+  # things actually consists of.
+  test "the truck goes through a wall more cheaply than the buggy" do
+    truck = spec[:vehicles][:monster_truck][:breakthrough]
+    buggy = spec[:vehicles][:buggy][:breakthrough]
+
+    [ truck, buggy ].each do |car|
+      assert_operator car[:cost], :>, 0, "a free breakthrough is a car that never slows down"
+      # At 1.0 a wall may take everything, which is the stop this exists to prevent.
+      assert_operator car[:max_loss], :<, 1.0, "a wall you got through has to leave you moving"
+    end
+
+    assert_operator truck[:cost], :<, buggy[:cost], "the truck is the one with the blade on it"
+    assert_operator truck[:max_loss], :<, buggy[:max_loss]
   end
 
   test "the monster truck carries a blade and jump jets" do

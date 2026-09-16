@@ -569,6 +569,47 @@ export class Vehicle {
     this.body.applyTorqueImpulse(this._torque, true)
   }
 
+  // Carry through a wall that was broken rather than being stopped by it.
+  //
+  // A building piece is a FIXED collider, and the step runs in the order world.step ->
+  // drain contacts -> apply damage -> disable collider. So the solver always resolves the
+  // car against a wall that is still immovable, and the hole only exists afterwards: by
+  // the time the wall is gone the momentum already is too, and a truck that demolishes a
+  // house reads as having bounced off it.
+  //
+  // `cost` is a speed, converted by the caller from the health that actually broke. What
+  // arrives here is the physics: re-aim along the heading the car had BEFORE the solver
+  // answered for an immovable wall, and give back what the wall did not take.
+  //
+  // The cap is not a safety rail, it is the point. A hit is generous -- it takes out a
+  // hole rather than a panel -- so what the wall was worth routinely exceeds any speed a
+  // car can arrive at, and the proportional term on its own can only ever zero it. The
+  // cap is what makes going through a wall leave you going somewhere.
+  //
+  // Two clauses keep it honest. It only ever restores -- if the solver left the car faster
+  // than this, that is the solver's business and nothing is written. And the vertical
+  // component is left exactly as the solver set it, so punching out through a wall does
+  // not also cancel the fall on the other side of it.
+  punchThrough(velocity, cost) {
+    const planar = Math.hypot(velocity.x, velocity.z)
+    if (planar < 1e-3) return
+
+    const spec = this.spec.breakthrough
+    const kept = planar - Math.min(cost * spec.cost, planar * spec.max_loss)
+    if (kept <= 0) return
+
+    const current = this.body.linvel(this._vec)
+    if (kept <= Math.hypot(current.x, current.z)) return
+
+    const scale = kept / planar
+    this.body.setLinvel({ x: velocity.x * scale, y: current.y, z: velocity.z * scale }, true)
+
+    // The drift carries its own speed between steps and writes it back over the body
+    // every frame, so without this the slide machinery would undo the punch-through on
+    // the very next step -- and going through a wall mid-drift is exactly when it matters.
+    if (this.drifting) this.driftSpeed = Math.max(this.driftSpeed, kept)
+  }
+
   // Everything a conditional part needs to decide whether its bonus applies. It lives on
   // the vehicle because the vehicle owns every field in it, and because the resolver, the
   // overlay and the bull bar's own collider all have to reach the same answer.

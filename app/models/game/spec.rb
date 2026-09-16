@@ -77,17 +77,33 @@ module Game
           # condemned, which reads as a building being deleted rather than falling down.
           # Now it gets a real body first, and throws those same shards when it lands.
           fall: {
-            # How many falling units may be in the air at once. A physics budget, and now
-            # a measured one rather than the guess it started as. Measured on this machine
-            # with a whole house airborne: creating all of it costs 5.3ms once, and
-            # world.step goes from 0.03ms to 0.5ms mean, 1.6ms worst -- about 6% of a 120Hz
-            # frame. The headless software renderer the suite runs on took it too. The old
-            # value of 140 was low by roughly ten times.
+            # TWO budgets, because they answer different questions, and a single number
+            # answering both is what let a street over-subscribe the air in silence.
             #
-            # Grouped into slabs a house is about 356 units, so this covers a full collapse
-            # with room for a second building beside it. What does not fit still falls back
-            # to shattering where it stood, spread evenly through the structure by stride.
-            max: 600,
+            # `per_building` is what ONE collapse may put up: the stride budget, the thing
+            # that decides how coarsely a house comes apart. `max` is the global ceiling on
+            # live bodies, which is a physics cost and nothing to do with any one building.
+            # While one house existed anywhere they were indistinguishable, so `capacity`
+            # returned the ceiling and every collapse read it as though the whole of it were
+            # free. Measured on the street: three houses condemned together promise 749
+            # slabs against a ceiling of 600, and the 149 that did not fit used to be taken
+            # out of the air -- from the house that was ALREADY FALLING, mid-descent,
+            # throwing its shards in the sky and reporting home that it had landed.
+            #
+            # The largest house on the street tiles to 397 slabs, so 450 lets any of them
+            # fall whole with room over.
+            per_building: 450,
+            # Measured on this machine, on the headless software renderer the suite runs
+            # on, sampling world.step against what was in the air at the time: about a
+            # thousand slabs costs 0.571ms mean / 1.1ms worst, which is 7% of a 120Hz
+            # frame and squares with the 6% the old value of 600 was measured at. Twelve
+            # hundred costs 1.2ms mean. Past that it stops being free -- the whole street
+            # airborne at 1700 was the first reading where the frame visibly gave way.
+            #
+            # So: three of the largest houses at once, or six ordinary ones, each falling
+            # in full. What does not fit still falls back to shattering where it stood,
+            # spread evenly through the structure by stride.
+            max: 1200,
             # How many cells a falling slab may span, as rows x cols of the surface grid.
             # This is the difference between a building coming apart and a cloud of
             # confetti: a metre cube tumbling reads as neither masonry nor debris, while a

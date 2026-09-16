@@ -253,24 +253,37 @@ export class Building {
   //
   // The spread does not spread again: passing 0 on the recursive call is what stops one
   // hit walking across the whole building.
+  //
+  // Returns the HEALTH this hit destroyed, summed over everything the spread and the
+  // block reached -- zero when nothing broke, so the three callers that only ask whether
+  // anything went still read it as a boolean. The number is what lets a car that breaks
+  // a wall carry on through the hole: the damage rule is linear in speed, so health
+  // inverts back to the speed it took to destroy, and the vehicle pays that rather than
+  // the solver's answer for an immovable wall.
   damage(index, raw, kind = "impact", spread = this.spread, away = null) {
+    let broke = 0
     if (spread > 0) {
-      for (const near of this.neighbours(index)) this.damage(near, raw * spread, kind, 0, away)
+      for (const near of this.neighbours(index)) broke += this.damage(near, raw * spread, kind, 0, away)
     }
 
     // The whole block takes the hit, not just the cell that was touched. That is what
     // makes a hole follow a shape instead of a square -- and since every cell of a block
     // is the same material with the same health, they come away together.
-    let broke = false
-    for (const cell of this.block(index)) broke = this.damageCell(cell, raw, kind, away) || broke
+    for (const cell of this.block(index)) broke += this.damageCell(cell, raw, kind, away)
     return broke
   }
 
+  // Returns what breaking this cell was worth: the health still standing in it, not the
+  // health it started with. A wall someone has already been grinding at is genuinely
+  // cheaper to get through, and overkill is not charged for -- you pay for what you had
+  // to overcome, which is the quantity the speed conversion is meaningful against.
   damageCell(index, raw, kind, away) {
-    if (!this.standing(index)) return false
+    if (!this.standing(index)) return 0
 
     const amount = absorb(raw, this.materialSpec(index), kind, this.rules)
-    if (amount <= 0) return false
+    if (amount <= 0) return 0
+
+    const standing = this.health[index]
 
     // Reported RAW, before this cell's material has taken its cut. The server runs the
     // same absorb from the same table; sending `amount` would apply the material twice.
@@ -281,11 +294,11 @@ export class Building {
     this.health[index] -= amount
     if (this.health[index] > 0) {
       this.meshes.tint(this.pool[index], this.slot[index], this.health[index] / this.maxHealth[index])
-      return false
+      return 0
     }
 
     this.breakCell(index, away)
-    return true
+    return standing
   }
 
   // Breaks the whole block, so the hooks and the server both address a piece the way a
@@ -354,11 +367,19 @@ export class Building {
 
     // Every nth slab rather than the first n, so what tumbles is spread evenly through the
     // structure instead of being whichever surface the generator emitted first while the
-    // rest puffs away. Since a house tiles to fewer slabs than the budget holds, the stride
-    // is normally one and all of it comes down -- the thinning is what keeps a cathedral
-    // from stalling the frame, not something a house should ever meet.
-    const budget = this.falling?.capacity ?? 0
+    // rest puffs away. Since a house tiles to fewer slabs than one building's allowance
+    // holds, the stride is normally one and all of it comes down -- the thinning is what
+    // keeps a cathedral from stalling the frame, and what keeps the last house on a street
+    // that is coming down all at once from being paid for by the first.
+    //
+    // Asked of the pool rather than read off the rules, because the answer depends on what
+    // is already in the air: this building's own allowance, clamped by what the world can
+    // still hold. Nought is a real answer -- everything is already falling -- and it means
+    // this house comes apart where it stands rather than taking slabs off a house that is
+    // still on its way down.
+    const budget = this.falling?.budgetForCollapse() ?? 0
     const stride = budget > 0 && slabs.length > budget ? Math.ceil(slabs.length / budget) : 1
+    const falling = budget > 0 ? slabs.length : 0
 
     // Which cells a slab has taken responsibility for. They still break individually, and
     // are still numbered and reported exactly as before -- they simply throw no shards of
@@ -366,7 +387,7 @@ export class Building {
     const carried = new Uint8Array(this.pieceCount)
     let dropped = 0
 
-    for (let n = 0; n < slabs.length; n += stride) {
+    for (let n = 0; n < falling; n += stride) {
       const slab = slabs[n]
       const matrix = chunkMatrix(
         slab.surface, slab.row, slab.col, slab.rows, slab.cols, SLAB_MATRIX, this.origin

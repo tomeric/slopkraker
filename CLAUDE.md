@@ -14,11 +14,20 @@ Two vehicles:
 - Fast Buggy with a Rocket Launcher, and a rear-mounted Bull Bar to destroy stuff while drifting.
 
 Currently:
-- Worlds are rows. Two are seeded, `flat` and `targets`; `/?world=<slug>` picks one.
+- Worlds are rows. Three are seeded — `flat`, `targets` and `street`; `/?world=<slug>` picks one.
 - Buildings generate from a ~300 byte recipe into surfaces, and come apart by the cell:
   glass shatters, timber splinters, brick spalls, and a storey that loses what holds it
   up brings down everything above it — as solid pieces that fall and land, rather than
   as a building that vanishes.
+- `street` is twelve of them, six a side down a road, varied by footprint, storeys, roof
+  and seed. It exists because every claim the building code makes about SCALE — one draw
+  call per material across all buildings, one shared spatial grid, one shared pool of
+  falling slabs, collapses that stay independent — was asserted for years against a world
+  containing exactly one house, where the shared thing and the per-building thing are the
+  same thing. Twelve houses is 6692 pieces in 103 KB of spec and **thirty-two draw calls,
+  fewer than the one-house world's thirty-four**. It is deliberately not a city: past
+  roughly a hundred buildings the inline spec and the up-front `InstancedMesh` allocation
+  both want streaming, which is its own design.
 
 ## Commands
 
@@ -38,7 +47,7 @@ bin/rails test test/system/driving_test.rb       # one system test file
 `bin/ci` deliberately leaves system tests out (they need Chrome and take minutes). Run them
 by hand after touching anything in `app/javascript/game/`.
 
-Useful URLs while the server is up: `/?world=<slug>` picks the world (`flat`, `targets`),
+Useful URLs while the server is up: `/?world=<slug>` picks the world (`flat`, `targets`, `street`),
 `/?vehicle=buggy` picks the vehicle, `/?quality=low` drops shadows and pixel ratio, `/?match=<name>`
 picks the ActionCable match. In-game: `G` toggles the debug overlay, `V` switches vehicle,
 `R` respawns, `H` hides the controls panel, `M` mutes.
@@ -141,11 +150,27 @@ with extra steps. 3×4 rectangles reach 356 units, and a wall is three rows tall
 storey-high wall section rather than a metre cube. Going coarser stops paying: 4×6 saves another
 49, because walls fragment around their windows whatever the cap.
 
-**The budget is measured, not guessed.** It was 140, which was low by roughly ten times. With a
-whole house airborne, creating all of it costs 5.3ms once and `world.step` goes from 0.03ms to
-0.5ms mean / 1.6ms worst — about 6% of a 120Hz frame — and the headless software renderer the suite
-runs on took it too. So `max` is 600 and a house tiles to ~315 slabs: all of it falls, and the
-stride that thins a collapse past the budget is a cathedral's problem, not a house's.
+**The budget is measured, not guessed, and it is TWO numbers.** `per_building` is what one
+collapse may put up — the stride budget, how coarsely one house comes apart. `max` is the global
+ceiling on live bodies, which is a physics cost and nothing to do with any one building. While one
+house existed anywhere the two were indistinguishable, and that is exactly how they came to be
+conflated: `capacity` returned the ceiling whole, so a second collapse read the whole budget as
+free while the first house's slabs were still in the air, dropped its full complement on top, and
+left the pool to make room by taking the OLDEST slabs back — out of the building that was still
+falling. They shattered in the sky and reported home that they had landed, which revealed that
+house's rubble early, under a house that had not finished coming down. Nothing downstream looks
+wrong when this happens, which is why it needed asserting rather than watching: measured on the
+street, seven houses condemned together promised 1325 slabs against a ceiling of 1200.
+
+So a collapse asks `budgetForCollapse()` — its own allowance, clamped by what is actually free —
+and `drop` returns false when the world is full rather than making room. Full means no, never
+"make room"; what does not fit breaks where it stands, which is what everything did before slabs
+existed. Measured on the headless software renderer the suite runs on, sampling `world.step`
+against what was in the air: about a thousand slabs costs 0.571ms mean / 1.1ms worst, ~7% of a
+120Hz frame, which squares with the 6% the old value of 600 was measured at; 1200 costs 1.2ms
+mean. So `max` is 1200 and `per_building` is 450 — three of the largest houses on the street at
+once, or six ordinary ones, each falling in full. The largest tiles to 397 slabs and the targets
+house to ~356, so the stride that thins a collapse is a cathedral's problem, not a house's.
 
 Two more things hold it up, both commented at their sites:
 
@@ -386,7 +411,8 @@ changed, or nothing at all, and let the person driving the game say whether it i
 the full run for when the change has settled. The same goes for re-running a whole suite to
 chase one failure: run that file.
 
-Every system test says which world it needs — `visit_world("flat")`, `visit_world("targets")`.
+Every system test says which world it needs — `visit_world("flat")`, `visit_world("targets")`,
+`visit_world("street")`.
 The worlds are defined once in `test/fixtures` and loaded from there by `db/seeds.rb`, so a test
 and the browser cannot disagree about what is standing where. The suite runs at `quality: "low"`,
 which drops shadows and pixel ratio; that is the tier the timing assertions are calibrated on.
@@ -420,6 +446,8 @@ The engine exposes debug/test hooks on `window`:
 | `__arenaRubble` | `{ dormant, standing, cleared }` heaps — an intact house has only the first |
 | `__arenaFalling` | How many falling slabs are in the air — zero at rest, which is what makes a fall assertable |
 | `__arenaFallingCells` | How many cells those slabs carry. Against `__arenaFalling` it says how much of the house left the ground, and how coarsely |
+| `__arenaSlabsDropped` | `(buildingId)` — how many slabs THAT building put up, as against how many are up altogether. The two are the same number while one house exists, which is how the shared budget was over-subscribed in silence |
+| `__arenaBuildingStanding` | `(buildingId)` — one building's standing pieces. Moves both ways: a piece breaking takes it down, a heap of rubble being revealed puts it up, so "exactly unchanged" is what proves a neighbour was untouched |
 | `__arenaDraws` | `renderer.info.render.calls` — turns "did the render plan regress" into an assertion |
 | `__arenaQuality` | Which tier the engine actually settled on |
 | `__arenaDebugVisible`, `__arenaMasterGain` | Overlay / audio assertions |

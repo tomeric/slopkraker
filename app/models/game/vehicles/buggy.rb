@@ -129,6 +129,14 @@ module Game
             max_angular_speed: 4.5,
             damping: 0.9
           },
+          # See MonsterTruck#build for what these two mean. Both harsher here, and that is
+          # the difference between the cars rather than a penalty on this one: the buggy
+          # goes through glass and a partition without noticing and is very nearly stopped
+          # by brick, where the truck shrugs the brick off. It has a rocket for the brick.
+          breakthrough: {
+            cost: 0.45,
+            max_loss: 0.8
+          },
           wheels: wheels,
           parts: [
             Parts::RocketLauncher.new(

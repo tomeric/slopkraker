@@ -56,6 +56,10 @@ export class GameEngine {
     this.pendingImpacts = []
     this.fallSpeed = 0
     this.impactSpeed = 0
+    // The direction that speed was in, kept alongside it and reused every step rather
+    // than reallocated at 120Hz. This is what a car aims back down after going through
+    // something, so the two are captured together and can never disagree.
+    this.impactVelocity = { x: 0, y: 0, z: 0 }
     this.muted = false
     this.telemetry = new Telemetry()
     // The engine writes the counters it owns straight onto the readout.
@@ -215,6 +219,15 @@ export class GameEngine {
     window.__arenaReported = () => this.reporter?.sent ?? 0
     window.__arenaBuildingIds = () => this.buildings?.list.map((b) => b.id) ?? []
     window.__arenaBuildingSpec = (id) => this.buildings?.find(id)?.spec ?? null
+    // How many slabs THIS building put in the air on its own behalf, as against how many
+    // are up there altogether. The two are the same number while one house exists, which
+    // is exactly why the falling budget could be over-subscribed across a street without
+    // anything looking wrong: a building that is told it may drop six hundred slabs will
+    // report having dropped six hundred whether or not the world could still hold them.
+    window.__arenaSlabsDropped = (id) => this.buildings?.find(id)?.expectedSlabs ?? 0
+    // Per building, so "collapsing one house left its neighbour untouched" is one read
+    // rather than a thousand round trips through __arenaPieceState.
+    window.__arenaBuildingStanding = (id) => this.buildings?.find(id)?.standingCount ?? 0
     window.__arenaQuality = this.qualityName
 
     this.running = true
@@ -499,6 +512,9 @@ export class GameEngine {
     // This is also the speed the debug overlay predicts from, so the two agree.
     const preStep = this.vehicle.body.linvel()
     this.impactSpeed = Math.hypot(preStep.x, preStep.y, preStep.z)
+    this.impactVelocity.x = preStep.x
+    this.impactVelocity.y = preStep.y
+    this.impactVelocity.z = preStep.z
 
     this.world.step(this.eventQueue)
     this.stats.steps += 1
@@ -587,9 +603,15 @@ export class GameEngine {
       }
     })
 
+    // Summed over the whole batch, then paid once. A car reaches several piece colliders
+    // in the same step, and each of those breaks has to cost it something: paying per
+    // impact would let the last one overwrite the others and make a wall three panels
+    // wide as cheap as one.
+    let brokenHealth = 0
+
     for (const impact of pending) {
       if (impact.piece) {
-        this.damagePiece(impact)
+        brokenHealth += this.damagePiece(impact)
         continue
       }
 
@@ -607,10 +629,22 @@ export class GameEngine {
       this.hitMarkers.add(where, impact.damage, impact.label)
     }
     pending.length = 0
+
+    // What the wall was worth, as a speed. Damage is linear in speed by the same rule --
+    // (speed - minimum_speed) * damage_per_speed -- so the health just destroyed inverts
+    // back to the speed it took to destroy it, and the car pays that instead of paying
+    // the solver's answer for a wall that was immovable at the time it was asked.
+    if (brokenHealth > 0 && rules.damage_per_speed > 0) {
+      this.vehicle.punchThrough(this.impactVelocity, brokenHealth / rules.damage_per_speed)
+    }
   }
 
   // A piece is a fixed collider that is never freed, so unlike a prop there is nothing to
   // read before the damage lands and nothing to be careful about afterwards.
+  //
+  // Returns the health it destroyed, which the caller converts into the speed it cost.
+  // Only pieces: a prop is a dynamic body, so the solver has already charged the car a
+  // real price for shoving it and there is nothing to give back.
   damagePiece({ piece, damage, kind, key, label }) {
     const { building, piece: index } = piece
     const at = building.colliders[index].translation()
@@ -620,11 +654,12 @@ export class GameEngine {
     const from = this.vehicle.body.translation()
     const away = SCRATCH_AWAY.set(at.x - from.x, 0, at.z - from.z).normalize()
 
-    building.damage(index, damage, kind, building.spread, away)
+    const broken = building.damage(index, damage, kind, building.spread, away)
     this.stats.lastDamage = Math.round(damage)
     this.audio?.impact(Math.min(damage / 120, 1))
     this.damageGizmos?.registerHit(key, damage)
     this.hitMarkers.add(new THREE.Vector3(at.x, at.y + 1.0, at.z), damage, label)
+    return broken
   }
 
   // Everything a conditional part needs to decide whether its bonus applies. The vehicle

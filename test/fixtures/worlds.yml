@@ -31,3 +31,23 @@ targets:
     - position: [ 0.0, 2.0, 0.0 ]
       yaw: 0.0
   content_digest: targetworld1
+
+# A row of houses down both sides of a road. Everything the architecture claims about
+# MULTIPLE buildings -- one draw call per material across all of them, one shared spatial
+# grid, one shared pool of falling slabs, collapses that stay independent -- was until now
+# asserted against a world containing exactly one house, which is to say asserted against
+# nothing.
+#
+# Twelve, not a city. Past roughly a hundred buildings the inline spec and the up-front
+# InstancedMesh allocation both want streaming, which is its own design; twelve is the step
+# that de-risks it and still fits in 103 KB of spec.
+street:
+  slug: street
+  name: Street
+  bounds: [ -200, -200, 200, 200 ]
+  # On the road at the near end, facing up it, so the houses are on both sides from the
+  # first frame and a test that wants to drive at one does not have to turn first.
+  spawns:
+    - position: [ 0.0, 2.0, -12.0 ]
+      yaw: 0.0
+  content_digest: streetworld1

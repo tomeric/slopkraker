@@ -152,6 +152,31 @@ module Game
             ramp: 72_000.0,
             max_thrust: 130_000.0
           },
+          # What going through a wall costs you. A wall that stops you dead reads as a wall
+          # you bounced off, however much of it is lying on the floor afterwards.
+          #
+          # `cost` is a multiple of the speed the wall was worth, and its worth is not a
+          # new number: damage is (speed - minimum_speed) * damage_per_speed, so the health
+          # just destroyed inverts to the speed it took to destroy it. It is well under one
+          # because a hit is generous on purpose -- the blade is 2.6m wide and reaches six
+          # piece colliders at once, so one good impact on this house takes out eighteen
+          # cells and seventy-five health. That is 37 m/s of worth against a truck that
+          # tops out at 28, which is why paying the wall in full can only ever stop it.
+          # What this multiplies is therefore how much of a HOLE you made, and it is what
+          # keeps a pane of glass cheaper than a brick wall.
+          #
+          # `max_loss` is the part you can read off the screen: whatever the arithmetic
+          # says, a wall you got through may not take more than this share of the speed you
+          # arrived with. It is what makes "keeps some momentum" true rather than likely,
+          # and it is the clause that bites when you arrive slowly -- exactly when the
+          # proportional term would otherwise leave you stationary in your own hole.
+          #
+          # Neither applies to a wall that is still standing. Fail to break the concrete
+          # and it stops you, as it should.
+          breakthrough: {
+            cost: 0.15,
+            max_loss: 0.55
+          },
           wheels: wheels,
           parts: [
             Parts::BulldozerBlade.new(

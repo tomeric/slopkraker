@@ -121,3 +121,104 @@ targets_house:
     roof: gable
     cell: 1.0
     seed: 7
+
+# --- street: a road, and six houses down each side of it ---------------------------
+
+street_ground:
+  world: street
+  kind: static
+  name: ground
+  cx: 0
+  cz: 0
+  x: 0.0
+  y: -0.5
+  z: 0.0
+  yaw: 0.0
+  radius: 0.0
+  recipe:
+    kind: ground
+    size: [ 400.0, 1.0, 400.0 ]
+    colour: "#4a5159"
+    friction: 1.1
+
+# Asphalt, and a centimetre proud of the ground rather than flush with it. Two coplanar
+# surfaces z-fight; a centimetre is below anything the suspension can feel and above
+# anything the depth buffer argues about.
+street_road:
+  world: street
+  kind: static
+  name: road
+  cx: 0
+  cz: 0
+  x: 0.0
+  y: -0.09
+  z: 45.0
+  yaw: 0.0
+  radius: 0.0
+  recipe:
+    kind: road
+    size: [ 12.0, 0.2, 150.0 ]
+    colour: "#2e3236"
+    friction: 1.1
+
+# The houses. A building ignores `yaw` on the client -- only its origin is read -- so a
+# house is aimed by where its footprint is written, never by rotating it. Every footprint
+# therefore runs the same way round in positive local coordinates and the origin does the
+# placing: the east side starts at x = 10 and grows away from the road, the west side is
+# placed back by its own depth so that it ENDS at x = -10. Both sides leave a four metre
+# garden off a six metre half-road.
+#
+# `piece_count` is written down rather than derived, and deliberately so: it is what the
+# server bounds-checks a reported index against without generating the building, so a copy
+# that cannot drift from the generator would not be testing anything. world_summary_test
+# checks every one of these against what the generator actually produces.
+<%
+  street_houses = [
+    # name,           side,  depth, frontage, storeys, roof,    cell, seed, pieces
+    [ "house_east_1", :east,     9,       11,       2, "gable", 1.0,    11,   696 ],
+    [ "house_east_2", :east,    11,       13,       3, "gable", 1.5,    12,   565 ],
+    [ "house_east_3", :east,     8,       10,       2, "flat",  1.5,    13,   241 ],
+    [ "house_east_4", :east,    12,       14,       4, "flat",  1.5,    14,   738 ],
+    [ "house_east_5", :east,    10,       12,       3, "gable", 1.5,    15,   520 ],
+    [ "house_east_6", :east,     9,       10,       2, "gable", 1.5,    16,   317 ],
+    [ "house_west_1", :west,    10,       12,       3, "flat",  1.5,    21,   476 ],
+    [ "house_west_2", :west,     9,       11,       2, "gable", 1.5,    22,   330 ],
+    [ "house_west_3", :west,    12,       13,       4, "gable", 1.0,    23,  1678 ],
+    [ "house_west_4", :west,     8,       10,       2, "flat",  1.5,    24,   241 ],
+    [ "house_west_5", :west,    11,       14,       3, "gable", 1.5,    25,   573 ],
+    [ "house_west_6", :west,    10,       11,       2, "flat",  1.5,    26,   317 ]
+  ]
+%>
+<% street_houses.each_with_index do |(name, side, depth, frontage, storeys, roof, cell, seed, pieces), index| %>
+<%
+  eaves = storeys * 3.0
+  # A flat roof sits AT the eaves. The recipe rejects a ridge below them, not one level
+  # with them, which is what makes "flat" a height rather than a special case.
+  ridge = roof == "gable" ? eaves + 2.75 : eaves
+  x = side == :east ? 10.0 : -(10.0 + depth)
+  z = 8.0 + (index % 6) * 17.0
+%>
+street_<%= name %>:
+  world: street
+  kind: building
+  name: <%= name %>
+  cx: <%= (x / 125).floor %>
+  cz: 0
+  x: <%= x %>
+  y: 0.0
+  z: <%= z %>
+  yaw: 0.0
+  radius: <%= [ depth, frontage ].max %>
+  piece_count: <%= pieces %>
+  storey_count: <%= storeys %>
+  recipe:
+    kind: building
+    footprint: [ [ 0, 0 ], [ <%= depth %>, 0 ], [ <%= depth %>, <%= frontage %> ], [ 0, <%= frontage %> ] ]
+    storeys: <%= storeys %>
+    storey_height: 3.0
+    eaves: <%= eaves %>
+    ridge: <%= ridge %>
+    roof: <%= roof %>
+    cell: <%= cell %>
+    seed: <%= seed %>
+<% end %>
