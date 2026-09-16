@@ -15,15 +15,18 @@ import * as THREE from "three"
 // Purely local. Nothing about a remnant crosses the wire: the heap it came from is what
 // is shared, and by the time one of these exists that heap is already gone everywhere.
 export class Remnants {
-  constructor({ scene, materials, rules = {}, cap = 96 }) {
+  constructor({ scene, materials, rules = {}, sweep = {}, cap = 96 }) {
     this.scene = scene
     this.materials = materials
     this.settleTime = rules.settle ?? 0.35
     this.lingerTime = rules.linger ?? 2.0
     this.fadeTime = rules.fade ?? 1.5
+    // How a car or a blast kicks one: the same numbers the shards use.
+    this.sweep = sweep
     this.cap = cap
     this.live = []
     this.pool = []
+    this.kicked = 0
     this.templates = new Map()
   }
 
@@ -57,6 +60,8 @@ export class Remnants {
     mesh.visible = true
 
     entry.age = 0
+    entry.kicked = false
+    entry.kickedAge = 0
     entry.from = mesh.position.y
     entry.opacity = template.opacity
     // Where it comes to rest once the lump under it has gone: on the ground, a little into
@@ -76,7 +81,63 @@ export class Remnants {
     mesh.castShadow = true
     mesh.receiveShadow = false
     this.scene.add(mesh)
-    return { mesh, age: 0, from: 0, rest: 0, depth: 0, opacity: 1 }
+    return {
+      mesh, age: 0, from: 0, rest: 0, depth: 0, opacity: 1,
+      kicked: false, kickedAge: 0, velocity: new THREE.Vector3(), spin: new THREE.Vector3()
+    }
+  }
+
+  // A car has reached these: everything inside its box and margin is kicked away from it.
+  // Same shape as Debris#sweepVehicle, for the same reason -- a remnant has no body either.
+  sweepVehicle(frame) {
+    const grace = this.sweep.grace ?? 0.5
+    for (const entry of this.live) {
+      // Left alone while fresh, or the truck that cleared the heap would sweep the very
+      // chunks that are meant to lie there a moment as it drove on over them.
+      if (entry.kicked || entry.age < grace) continue
+
+      LOCAL.copy(entry.mesh.position).sub(frame.position)
+      if (LOCAL.y > frame.top) continue
+      LOCAL.applyQuaternion(frame.inverse)
+      if (Math.abs(LOCAL.x) > frame.halfX || Math.abs(LOCAL.z) > frame.halfZ) continue
+
+      AWAY.set(entry.mesh.position.x - frame.position.x, 0, entry.mesh.position.z - frame.position.z)
+      if (AWAY.lengthSq() < 1e-4) AWAY.copy(frame.forward)
+      else AWAY.normalize()
+
+      entry.velocity
+        .copy(AWAY).multiplyScalar(this.sweep.kick_speed ?? 5)
+        .addScaledVector(frame.velocity, this.sweep.kick_carry ?? 0.6)
+      entry.velocity.y = Math.max(entry.velocity.y, 0) + (this.sweep.kick_lift ?? 3)
+      this.kick(entry)
+    }
+  }
+
+  // A blast has reached these: thrown outward, harder the nearer the centre.
+  sweepBlast(at, inner, outer) {
+    const grace = this.sweep.grace ?? 0.5
+    for (const entry of this.live) {
+      if (entry.kicked || entry.age < grace) continue
+
+      AWAY.copy(entry.mesh.position).sub(at)
+      const distance = AWAY.length()
+      if (distance > outer || distance < inner) continue
+
+      const force = 0.4 + 0.6 * (1 - distance / outer)
+      if (distance > 1e-4) AWAY.multiplyScalar(1 / distance)
+      else AWAY.set(0, 1, 0)
+
+      entry.velocity.copy(AWAY).multiplyScalar((this.sweep.blast_speed ?? 12) * force)
+      entry.velocity.y += (this.sweep.blast_lift ?? 5) * force
+      this.kick(entry)
+    }
+  }
+
+  kick(entry) {
+    entry.kicked = true
+    entry.kickedAge = 0
+    entry.spin.set(rand(SPIN), rand(SPIN), rand(SPIN))
+    this.kicked += 1
   }
 
   // Settle, linger, then fade while sinking. The sink is deliberately not a scale fade:
@@ -87,6 +148,29 @@ export class Remnants {
       const entry = this.live[i]
       const mesh = entry.mesh
       entry.age += dt
+
+      // Kicked: it flies, tumbles and fades out over `kicked_life`, whatever stage of
+      // settling or lingering it was at.
+      if (entry.kicked) {
+        entry.kickedAge += dt
+        const life = this.sweep.kicked_life ?? 0.6
+        if (entry.kickedAge >= life) {
+          this.retire(entry, i)
+          continue
+        }
+
+        entry.velocity.y += GRAVITY * dt
+        mesh.position.addScaledVector(entry.velocity, dt)
+        if (mesh.position.y < entry.rest) {
+          mesh.position.y = entry.rest
+          entry.velocity.y = 0
+        }
+        SPIN_STEP.set(entry.spin.x * dt, entry.spin.y * dt, entry.spin.z * dt)
+        TUMBLE.setFromEuler(EULER.setFromVector3(SPIN_STEP))
+        mesh.quaternion.multiply(TUMBLE)
+        mesh.material.opacity = entry.opacity * (1 - entry.kickedAge / life)
+        continue
+      }
 
       if (entry.age < this.settleTime) {
         const t = ease(entry.age / this.settleTime)
@@ -122,6 +206,12 @@ export class Remnants {
     return this.live.length
   }
 
+  get kickedLive() {
+    let count = 0
+    for (const entry of this.live) if (entry.kicked) count += 1
+    return count
+  }
+
   dispose() {
     for (const entry of [ ...this.live, ...this.pool ]) {
       entry.mesh.removeFromParent()
@@ -138,4 +228,17 @@ function ease(t) {
   return 1 - (1 - t) * (1 - t)
 }
 
+function rand(scale) {
+  return (Math.random() - 0.5) * 2 * scale
+}
+
+// Same as the shards': a kicked remnant is a shard for the rest of its short life.
+const GRAVITY = -22.0
+const SPIN = 7.0
+
 const PLACEHOLDER = new THREE.BoxGeometry(1, 1, 1)
+const LOCAL = new THREE.Vector3()
+const AWAY = new THREE.Vector3()
+const SPIN_STEP = new THREE.Vector3()
+const EULER = new THREE.Euler()
+const TUMBLE = new THREE.Quaternion()

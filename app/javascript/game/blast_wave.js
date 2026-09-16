@@ -15,12 +15,15 @@ const SWEEP_GROWTH = 0.08
 // Lives beside destruction.js rather than inside it until that file splits, at which
 // point both move into destruction/.
 export class BlastWave {
-  constructor({ props, destruction, projectiles, grid, rules }) {
+  constructor({ props, destruction, projectiles, grid, rules, sweepDebris = null }) {
     this.props = props
     this.destruction = destruction
     this.projectiles = projectiles
     this.grid = grid
     this.rules = rules
+    // The small stuff -- shards, the chunks a cleared heap left -- has no bodies and is not
+    // in the grid, so the blast reaches it through this rather than through the sweep.
+    this.sweepDebris = sweepDebris
     this.positionOf = (prop) => prop.entry?.currPos
   }
 
@@ -42,6 +45,7 @@ export class BlastWave {
     // readback, so this never crosses into wasm.
     this.grid.refreshDynamic(this.positionOf)
     this.sweepProps(spec, at, damage, hit, radius, sweptTo)
+    this.sweepDebris?.(at, sweptTo, radius)
     explosion.sweptRadius = radius
   }
 

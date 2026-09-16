@@ -29,6 +29,12 @@ import { RemoteVehicle } from "game/net/remote_vehicle"
 
 const MAX_FRAME_TIME = 0.25
 const SCRATCH_AWAY = new THREE.Vector3()
+// One car's box, for sweeping debris. Reused every step for every car rather than
+// allocated at 120Hz.
+const SWEEP = {
+  position: new THREE.Vector3(), rotation: new THREE.Quaternion(), inverse: new THREE.Quaternion(),
+  forward: new THREE.Vector3(), velocity: new THREE.Vector3(), halfX: 0, halfZ: 0, top: 0
+}
 
 // Fixed-step simulation with render interpolation. Physics runs at the rate Ruby
 // specifies regardless of display refresh; meshes are interpolated between the last two
@@ -150,7 +156,8 @@ export class GameEngine {
       destruction: this.destruction,
       projectiles: this.projectiles,
       grid: this.propGrid,
-      rules: this.spec.rules.damage
+      rules: this.spec.rules.damage,
+      sweepDebris: (at, inner, outer) => this.buildings?.blastDebris(at, inner, outer)
     })
 
     this.hud = new Hud(this.root)
@@ -223,6 +230,11 @@ export class GameEngine {
     // Chunks left lying by cleared heaps. Positive the moment a heap clears, zero once
     // they have faded -- which is the whole of what clearing a heap is meant to look like.
     window.__arenaRemnants = () => this.buildings?.remnantCount ?? 0
+    // Small debris kicked out of a car's or a blast's way, cumulatively, and how much of it
+    // is still visible. The first says the sweep reached something; the second, once it
+    // reads zero again, says kicked debris goes away.
+    window.__arenaDebrisKicked = () => this.buildings?.debrisKicked ?? 0
+    window.__arenaDebrisKickedLive = () => this.buildings?.debrisKickedLive ?? 0
     window.__arenaRemotes = () => this.remotes?.size ?? 0
     window.__arenaReported = () => this.reporter?.sent ?? 0
     window.__arenaBuildingIds = () => this.buildings?.list.map((b) => b.id) ?? []
@@ -531,6 +543,7 @@ export class GameEngine {
     this.explosions.update(dt)
     this.destruction.update(dt)
     this.buildings.update(dt)
+    this.sweepDebris()
     this.reporter.update(dt)
     this.sendSnapshot(dt)
     this.updateRemotes()
@@ -645,6 +658,38 @@ export class GameEngine {
     if (brokenHealth > 0 && rules.damage_per_speed > 0) {
       this.vehicle.punchThrough(this.impactVelocity, brokenHealth / rules.damage_per_speed)
     }
+  }
+
+  // The small stuff -- shards, the chunks a cleared heap left -- has no bodies, so a car
+  // reaching it is not a collision. It is swept by hand instead, once per car per step,
+  // against the car's own box plus a margin: ours, and every other player's car we are
+  // showing, because a remote car ploughing through debris on this screen has to clear it
+  // on this screen.
+  sweepDebris() {
+    const rules = this.spec.rules.debris
+    if (!rules || !this.buildings || !this.vehicle) return
+
+    this.sweepDebrisUnder(this.vehicle.body, this.vehicle.spec, rules)
+    for (const remote of this.remotes.values()) this.sweepDebrisUnder(remote.body, remote.spec, rules)
+  }
+
+  sweepDebrisUnder(body, spec, rules) {
+    const t = body.translation()
+    const r = body.rotation()
+    const v = body.linvel()
+    const [ width, height, depth ] = spec.chassis.size
+
+    SWEEP.position.set(t.x, t.y, t.z)
+    SWEEP.rotation.set(r.x, r.y, r.z, r.w)
+    SWEEP.inverse.copy(SWEEP.rotation).invert()
+    SWEEP.forward.set(0, 0, 1).applyQuaternion(SWEEP.rotation)
+    SWEEP.velocity.set(v.x, v.y, v.z)
+    SWEEP.halfX = width / 2 + rules.reach
+    SWEEP.halfZ = depth / 2 + rules.reach
+    // Anything below the roofline, measured from the car's centre; the box extends down
+    // through the ride height to the ground, which is where debris lies.
+    SWEEP.top = height / 2 + rules.reach
+    this.buildings.sweepVehicle(SWEEP)
   }
 
   // A piece is a fixed collider that is never freed, so unlike a prop there is nothing to

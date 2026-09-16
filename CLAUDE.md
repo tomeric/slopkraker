@@ -283,6 +283,15 @@ positions derive from the recipe seed, clearing goes through `damage`/`breaks` a
   material each, because fading is a per-piece opacity — which **settle** onto the ground,
   **linger**, then **fade while sinking**; `shards` more are thrown through `Debris` in their
   own materials. Remnants are local and capped; a silent restore leaves none.
+- **The small stuff is swept by hand, because it has no bodies.** Shards and remnants are
+  never in Rapier, so a car reaching them is not a collision: once per car per step the
+  engine builds the car's box plus `rules.debris.reach` (ours and every remote's) and
+  `Buildings#sweepVehicle` kicks whatever is inside it away from the car, carried with it
+  and lifted, with `kicked_life` left; `BlastWave` does the same to the band its shell
+  just grew through. Fresh debris is left alone for `grace`: the shards a blast throws are
+  born inside its own shell, and the remnants a ploughing truck leaves are born inside its
+  box, and both used to be swept by the thing that made them. `__arenaDebrisKicked` counts
+  kicks; `__arenaDebrisKickedLive` reads zero once the kicked debris is gone.
 - **Heaps are revealed outward from the middle**, and the ORDER is shared with the server
   rather than merely the count. `Building::Rubble.pile_indices` and `pileOrder` must return
   the same sequence, because the server gates damage on the revealed prefix. Both sort by a
@@ -467,6 +476,7 @@ The engine exposes debug/test hooks on `window`:
 | `__arenaRubble` | `{ dormant, standing, cleared }` heaps — an intact house has only the first |
 | `__arenaHeapFragments` | `(piece, buildingId)` — the materials of one heap's chunks, one entry per chunk. "The wreckage is made of what the house was made of" is an assertion about this |
 | `__arenaRemnants` | Chunks left lying by cleared heaps and still visible — positive the moment a heap clears, zero once they have faded |
+| `__arenaDebrisKicked`, `__arenaDebrisKickedLive` | Shards and remnants kicked out of a car's or a blast's way, cumulatively, and how many of those are still visible |
 | `__arenaFalling` | How many falling slabs are in the air — zero at rest, which is what makes a fall assertable |
 | `__arenaFallingCells` | How many cells those slabs carry. Against `__arenaFalling` it says how much of the house left the ground, and how coarsely |
 | `__arenaSlabsDropped` | `(buildingId)` — how many slabs THAT building put up, as against how many are up altogether. The two are the same number while one house exists, which is how the shared budget was over-subscribed in silence |

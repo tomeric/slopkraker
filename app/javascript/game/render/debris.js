@@ -16,13 +16,16 @@ const FRICTION = 0.72
 const SPIN = 7.0
 
 export class Debris {
-  constructor({ scene, materials, patterns, cap = 260 }) {
+  constructor({ scene, materials, patterns, cap = 260, rules = {} }) {
     this.scene = scene
     this.materials = materials
     this.patterns = patterns
     this.cap = cap
+    this.rules = rules
     this.live = []
     this.spawned = 0
+    // How many have been kicked out of something's way, cumulatively. A test's number.
+    this.kicked = 0
     this.pool = []
     this.meshMaterials = new Map()
   }
@@ -82,6 +85,8 @@ export class Debris {
       piece.spin.set(rand(SPIN), rand(SPIN), rand(SPIN))
       piece.life = lifetime
       piece.maxLife = lifetime
+      piece.age = 0
+      piece.kicked = false
       piece.mesh.visible = true
 
       this.live.push(piece)
@@ -98,24 +103,100 @@ export class Debris {
     mesh.castShadow = false
     mesh.receiveShadow = false
     this.scene.add(mesh)
-    return { mesh, velocity: new THREE.Vector3(), spin: new THREE.Vector3(), life: 0, maxLife: 1 }
+    return { mesh, velocity: new THREE.Vector3(), spin: new THREE.Vector3(), life: 0, maxLife: 1, age: 0, kicked: false }
+  }
+
+  // A car has reached these. Everything inside the car's box -- and a margin round it, so
+  // the wheels and the wake count -- is kicked away from the car, carried a little with
+  // it, and has `kicked_life` left. `frame` is the car's transform and box, worked out once
+  // per car per step by the engine. Nothing here is a collision: shards have no bodies.
+  sweepVehicle(frame) {
+    const grace = this.rules.grace ?? 0.5
+    for (const piece of this.live) {
+      // Left alone while fresh: a car that breaks a wall is standing in the shards it
+      // threw, and they should get to fly before anything kicks them.
+      if (piece.kicked || piece.age < grace) continue
+
+      LOCAL.copy(piece.mesh.position).sub(frame.position)
+      if (LOCAL.y > frame.top) continue
+      LOCAL.applyQuaternion(frame.inverse)
+      if (Math.abs(LOCAL.x) > frame.halfX || Math.abs(LOCAL.z) > frame.halfZ) continue
+
+      AWAY.set(piece.mesh.position.x - frame.position.x, 0, piece.mesh.position.z - frame.position.z)
+      if (AWAY.lengthSq() < 1e-4) AWAY.copy(frame.forward)
+      else AWAY.normalize()
+
+      piece.velocity
+        .copy(AWAY).multiplyScalar(this.rules.kick_speed ?? 5)
+        .addScaledVector(frame.velocity, this.rules.kick_carry ?? 0.6)
+      piece.velocity.y = Math.max(piece.velocity.y, 0) + (this.rules.kick_lift ?? 3)
+      piece.spin.set(rand(SPIN), rand(SPIN), rand(SPIN))
+      this.finish(piece)
+    }
+  }
+
+  // A blast has reached these: everything between the radius it had last time and the
+  // radius it has now is thrown outward, harder the nearer the centre it sat.
+  sweepBlast(at, inner, outer) {
+    const grace = this.rules.grace ?? 0.5
+    for (const piece of this.live) {
+      // The shards this very blast threw are born inside its shell and already flying
+      // outward with it; sweeping them too would erase what the blast left behind.
+      if (piece.kicked || piece.age < grace) continue
+
+      AWAY.copy(piece.mesh.position).sub(at)
+      const distance = AWAY.length()
+      if (distance > outer || distance < inner) continue
+
+      const force = 0.4 + 0.6 * (1 - distance / outer)
+      if (distance > 1e-4) AWAY.multiplyScalar(1 / distance)
+      else AWAY.set(0, 1, 0)
+
+      piece.velocity.copy(AWAY).multiplyScalar((this.rules.blast_speed ?? 12) * force)
+      piece.velocity.y += (this.rules.blast_lift ?? 5) * force
+      piece.spin.set(rand(SPIN), rand(SPIN), rand(SPIN))
+      this.finish(piece)
+    }
+  }
+
+  // On its way out: whatever life it had, it has `kicked_life` now.
+  finish(piece) {
+    piece.kicked = true
+    piece.life = Math.min(piece.life, this.rules.kicked_life ?? 0.6)
+    this.kicked += 1
   }
 
   update(dt) {
     for (let i = this.live.length - 1; i >= 0; i -= 1) {
       const piece = this.live[i]
       piece.life -= dt
+      piece.age += dt
       if (piece.life <= 0) {
         this.retire(piece, i)
+        continue
+      }
+
+      // The ground is flat at y = 0 for every world that exists so far. When terrain
+      // arrives this samples the heightfield instead.
+      const rest = piece.mesh.scale.length() * 0.25
+      const remaining = Math.min(piece.life, 1)
+
+      // Its last second, once it is down: sink into the ground rather than blinking out.
+      // Deliberately not a scale fade: the fragment's scale is what gives it its shape, and
+      // shrinking it uniformly would flatten a shard back into a cube on its way out.
+      //
+      // Only once it has landed and stopped rising -- a shard still in the air in its last
+      // second keeps falling, and one just kicked has to get to fly -- and with the landing
+      // clamp below kept out of the way, because clamping it back onto the ground every
+      // frame after nudging it under is what quietly kept these from ever sinking at all.
+      if (remaining < 1 && piece.mesh.position.y <= rest + 0.01 && piece.velocity.y <= 0) {
+        piece.mesh.position.y = rest - (1 - remaining) * piece.mesh.scale.length() * 0.6
         continue
       }
 
       piece.velocity.y += GRAVITY * dt
       piece.mesh.position.addScaledVector(piece.velocity, dt)
 
-      // The ground is flat at y = 0 for every world that exists so far. When terrain
-      // arrives this samples the heightfield instead.
-      const rest = piece.mesh.scale.length() * 0.25
       if (piece.mesh.position.y < rest) {
         piece.mesh.position.y = rest
         piece.velocity.y = Math.abs(piece.velocity.y) * BOUNCE
@@ -127,12 +208,6 @@ export class Debris {
       SPIN_STEP.set(piece.spin.x * dt, piece.spin.y * dt, piece.spin.z * dt)
       TUMBLE.setFromEuler(EULER.setFromVector3(SPIN_STEP))
       piece.mesh.quaternion.multiply(TUMBLE)
-
-      // Sink into the ground over the last second rather than blinking out. Deliberately
-      // not a scale fade: the fragment's scale is what gives it its shape, and shrinking
-      // it uniformly would flatten a shard back into a cube on its way out.
-      const remaining = Math.min(piece.life, 1)
-      if (remaining < 1) piece.mesh.position.y -= (1 - remaining) * dt * 1.5
     }
   }
 
@@ -152,6 +227,13 @@ export class Debris {
     return this.live.length
   }
 
+  // Kicked and still visible: on their way out but not yet gone.
+  get kickedLive() {
+    let count = 0
+    for (const piece of this.live) if (piece.kicked) count += 1
+    return count
+  }
+
   dispose() {
     for (const piece of [ ...this.live, ...this.pool ]) piece.mesh.removeFromParent()
     for (const material of this.meshMaterials.values()) material.dispose()
@@ -169,6 +251,8 @@ const POSITION = new THREE.Vector3()
 const ROTATION = new THREE.Quaternion()
 const SCALE = new THREE.Vector3()
 const OFFSET = new THREE.Vector3()
+const LOCAL = new THREE.Vector3()
+const AWAY = new THREE.Vector3()
 const SPIN_STEP = new THREE.Vector3()
 const EULER = new THREE.Euler()
 const TUMBLE = new THREE.Quaternion()

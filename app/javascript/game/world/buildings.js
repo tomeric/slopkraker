@@ -21,7 +21,8 @@ export class Buildings {
     const specs = spec.arena.buildings || []
     this.meshes = new PieceMeshes(scene, materials)
     this.patterns = new Patterns(materials)
-    this.debris = new Debris({ scene, materials, patterns: this.patterns })
+    const debrisRules = spec.rules.debris || {}
+    this.debris = new Debris({ scene, materials, patterns: this.patterns, rules: debrisRules })
     // Built whether or not there are buildings, so the engine can wire its drain hook and
     // its telemetry to something real on a world made of nothing but ground.
     this.falling = new FallingPieces({
@@ -30,7 +31,7 @@ export class Buildings {
     })
     const rubbleRules = spec.rules.collapse?.rubble || {}
     // Built whether or not there are buildings, for the same reason the falling pool is.
-    this.remnants = new Remnants({ scene, materials, rules: rubbleRules.remnants })
+    this.remnants = new Remnants({ scene, materials, rules: rubbleRules.remnants, sweep: debrisRules })
     if (specs.length === 0) return
 
     // Counted across every building first, because an InstancedMesh is allocated once at
@@ -89,6 +90,31 @@ export class Buildings {
   // render pass beside the prop debris, which does exactly this for the same reason.
   sync() {
     this.falling.sync()
+  }
+
+  // A car's box has swept through here: the small stuff inside it -- shards and the chunks
+  // a cleared heap left -- is kicked out of the way. Nothing with a body is touched; the
+  // heaps themselves are pieces and break the way pieces break.
+  sweepVehicle(frame) {
+    this.debris.sweepVehicle(frame)
+    this.remnants.sweepVehicle(frame)
+  }
+
+  // A blast's shell has grown from `inner` to `outer`: the small stuff in that band is
+  // thrown outward.
+  blastDebris(at, inner, outer) {
+    this.debris.sweepBlast(at, inner, outer)
+    this.remnants.sweepBlast(at, inner, outer)
+  }
+
+  // Cumulative, and the still-visible subset. The two together say that debris was
+  // kicked AND that kicked debris goes away.
+  get debrisKicked() {
+    return this.debris.kicked + this.remnants.kicked
+  }
+
+  get debrisKickedLive() {
+    return this.debris.kickedLive + this.remnants.kickedLive
   }
 
   // What the server says is gone. Everything below is monotone -- it only ever breaks --

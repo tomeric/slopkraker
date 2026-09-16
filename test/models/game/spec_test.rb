@@ -393,6 +393,25 @@ class Game::SpecTest < ActiveSupport::TestCase
     assert_operator rubble.fetch(:sink).min, :>=, 0.0
   end
 
+  # What a car or a blast does to the small stuff. It has no bodies, so the sweep is by
+  # hand, and every number it uses is here.
+  test "the client is told how debris is swept out of a car's way" do
+    debris = Game::Spec.default_rules.fetch(:debris)
+
+    assert_operator debris.fetch(:reach), :>=, 0
+    %i[kick_speed kick_lift blast_speed blast_lift].each do |key|
+      assert_operator debris.fetch(key), :>, 0, "#{key} of nothing is debris that does not move"
+    end
+    assert_operator debris.fetch(:kick_carry), :>=, 0
+    assert_operator debris.fetch(:kicked_life), :>, 0
+    assert_operator debris.fetch(:kicked_life), :<, 2.0, "kicked debris should be gone within the moment"
+    # A blast must not sweep the shards it just threw, so fresh debris is left alone for at
+    # least as long as a blast takes to expand.
+    explosion = Game::Vehicles::Buggy.rocket.explosion.to_spec
+    assert_operator debris.fetch(:grace), :>, explosion.fetch(:expand_time),
+                    "a blast would sweep away its own shards"
+  end
+
   # How a heap is populated, how it arrives and what it leaves. All tuning, all in Ruby.
   test "the client is told how many chunks a heap holds and what clearing one leaves" do
     rubble = Game::Spec.default_rules.dig(:collapse, :rubble)

@@ -261,7 +261,36 @@ module Game
         # early, so silence is what counts as gone. The channel's own `leave` message is
         # still honoured when it does arrive; it is the fast path, not the mechanism.
         remote_timeout: 3.0,
-        respawn_height: 2.0
+        respawn_height: 2.0,
+        # What happens to the small stuff -- the shards a break throws, the chunks a cleared
+        # heap leaves lying -- when something bigger reaches it. None of it has a body, so
+        # nothing in the physics ever touches it; it is swept by hand instead. A car reaching
+        # a shard kicks it away and it is gone within `kicked_life`; a blast throws it
+        # outward the same way. Without this a car parked in a debris field sat in shards
+        # that ignored it, which reads as the shards being painted on.
+        debris: {
+          # How far beyond a chassis's own box a car reaches, in metres. Wider than the
+          # bodywork so the wheels and the wake count.
+          reach: 0.5,
+          # The shove a kicked shard leaves with, plus this share of the car's own velocity
+          # so debris flies ahead of a fast car rather than dropping beside it, and the lift
+          # that makes it a kick rather than a slide.
+          kick_speed: 5.0,
+          kick_carry: 0.6,
+          kick_lift: 3.0,
+          # And from a blast, scaled by how far into the shell the shard sat.
+          blast_speed: 12.0,
+          blast_lift: 5.0,
+          # How long a kicked shard has left, in seconds. Short: it is on its way out.
+          kicked_life: 0.6,
+          # How long a fresh shard or remnant is left alone, in seconds. The shards a blast
+          # throws are born inside its own shell, and the chunks a heap leaves when the
+          # truck ploughs it are born inside the truck's box; without this the blast swept
+          # its own shards and the truck swept the very remnants that are meant to lie there
+          # a moment. Longer than a blast takes to expand, and long enough for a fast truck
+          # to have passed over what it just cleared.
+          grace: 0.5
+        }
       }
     end
 
