@@ -19,6 +19,24 @@ class TerrainTile < ApplicationRecord
     )
   end
 
+  # Twelve hex characters of the bytes themselves. This, not the world's content_digest,
+  # is what goes in the tile URL: the URL is cached as immutable for a year, so it has to
+  # change exactly when the bytes do, and a hand-written world digest nobody updates would
+  # keep serving old ground through every change to the function that made it.
+  def digest
+    Digest::SHA256.hexdigest(heights)[0, 12]
+  end
+
+  # What the spec ships about this tile: enough to size things without decoding it, and
+  # where to fetch it. The URL is built here rather than in the PORO manifest because the
+  # Active Record model is the boundary to Rails; Game::Terrain sees only a string.
+  def manifest_entry
+    {
+      tx: tx, tz: tz, base_cm: base_cm, min_cm: min_cm, max_cm: max_cm,
+      url: Rails.application.routes.url_helpers.world_tile_path(world.slug, digest, tx, tz)
+    }
+  end
+
   private
     def blob_is_the_right_size
       return if heights.blank? || world.blank?
