@@ -188,106 +188,90 @@ contract covers.
 This is the one place in the building code holding genuine Rapier body lifetimes, so the footgun
 below is live here in a way it is not for a standing piece.
 
-### What is left on the ground (`game/building/rubble.rb`, `world/rubble.js`)
+### What is left on the ground (`game/building/rubble.rb`, `world/rubble.js`, `render/remnants.js`)
 
-A collapsed building leaves heaps of garbage that are solid, have to be cleared, and sit in
-the same place for every player. **Rubble is not a new kind of object** — it cannot be,
-because `world_objects` belong to a *world* while `object_damages` belong to a *(match,
-object)* pair, so a rubble row created by a collapse in one match would exist in every match,
-including the ones where that house is still standing.
+A collapsed building leaves a low pile of wreckage that is solid, has to be cleared, sits in
+the same place for every player, and is visibly made of what the building was made of.
+**Rubble is not a new kind of object** — it cannot be, because `world_objects` belong to a
+*world* while `object_damages` belong to a *(match, object)* pair, so a rubble row created
+by a collapse in one match would exist in every match, including the ones where that house
+is still standing.
 
 Instead a building reserves piece indices for the wreckage it will eventually leave, carried
-by one extra `Surface` of `kind: :rubble` **appended last** — the same idea as a doorway being
-a real index holding `void`, extended to indices reserved for something that arrives later
-rather than never. Every requirement then rides machinery that already exists: positions
-derive from the recipe seed, clearing goes through `damage`/`breaks` addressed by
+by one extra `Surface` of `kind: :rubble` **appended last** — the same idea as a doorway
+being a real index holding `void`, extended to indices reserved for something that arrives
+later rather than never. Every requirement then rides machinery that already exists:
+positions derive from the recipe seed, clearing goes through `damage`/`breaks` addressed by
 `[object_id, piece_index]`, persistence is a bit in `broken_pieces`, and rejoining is
 `request_state`. No new message, no new table, no new column.
 
-- **Heaps arrive as the pieces carrying them land**, not when the collapse is decided. A
-  collapse works out how much wreckage it owes (`expectRubble`) and reveals none of it; each
-  falling slab reports home when it shatters and the building reveals its share. Otherwise
-  the heaps exist a second and a half before the walls do, and the wall sections fall
-  *through* the rubble they are supposedly becoming. A restore has no slabs to wait for, so
-  it reveals everything at once. Only the local timing varies: the COUNT is still derived
-  from `collapsed_from`, so two clients converge on the same set.
-- **A heap is a lump, not a box.** `lumpGeometry` wobbles the vertices of an icosahedron or
-  dodecahedron, stretches it per variant and squashes it flat; `Rubble::SHAPES` of them
-  exist and a heap picks one by seed. They are separate instanced pools, because an
-  `InstancedMesh` has one geometry — so `PieceMeshes` pools are keyed by a POOL name
-  (`rubble#2`) rather than by material, and `Building#pool` holds which one each piece draws
-  from. The suffix chooses a shape and never a material: colour, health and damage all stay
-  the material's. **A pool with nothing visible in it is switched off** (`mesh.visible`),
-  because a zero-scale instance rasterises nothing but the pool still costs a draw call —
-  without that, sixteen shapes of rubble cost sixteen draws in a world where nothing has
-  fallen down yet.
-- **A lump is normalised to fill its box**, and that is what makes the volume model true on
-  screen rather than only on paper. A lump is scaled by a box whose height is the depth Ruby
-  derived from the building's own material, so a lump filling 42% of that box drew 42% of
-  the debris — and left the other 58% as collider standing invisibly above the rubble, which
-  you could hit and not see. Measuring the BOX rather than the geometry is what hid it.
-  Plan proportion therefore lives in the instance (`aspect` in `rubbleMatrix`), not in the
-  geometry, because normalising every axis is exactly what would throw it away.
-- **Which axis is up, in a rubble lump.** The cell matrix is `makeBasis(u, v, n)`, so a
-  lump's local x and y are the surface's two HORIZONTAL axes and its local z is the normal.
-  Worse, the rubble grid's normal is `u × v = (0, -1, 0)` — it points **down**. Both have
-  already caused bugs that looked almost right: flattening the lump on `y` squashed it
-  sideways and let it grow vertical spikes, and lifting a heap along `n` buried it while
-  sinking it floated it. Heaps are flattened on `z` and moved along **world up**.
-- **No heap may be too small to reach its neighbour**, and this is what pockets of air in a
-  mound actually are. Heaps sit `CELL` apart and are `CELL * SPREAD` across; `spread` shrinks
-  them and `aspect` narrows one axis, so between them they can take a heap under the spacing,
-  at which point it cannot touch anything beside it and leaves a hole however irregular it
-  is. `spec_test` asserts the invariant over BOTH factors — checking only `spread` is how a
-  1.59m lump on a 2m grid passed. `DENSITY` is 1.0 for the same reason: an empty cell is a
-  hole by construction.
-- **The wreckage is a PILE, not a carpet, and the profile is what makes it one.** The dome
-  in `rubbleMatrix` is normalised by its own mean over the heaps, so the volume Ruby derived
-  is neither created nor destroyed — the same material is simply put where a pile puts it.
-  That is free: it took the peak from 1.07m to 2.08m and thinned the rim to 0.14m without
-  changing `SHARE` at all, which also leaves the perimeter more driveable than a flat spread
-  did. `edge` must never be zero — at the corners `(1 - d)` is exactly 0, and a heap of no
-  height is an invisible piece with a degenerate collider.
+- **A heap is ONE piece drawn as a lump and its chunks.** One index, one collider, one entry
+  in the state arrays — and on screen a base lump of dust in the `rubble` material's grey
+  with `rules.collapse.rubble.fragments` chunks of brick, timber, tile, glass and plaster
+  in and on it. Ruby ships **`mix`** on the rubble surface (each material's share of the
+  building's volume, largest first, from the surfaces the generator built) and a **`chunk`**
+  profile per material (size on each axis, variation, how far off a box); the client derives
+  every chunk's material, position, size and lean from those and the seed through
+  `heapFrame`/`heapFragments`, and `Math.random` appears nowhere. Chunks are instances in
+  per-material pools named `brick#rubble`, `timber#rubble`, … — the suffix picks a shape,
+  never a material, as `rubble#3` does. `Building.countMaterials` sizes those pools by
+  running the same seeded material draw the builder runs, because an `InstancedMesh`
+  cannot grow.
+- **A heap is placed in WORLD space.** The rubble grid's normal is `u × v = (0, -1, 0)` — it
+  points **down** — and lifting or flattening a heap along the surface's own axes came out
+  inverted twice. So `heapFrame` works in world terms from the start (a centre on the
+  ground, a yaw, two half-extents, a height) and `heapMatrix` carries the lump's local z
+  onto world up before the yaw. The lump is level; the lean is on the chunks. The collider
+  is sized from the level lump, because forty leaned boxes are forty invisible ramps.
+- **The truck goes THROUGH wreckage, not over it, and that is a collision-group rule.** The
+  wheels are raycasts, so anything they land on is ground: with heaps in their filter the
+  truck rode up the rim, its blade never reached a heap, and it stalled on top of the mound
+  having cleared nothing (measured). Heaps therefore live on `LAYER.RUBBLE`, and the wheel
+  rays use `WHEEL_RAY_GROUPS`, which excludes it. The chassis and the blade still meet
+  heaps as solid boxes, break them, and `punchThrough` gives back the speed they were not
+  worth — scaled by the material's **`toll`** (0.15 for rubble, 1.0 for everything solid),
+  because a blade hit clears a plus of five heaps and at a wall's toll that stalled the
+  truck two thirds of the way across. Measured after: in at 13.7 m/s, never below 12 across
+  the pile, nineteen heaps cleared.
+- **The pile is low on purpose.** `SHARE` is 0.25: the worked example averages 0.74 m over
+  its footprint and the tallest heap tops out at 1.75 m. At 0.6 it was a four-and-a-half
+  metre hill nothing got through; at 0.2 it read as a rug rather than a pile. The dome's
+  `falloff` is 1.6 and volume conserving (normalised by its own mean over the heaps), so the
+  material Ruby derived is neither created nor destroyed, only mounded.
+- **Heaps arrive as the pieces carrying them land**, not when the collapse is decided, and
+  each one **rises out of the ground** over `rules.collapse.rubble.rise` (the collider is
+  enabled at once; only the drawing eases, from `Building#update`). A collapse works out
+  how much wreckage it owes (`expectRubble`) and reveals none of it; each falling slab
+  reports home when it shatters and the building reveals its share. A restore reveals
+  everything at once and silently.
+- **Clearing a heap leaves a few of its chunks lying.** `breakCell` on a heap that was
+  actually standing hands `remnants.keep` of its chunks to `Remnants` — plain meshes with a
+  material each, because fading is a per-piece opacity — which **settle** onto the ground,
+  **linger**, then **fade while sinking**; `shards` more are thrown through `Debris` in their
+  own materials. Remnants are local and capped; a silent restore leaves none.
 - **Heaps are revealed outward from the middle**, and the ORDER is shared with the server
   rather than merely the count. `Building::Rubble.pile_indices` and `pileOrder` must return
-  the same sequence, because the server gates damage on the revealed prefix — a client
-  revealing a different subset would show heaps that cannot be cleared and hide heaps the
-  server believes are there, and for a partial collapse it would do so permanently. Both
-  sort by a quantised radius with the index as tie-break: two languages agreeing on a raw
-  float comparison is not something to rest a shared order on.
-- **Wreckage is spread over the footprint, not over the lumps.** Lumps are wider than the
-  grid they sit on (`SPREAD` > 1) and overlap by construction, and overlapping lumps
-  interpenetrate rather than stacking their heights — so `depth_for` divides the kept volume
-  by the ground the building stood on. Dividing by the lumps' own area assumes they sit side
-  by side, and under that assumption widening them makes them thinner, which turns a field
-  of debris back into a floor of tiles.
-- **Piece state gained a third value.** `DORMANT → INTACT → BROKEN` is still strictly
-  monotone. Two clauses hold it together and both have already been got wrong: revealing
-  moves `DORMANT → INTACT` and **never** `BROKEN → INTACT`; and `breakCell` treats `DORMANT`
-  as **breakable rather than already broken**, because `applyState` applies the broken bitset
-  *before* it reveals anything. Without the second, a cleared heap's bit is dropped in silence
-  and every heap you cleared is back on the street after a reload.
-- **A collapse must never sweep its own rubble**, and this is the one mistake here that is
-  both silent and permanent — a house that quietly never leaves any wreckage, with nothing
-  downstream looking wrong. Three independent defences: the surface's `storey: -1` (below
-  every bound `Collapse` sweeps), an explicit `kind == :rubble` skip in `each_cell`, and
+  the same sequence, because the server gates damage on the revealed prefix. Both sort by a
+  quantised radius with the index as tie-break.
+- **No heap may be too small to reach its neighbour.** Heaps sit `CELL` apart and are
+  `CELL * SPREAD` across; `spread` and `aspect` can both shrink one below the spacing, and
+  `spec_test` asserts the invariant over BOTH. `DENSITY` is 1.0 because an empty cell is a
+  hole by construction. `edge` must never be zero — a heap of no height is an invisible
+  piece with a degenerate collider.
+- **Piece state gained a third value.** `DORMANT → INTACT → BROKEN` is strictly monotone.
+  Revealing moves `DORMANT → INTACT` and **never** `BROKEN → INTACT`; and `breakCell` treats
+  `DORMANT` as **breakable rather than already broken**, because `applyState` applies the
+  broken bitset *before* it reveals anything.
+- **A collapse must never sweep its own rubble** — silent and permanent if it did. Three
+  independent defences: `storey: -1`, an explicit `kind == :rubble` skip in `each_cell`, and
   `structural_weight: 0.0` on the material.
-- **A heap is sized from what the building was made of.** `Rubble.build` is handed the
-  generated walls, floors and roof, totals their real volume, swells it by `BULK` for
-  breaking and keeps `SHARE` of it — so a bigger building leaves a bigger mess for ever,
-  with nobody choosing a number. Be honest about `SHARE`: a three-storey house is 353m³ and
-  559 tonnes, and all of it bulked would be **three metres deep wall to wall**, which is a
-  hill rather than a pile. The rest is taken to have gone to dust, which the shards a
-  collapse throws are already selling.
 - **The grid is geometry, not tuning.** `Rubble::CELL`, `DENSITY`, `SPREAD`, `BULK` and
   `SHARE` are Ruby constants: the first two decide `piece_count`, and the rest decide a
   heap's depth, which `health_for` is computed from on both sides. `rules.collapse.rubble`
-  ships only how a heap is *drawn* — and its `scale` is read from `Rubble::SPREAD` rather
-  than written again, because the depth is computed against that same number.
-- **`piece_count` grows, so a stale database is a real failure mode.** The worked example
-  house went from 1454 to 1502. Existing damage stays valid because rubble was appended and
-  nothing was renumbered, but a row still holding the old count rejects every rubble index.
-  After pulling this, either reseed or update `piece_count` from `surface_set.piece_count`.
+  ships only how a heap is *drawn*, and `scale` and `shapes` are read from the constants.
+- **`piece_count` grows, so a stale database is a real failure mode.** Rubble was appended
+  and nothing renumbered, but a row holding an old count rejects every rubble index. After
+  pulling a change to the grid, reseed or update `piece_count` from `surface_set.piece_count`.
 
 ### The engine loop (`app/javascript/game/engine.js`)
 
@@ -444,6 +428,8 @@ The engine exposes debug/test hooks on `window`:
 | `__arenaPieceState`, `__arenaPieceBlock` | What a piece is made of, how hurt it is, which block it breaks with |
 | `__arenaPieceMatrix` | A piece's world transform, so a test can prove two clients agree on where it is |
 | `__arenaRubble` | `{ dormant, standing, cleared }` heaps — an intact house has only the first |
+| `__arenaHeapFragments` | `(piece, buildingId)` — the materials of one heap's chunks, one entry per chunk. "The wreckage is made of what the house was made of" is an assertion about this |
+| `__arenaRemnants` | Chunks left lying by cleared heaps and still visible — positive the moment a heap clears, zero once they have faded |
 | `__arenaFalling` | How many falling slabs are in the air — zero at rest, which is what makes a fall assertable |
 | `__arenaFallingCells` | How many cells those slabs carry. Against `__arenaFalling` it says how much of the house left the ground, and how coarsely |
 | `__arenaSlabsDropped` | `(buildingId)` — how many slabs THAT building put up, as against how many are up altogether. The two are the same number while one house exists, which is how the shared budget was over-subscribed in silence |

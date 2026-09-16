@@ -184,3 +184,23 @@ the page.
 - Falling slabs still shatter on landing rather than persisting as bodies. The pile is
   what persists.
 - No terrain: the ground is `y = 0` everywhere, as it is for the shards.
+
+## As built (2026-09-16)
+
+Two things moved once the design met the browser, and one was found there that the
+design had not seen:
+
+- **Share 0.25 and falloff 1.6, not 0.2 and 1.2.** At 0.2 / 1.2 the tallest heap was 1.22 m
+  and the site read as a rug of chunks; at 0.25 / 1.6 it tops out at 1.75 m and reads as a
+  mound. Chunk profiles went up by about a quarter for the same reason.
+- **The wheel rays had to be told to ignore heaps.** The design assumed the truck would ride
+  the rim and plough the middle. Measured, it rode up the whole pile — the wheels are
+  raycasts, so heaps were ground — cleared nothing and stalled on top. Heaps now live on
+  `LAYER.RUBBLE`, excluded from `WHEEL_RAY_GROUPS`, so the truck stays on the ground and the
+  blade meets them.
+- **Rubble has a `toll` of 0.15.** A blade hit clears a plus of five heaps, and at a wall's
+  full worth the breakthrough refund charged a fifth of the truck's speed per row; it
+  stalled two thirds of the way across. `toll` is the share of a broken piece's worth the
+  car pays: 1.0 for everything solid, 0.15 for wreckage. Measured after: in at 13.7 m/s,
+  never below 12 across the pile, nineteen heaps cleared, out the far side in 4.5 s.
+
