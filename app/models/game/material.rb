@@ -15,12 +15,12 @@ module Game
 
     attr_reader :name, :health_per_m2, :density, :hardness, :structural_weight,
                 :multipliers, :fracture, :colour, :friction, :restitution,
-                :opacity, :metalness, :roughness, :chunk
+                :opacity, :metalness, :roughness, :chunk, :toll
 
     def initialize(name:, health_per_m2:, density:, colour:,
                    hardness: 0.0, structural_weight: 1.0, multipliers: {}, fracture: {},
                    friction: 0.8, restitution: 0.05,
-                   opacity: 1.0, metalness: 0.05, roughness: 0.85, chunk: nil)
+                   opacity: 1.0, metalness: 0.05, roughness: 0.85, chunk: nil, toll: 1.0)
       @name = name.to_sym
       @health_per_m2 = health_per_m2.to_f
       @density = density.to_f
@@ -42,6 +42,11 @@ module Game
       # Local Y is the THICKNESS, so a plank and a tile lie flat and a brick is a block.
       # Nil for anything that is never a chunk -- a hole, and the heap itself.
       @chunk = chunk&.transform_keys(&:to_sym)&.freeze
+      # What breaking a cell of this costs the car that broke it, as a share of the health
+      # it destroyed. A car that breaks a fixed piece is given back the speed the piece was
+      # not worth; a wall is worth all of its health, because it has to be punched through,
+      # while loose wreckage gives way and is worth a fraction. One for everything solid.
+      @toll = toll.to_f
       freeze
     end
 
@@ -94,7 +99,8 @@ module Game
         opacity: opacity,
         metalness: metalness,
         roughness: roughness,
-        chunk: chunk
+        chunk: chunk,
+        toll: toll
       }
     end
   end

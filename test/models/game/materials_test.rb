@@ -168,4 +168,22 @@ class Game::MaterialsTest < ActiveSupport::TestCase
 
     assert_nil Game::Materials.fetch(:void).chunk
   end
+
+  # What breaking a piece costs the car that broke it. A wall is worth all of its health;
+  # wreckage gives way, so a heap costs a fraction -- which is the difference between a
+  # truck that ploughs through a fallen house and one that stalls two thirds of the way in.
+  test "wreckage gives way where a wall has to be punched through" do
+    Game::Materials.names.each do |name|
+      material = Game::Materials.fetch(name)
+      assert_operator material.toll, :>=, 0
+      assert_operator material.toll, :<=, 1.0
+      assert_equal material.toll, material.to_spec[:toll], "#{name} does not ship its toll"
+      next if name == :rubble
+
+      assert_equal 1.0, material.toll, "#{name} is solid and should cost its whole worth"
+    end
+
+    assert_operator Game::Materials.fetch(:rubble).toll, :<=, 0.25, "a heap should barely slow the truck"
+    assert_operator Game::Materials.fetch(:rubble).toll, :>, 0, "a free heap is a heap that costs nothing to hit"
+  end
 end

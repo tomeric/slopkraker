@@ -1,7 +1,7 @@
 import * as THREE from "three"
 import { createVehicleBody, applyWheelTuning } from "game/physics/vehicle_body"
 import { TurboBar } from "game/turbo_bar"
-import { vehicleGroups, reachingPartGroups, catchesWorld } from "game/physics/groups"
+import { vehicleGroups, reachingPartGroups, catchesWorld, WHEEL_RAY_GROUPS } from "game/physics/groups"
 
 const WORLD_UP = new THREE.Vector3(0, 1, 0)
 const REVERSE_THRESHOLD = 0.8
@@ -202,7 +202,9 @@ export class Vehicle {
     // because it writes directly into the chassis velocity.
     this.driftGrace = Math.max(0, this.driftGrace - dt)
 
-    this.controller.updateVehicle(dt)
+    // The wheel rays land on everything but a heap of wreckage, so the car goes THROUGH
+    // a pile with its blade rather than being lifted over it -- groups.js has the story.
+    this.controller.updateVehicle(dt, undefined, WHEEL_RAY_GROUPS)
 
     // Queued shoves land here: applied any earlier, updateVehicle discards them.
     this.flushImpulse()

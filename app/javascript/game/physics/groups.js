@@ -11,7 +11,10 @@ export const LAYER = {
   OWN_VEHICLE: 1 << 2,
   OTHER_VEHICLE: 1 << 3,
   ROCKET: 1 << 4,
-  DEBRIS: 1 << 5
+  DEBRIS: 1 << 5,
+  // A heap of wreckage on the ground. Its own layer so that the WHEELS can be told to
+  // ignore it: see WHEEL_RAY_GROUPS.
+  RUBBLE: 1 << 6
 }
 
 export const ALL = Object.values(LAYER).reduce((acc, bit) => acc | bit, 0)
@@ -22,6 +25,22 @@ export function groups(membership, filter) {
 
 export const WORLD_GROUPS = groups(LAYER.WORLD, ALL)
 export const PROP_GROUPS = groups(LAYER.PROP, ALL)
+
+// A heap of wreckage. Solid to everything -- the blade, the bull bar, a rocket, a falling
+// slab, the chassis -- and on its own layer only so the wheel rays can leave it out.
+export const RUBBLE_GROUPS = groups(LAYER.RUBBLE, ALL)
+
+// What a wheel's suspension ray is allowed to land on: everything but a heap.
+//
+// The wheels are RAYCASTS, not colliders, so whatever they land on is the ground as far as
+// the car is concerned. Let them land on heaps and a truck driving at a pile of wreckage
+// rides UP it -- the rays lift the chassis over the rim before the blade can reach
+// anything, nothing is ever hit hard enough to break, and the truck stalls on top of the
+// pile with the blade reading nought. Measured: fourteen metres a second in, zero heaps
+// cleared, parked on the mound. With the rays passing through heaps the car stays on the
+// ground beneath them and the heaps meet the blade and the chassis instead, which is
+// where the damage comes from. Wreckage is something you go THROUGH, not over.
+export const WHEEL_RAY_GROUPS = groups(ALL, ALL & ~LAYER.RUBBLE)
 export const DEBRIS_GROUPS = groups(LAYER.DEBRIS, ALL & ~LAYER.ROCKET)
 
 // A piece of a collapsing building on its way down. On the DEBRIS layer, but deaf to its

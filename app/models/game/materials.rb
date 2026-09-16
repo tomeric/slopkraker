@@ -123,7 +123,12 @@ module Game
         multipliers: { impact: 1.3, blast: 1.5, blade: 1.4, bull_bar: 1.4, slam: 1.2 },
         fracture: { method: "voronoi", mode: "2.5D", fragments: 8 },
         friction: 0.9, restitution: 0.0,
-        roughness: 0.95
+        roughness: 0.95,
+        # Loose wreckage gives way. A blade hit clears a plus of five heaps at once, and at
+        # a wall's toll that is a fifth of the truck's speed per row of the pile -- it
+        # stalled two thirds of the way across. At this share it loses under a metre a
+        # second per row and drives out the far side, which is what wreckage is for.
+        toll: 0.15
       ),
 
       # A hole that is already there: a doorway, the clipped corner of a gable. It occupies

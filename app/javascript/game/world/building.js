@@ -1,5 +1,5 @@
 import * as THREE from "three"
-import { PROP_GROUPS } from "game/physics/groups"
+import { PROP_GROUPS, RUBBLE_GROUPS } from "game/physics/groups"
 import { eachBuildingCell, materialAt, chunkMatrix } from "game/world/surface"
 import { tileSurface } from "game/world/chunking"
 import { heapMatrix, heapFrame, heapFragments, fragmentMaterial, fragmentPool, shapeFor, pileOrder, SHAPES } from "game/world/rubble"
@@ -191,8 +191,10 @@ export class Building {
         .setRotation({ x: ROTATION.x, y: ROTATION.y, z: ROTATION.z, w: ROTATION.w })
         // LAYER.PROP, so the bull bar and the slam plate reach a wall exactly as they
         // reach a crate. groups.js already promised this: "walls become destructible props
-        // in time, at which point the PROP bit catches them like anything else."
-        .setCollisionGroups(PROP_GROUPS)
+        // in time, at which point the PROP bit catches them like anything else." A heap is
+        // on its own layer for one reason only: the wheel rays pass through it, so a car
+        // meets wreckage with its blade rather than riding up onto it.
+        .setCollisionGroups(surface.kind === "rubble" ? RUBBLE_GROUPS : PROP_GROUPS)
         .setFriction(material.friction ?? 0.8)
         .setRestitution(material.restitution ?? 0.05)
         .setActiveEvents(RAPIER.ActiveEvents.CONTACT_FORCE_EVENTS)
@@ -404,7 +406,10 @@ export class Building {
     const amount = absorb(raw, this.materialSpec(index), kind, this.rules)
     if (amount <= 0) return 0
 
-    const standing = this.health[index]
+    // What breaking it is worth to the car, which is what the toll is for: loose wreckage
+    // gives way where a wall has to be punched through, so a heap costs a share of the
+    // speed its health would otherwise invert to.
+    const standing = this.health[index] * (this.materialSpec(index)?.toll ?? 1)
 
     // Reported RAW, before this cell's material has taken its cut. The server runs the
     // same absorb from the same table; sending `amount` would apply the material twice.
