@@ -62,6 +62,13 @@ export class PieceMeshes {
     this.shapes.set(name, withVertexColour(geometry))
   }
 
+  // The geometry a pool draws with, so something that wants to draw one more of the same
+  // chunk outside the pool -- a remnant left lying after its heap is cleared -- draws the
+  // very shape the pool did.
+  shapeOf(name) {
+    return this.shapes.get(name) || this.geometry
+  }
+
   // Sized up front from the counts the caller has already tallied, because an
   // InstancedMesh cannot grow: its buffers are allocated once at its declared capacity.
   allocate(counts) {
