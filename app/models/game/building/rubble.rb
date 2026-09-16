@@ -64,12 +64,13 @@ module Game
       # a fiction: the shards a collapse throws are carrying that material away in front of
       # you as it lands, and they fade rather than settling.
       #
-      # At 0.2 the worked example averages 0.59m over its footprint and mounds to about
-      # 1.7m in the middle, with a rim of a hand's breadth. That is deliberately a pile the
-      # truck's blade meets and breaks rather than a slope its wheels climb: the truck rides
-      # up the rim and ploughs the middle, and a rocket takes a bite out of it. At 0.6 the
-      # middle stood four and a half metres tall and nothing got through it, which is the
-      # opposite of wreckage you clear.
+      # At 0.25 the worked example averages 0.74m over its footprint and mounds to about
+      # 1.75m in the middle, with a rim of a hand's breadth. That is deliberately a pile the
+      # truck's blade meets and breaks rather than a slope its wheels climb -- the wheel
+      # rays pass through heaps, so the truck stays on the ground and ploughs the middle,
+      # and a rocket takes a bite out of it. At 0.6 the middle stood four and a half metres
+      # tall and nothing got through it, which is the opposite of wreckage you clear; at 0.2
+      # it read as a rug rather than a pile.
       SHARE = 0.25
 
       # Only used by a building made of nothing, which cannot happen, but a zero depth

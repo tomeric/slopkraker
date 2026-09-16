@@ -180,10 +180,11 @@ module Game
             # metre -- which also leaves the perimeter more driveable than it was, because
             # the material moved inward off it.
             #
-            # Higher is steeper. Gentle now that the pile is low: measured on the worked
-            # example at SHARE 0.2, 1.2 peaks at 1.7m, 1.5 at 1.9m, 1.8 at 2.0m. The blade
-            # tops out around 1.3m, so 1.2 is the one where the middle of the pile is a
-            # heap the blade breaks rather than a wall it stops against.
+            # Higher is steeper. Measured on the worked example at SHARE 0.25 the tallest
+            # heap on screen tops out at 1.75m, after the lump's own sink. Flatter than
+            # this read as a rug of chunks rather than a pile; steeper thins the rim to
+            # nothing. The truck's wheel rays pass through heaps, so the height is a
+            # picture rather than an obstacle: the blade breaks whatever it meets.
             falloff: 1.6,
             # What is left at the rim, as a share of the peak. The dome must never reach
             # zero: a heap of no height is an invisible piece with a degenerate collider,
