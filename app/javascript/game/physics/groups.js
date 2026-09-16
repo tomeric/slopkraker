@@ -41,6 +41,22 @@ export const RUBBLE_GROUPS = groups(LAYER.RUBBLE, ALL)
 // ground beneath them and the heaps meet the blade and the chassis instead, which is
 // where the damage comes from. Wreckage is something you go THROUGH, not over.
 export const WHEEL_RAY_GROUPS = groups(ALL, ALL & ~LAYER.RUBBLE)
+
+// What the chassis's own support probe may land on: everything, heaps included. That is
+// the entire difference between it and WHEEL_RAY_GROUPS, and the entire reason it exists.
+export const SUPPORT_RAY_GROUPS = groups(ALL, ALL)
+
+// Whether the wheel rays are blind to this collider -- which is exactly the property that
+// makes a thing possible to come to REST on and impossible to STAND on, and so the thing
+// a stranded car has to be able to crush its way through.
+//
+// Derived from WHEEL_RAY_GROUPS rather than written out again as a test for RUBBLE: if
+// another layer is ever hidden from the wheels, it acquires this behaviour with it instead
+// of silently becoming a new way to strand a car.
+export function invisibleToWheels(collisionGroups) {
+  return ((collisionGroups >>> 16) & (WHEEL_RAY_GROUPS & 0xffff)) === 0
+}
+
 export const DEBRIS_GROUPS = groups(LAYER.DEBRIS, ALL & ~LAYER.ROCKET)
 
 // A piece of a collapsing building on its way down. On the DEBRIS layer, but deaf to its

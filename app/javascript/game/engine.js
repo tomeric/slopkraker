@@ -248,6 +248,19 @@ export class GameEngine {
     // Per building, so "collapsing one house left its neighbour untouched" is one read
     // rather than a thousand round trips through __arenaPieceState.
     window.__arenaBuildingStanding = (id) => this.buildings?.find(id)?.standingCount ?? 0
+    // Where the car actually is. "It got off the pile" is a claim about height and nothing
+    // else -- telemetry carries speeds, which read identically for a car that sank through
+    // the wreckage and one still perched on top of it going nowhere.
+    window.__arenaVehiclePos = () => {
+      const at = this.vehicle.body.translation()
+      return [ at.x, at.y, at.z ]
+    }
+    // How many times a car has been shaken loose. A counter rather than a flag, because
+    // the assertion worth making is that it fired AT ALL on a stranded car and NEVER on a
+    // car that is merely in the air.
+    window.__arenaUnstuck = () => this.vehicle?.unstuck ?? 0
+    // What is holding the car up when no wheel can reach anything -- null while driving.
+    window.__arenaSupports = () => this.vehicle?.supports?.length ?? 0
     window.__arenaQuality = this.qualityName
 
     this.running = true
@@ -382,6 +395,7 @@ export class GameEngine {
       spawn,
       colliderIndex: this.colliderIndex,
       projectiles: this.projectiles,
+      support: this.spec.rules.support,
       meta: {
         key,
         owner: "local",
@@ -539,6 +553,7 @@ export class GameEngine {
     this.world.step(this.eventQueue)
     this.stats.steps += 1
     this.handleContacts()
+    this.crushSupport(dt)
     this.projectiles.update(dt)
     this.explosions.update(dt)
     this.destruction.update(dt)
@@ -690,6 +705,35 @@ export class GameEngine {
     // through the ride height to the ground, which is where debris lies.
     SWEEP.top = height / 2 + rules.reach
     this.buildings.sweepVehicle(SWEEP)
+  }
+
+  // A car resting on wreckage crushes it under its own weight, so landing on a pile means
+  // sinking through it rather than perching on top of it. Wreckage is something you go
+  // THROUGH, and that has to be as true of a car sitting on it as of one driving at it.
+  //
+  // Only ever what the WHEELS are blind to -- `supports` is filtered to that already, and
+  // it is the same property that made this the thing that strands a car. So parking on a
+  // roof does not quietly eat the roof: the wheels can see a roof, so the car is grounded
+  // on it and never probes at all.
+  //
+  // Every heap under the car takes the full rate rather than a share of it. A car can come
+  // down across one heap or four, and dividing would make the second case take four times
+  // as long to fall through for no reason a player could see.
+  //
+  // No spread and no block: you go down through what is directly beneath you rather than
+  // clearing a patch by sitting on it. Outside any drain callback, because breaking a
+  // piece disables its collider and Rapier has the world borrowed until a drain finishes.
+  crushSupport(dt) {
+    const supports = this.vehicle?.supports
+    if (!supports?.length) return
+
+    const amount = this.spec.rules.support.crush * dt
+    for (const handle of supports) {
+      const target = this.colliderIndex.get(handle)
+      if (target?.kind !== "piece" || !target.building.standing(target.piece)) continue
+
+      target.building.damage(target.piece, amount, "impact", 0)
+    }
   }
 
   // A piece is a fixed collider that is never freed, so unlike a prop there is nothing to

@@ -1,7 +1,10 @@
 import * as THREE from "three"
 import { createVehicleBody, applyWheelTuning } from "game/physics/vehicle_body"
 import { TurboBar } from "game/turbo_bar"
-import { vehicleGroups, reachingPartGroups, catchesWorld, WHEEL_RAY_GROUPS } from "game/physics/groups"
+import {
+  vehicleGroups, reachingPartGroups, catchesWorld, invisibleToWheels,
+  WHEEL_RAY_GROUPS, SUPPORT_RAY_GROUPS
+} from "game/physics/groups"
 
 const WORLD_UP = new THREE.Vector3(0, 1, 0)
 const REVERSE_THRESHOLD = 0.8
@@ -20,11 +23,12 @@ function boxOf(size, offset) {
 // hop-to-drift, turbo, airborne weight-shift and flip recovery. Subclasses add the
 // action key.
 export class Vehicle {
-  constructor({ RAPIER, world, spec, spawn, colliderIndex, meta }) {
+  constructor({ RAPIER, world, spec, spawn, colliderIndex, support, meta }) {
     this.RAPIER = RAPIER
     this.world = world
     this.spec = spec
     this.spawn = spawn
+    this.support = support
 
     const built = createVehicleBody(RAPIER, world, spec, spawn, colliderIndex, meta)
     this.body = built.body
@@ -56,8 +60,16 @@ export class Vehicle {
     this._up = new THREE.Vector3()
     this._torque = new THREE.Vector3()
     this._angular = { x: 0, y: 0, z: 0 }
+    this._ray = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: -1, z: 0 })
     this.exitFlickRemaining = 0
     this.exitDirection = 0
+
+    // What is holding the car up when no wheel can reach anything, and how long it has
+    // been completely unable to move. Both are read by the engine as well as here.
+    this.supports = []
+    this._probeAt = new THREE.Vector3()
+    this.stuckTime = 0
+    this.unstuck = 0
 
     // Drift readouts. Initialised here rather than left undefined until the first drift:
     // telemetry and the debug overlay read them every frame.
@@ -142,6 +154,94 @@ export class Vehicle {
     return count
   }
 
+  // What is holding the car up, when its WHEELS have found nothing.
+  //
+  // `grounded` means "a wheel ray found ground", and the wheel rays are blind to heaps of
+  // wreckage on purpose -- groups.js has the reasoning, and it is right. But the chassis
+  // is still solid to a heap, so a car that comes to REST on one is held up by something
+  // none of its wheels can see, and every driving system reads that as airborne: no
+  // traction, because engine force is applied at wheel contacts; no hop, because the hop
+  // is gated on wheel contact; no drift, because there is no speed. And it never ends,
+  // because a heap is a fixed collider and nothing is going to move it.
+  //
+  // Four rays, and both things about them were got wrong first time:
+  //
+  // They are spread across the car's own footprint, not cast down its middle. Heaps sit on
+  // a two metre grid and a car rests on their high points, so one ray from the centre
+  // threads BETWEEN them -- measured on a car sitting squarely on the pile, it missed every
+  // heap and reported the ground three metres below. The wheels' own horizontal offsets are
+  // the spread, because where the car is held up is where its wheels are.
+  //
+  // And they point along WORLD down rather than the chassis's own. What is holding a car up
+  // is underneath it in the only sense gravity cares about, and casting down the chassis
+  // axis aims at the sky the moment the car is upside down -- which is exactly when it most
+  // needs the answer. Measured before that was fixed: a car landing inverted on the pile
+  // found nothing to crush and sat there until the shake-loose threw it off, five seconds
+  // later.
+  //
+  // Cast only when no wheel is in contact, so driving along costs nothing at all.
+  probeSupport(grounded) {
+    this.supports.length = 0
+    if (grounded > 0) return
+
+    const at = this.body.translation(this._vec)
+    const reach = this.spec.chassis.size[1] / 2 + this.support.reach
+
+    for (const wheel of this.spec.wheels) {
+      // Horizontal offset only. The ray starts level with the chassis centre whatever the
+      // car's attitude, so the reach below the bodywork is the same upright or inverted.
+      this._probeAt.fromArray(wheel.position).applyQuaternion(this._quat)
+      this._ray.origin.x = at.x + this._probeAt.x
+      this._ray.origin.y = at.y
+      this._ray.origin.z = at.z + this._probeAt.z
+
+      const hit = this.world.castRay(
+        this._ray, reach, true, undefined, SUPPORT_RAY_GROUPS, undefined, this.body
+      )
+      // Only what the wheels could not have found anyway. Anything they CAN see is theirs
+      // to report, and a car above it is in the air rather than resting on it.
+      if (!hit || !invisibleToWheels(hit.collider.collisionGroups())) continue
+
+      // Handles, not colliders: a cast returns a fresh wrapper each time, so two rays onto
+      // the same heap would compare unequal and be counted twice.
+      const handle = hit.collider.handle
+      if (!this.supports.includes(handle)) this.supports.push(handle)
+    }
+  }
+
+  // Whether anything at all is holding the car up that no wheel can see.
+  get supported() {
+    return this.supports.length > 0
+  }
+
+  // The catch-all, for whatever else a car can come to rest on. Nothing may hold a car for
+  // ever, and before this the only way out of one was to respawn.
+  //
+  // Deliberately narrow. It fires only on a car with no wheel in contact that is going
+  // nowhere in ANY axis, and the vertical is what keeps it off a car in mid-air: something
+  // falling is moving, and something merely slow still has its wheels down.
+  updateUnstick(dt, grounded) {
+    const v = this.body.linvel(this._vec)
+
+    if (grounded > 0 || Math.hypot(v.x, v.y, v.z) >= this.support.unstick_speed) {
+      this.stuckTime = 0
+      return
+    }
+
+    this.stuckTime += dt
+    if (this.stuckTime < this.support.unstick_after) return
+
+    this.stuckTime = 0
+    this.unstuck += 1
+
+    // WORLD up, not the chassis's: a car lying on its side has its own up pointing
+    // sideways, and that is exactly the car most in need of lifting. Forward as well as
+    // up, or the shake drops it back onto whatever it was caught on.
+    this._torque.copy(WORLD_UP).addScaledVector(this._forward, this.support.unstick_forward)
+    this._torque.normalize().multiplyScalar(this.spec.chassis.mass * this.support.unstick_impulse)
+    this.queueImpulse(this._torque)
+  }
+
   // Forward is +Z because that is the axis Rapier's vehicle controller treats as forward
   // (setIndexForwardAxis = 2). Given up = +Y, the driver's right is therefore -X:
   // looking along +Z with +Y up, right = forward x up = (-1, 0, 0). Getting this wrong
@@ -187,6 +287,8 @@ export class Vehicle {
     this.refreshBasis()
     const speed = this.speed
     const grounded = this.groundedWheels()
+    this.probeSupport(grounded)
+    this.updateUnstick(dt, grounded)
 
     this.updateSteering(dt, input, speed)
     this.turboActive = this.updateTurbo(dt, input, grounded)
@@ -320,9 +422,23 @@ export class Vehicle {
     if (this.boostTime > 0) this.boostTime = Math.max(0, this.boostTime - dt)
 
     // Hop fires on the press edge, not while held.
-    if (input.slidePressed && grounded > 0 && this.hopCooldown === 0) {
+    //
+    // On anything holding the car up, not just on wheel contact. The hop is the control a
+    // player reaches for to shake a car loose, and gating it on wheel contact refused it
+    // for exactly as long as it was needed -- having no wheel in contact IS being stuck.
+    if (input.slidePressed && (grounded > 0 || this.supported) && this.hopCooldown === 0) {
+      // Queued, not applied here, for the reason queueImpulse gives: updateVehicle rewrites
+      // the chassis velocity and this runs before it, so an impulse applied directly is
+      // simply gone. The hop did it directly anyway, and it went unnoticed for as long as
+      // the hop could only fire with the wheels down -- with the suspension loaded, the
+      // controller produces a jump of its own that looks like the one that was asked for.
+      //
+      // Off the wheels there is no suspension to answer and nothing hides it. Measured on a
+      // car perched on the pile: vertical velocity -0.0488 m/s before the impulse and
+      // -0.0488 m/s after it, the whole 2400 discarded. Queued, the same hop is worth
+      // exactly 2400/900 = 2.65 m/s.
       this._torque.copy(this._up).multiplyScalar(s.hop_impulse)
-      this.body.applyImpulse(this._torque, true)
+      this.queueImpulse(this._torque)
       this.hopCooldown = s.hop_cooldown
     }
 

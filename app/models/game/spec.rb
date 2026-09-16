@@ -290,6 +290,51 @@ module Game
           # a moment. Longer than a blast takes to expand, and long enough for a fast truck
           # to have passed over what it just cleared.
           grace: 0.5
+        },
+        # What is holding a car UP, as against what its wheels have found.
+        #
+        # The two are the same everywhere except on wreckage, and that one exception is
+        # what stranded cars. The wheel rays are blind to heaps on purpose -- otherwise a
+        # truck rides up a pile instead of going through it -- but the chassis is still
+        # solid to one, so a car that comes to rest on a heap is held up by something none
+        # of its wheels can see. Every driving system reads that as airborne: no traction,
+        # because engine force is applied at wheel contacts; no hop, because the hop is
+        # gated on wheel contact; no drift, because there is no speed. And it never ends,
+        # because a heap is a fixed collider. Measured on the pile the targets house
+        # leaves: two seconds of full throttle moved the car 0.0 m/s and twelve presses of
+        # the hop did nothing. Only the monster truck could leave, and only by flying.
+        support: {
+          # How far below the bodywork counts as resting on something, in metres. Measured
+          # from the chassis floor, whichever way up the car is.
+          #
+          # It can only ever find what the WHEELS are blind to -- anything they can see is
+          # theirs to report and is filtered back out -- so this does not need to be mean.
+          # What it is really deciding is how close a car skimming over a pile has to be
+          # before it is treated as sitting on it and starts crushing.
+          reach: 0.6,
+          # Damage per second a car's own weight does to the wreckage it is sitting on, so
+          # a car that lands on a pile sinks through it rather than perching. Applied to
+          # the one heap directly underneath and without spread: you go down through what
+          # is under you, you do not quietly clear a patch by parking on it. A heap of the
+          # worked example's depth is about 27 health, so this is roughly a third of a
+          # second per heap and a second or so to the ground.
+          crush: 90.0,
+          # The catch-all, for whatever else a car can come to rest on that its wheels
+          # cannot see. Nothing may hold a car for ever.
+          #
+          # How long it has to be completely unable to move -- no wheel in contact, and
+          # going nowhere in any direction -- before it is shaken loose. Comfortably longer
+          # than a jump: this must never fire on a car that is merely in the air.
+          unstick_after: 2.0,
+          # What counts as going nowhere, in m/s, measured in ALL THREE axes. The vertical
+          # is what keeps this off a car in mid-air: something falling is not stuck, and a
+          # car that is merely slow is not stuck either as long as its wheels are down.
+          unstick_speed: 0.4,
+          # How hard the shake is, as a multiple of the chassis's own weight, and how much
+          # of it goes forward rather than up. Straight up alone would drop the car back
+          # onto whatever it was stuck on.
+          unstick_impulse: 8.0,
+          unstick_forward: 0.35
         }
       }
     end
