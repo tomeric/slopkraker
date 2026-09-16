@@ -14,7 +14,7 @@ Two vehicles:
 - Fast Buggy with a Rocket Launcher, and a rear-mounted Bull Bar to destroy stuff while drifting.
 
 Currently:
-- Worlds are rows. Three are seeded — `flat`, `targets` and `street`; `/?world=<slug>` picks one.
+- Worlds are rows. Four are seeded — `flat`, `targets`, `street` and `hills`; `/?world=<slug>` picks one.
 - Buildings generate from a ~300 byte recipe into surfaces, and come apart by the cell:
   glass shatters, timber splinters, brick spalls, and a storey that loses what holds it
   up brings down everything above it — as solid pieces that fall and land, rather than
@@ -28,6 +28,11 @@ Currently:
   fewer than the one-house world's thirty-four**. It is deliberately not a city: past
   roughly a hundred buildings the inline spec and the up-front `InstancedMesh` allocation
   both want streaming, which is its own design.
+- `hills` is the first world whose ground is not a slab: four 200 m heightfield tiles
+  meeting at the spawn, generated at fixture load from `Game::Terrain::Hills`, fetched by
+  the client over `/worlds/:slug/:digest/tiles/:tx/:tz` and stood on as Rapier
+  heightfields. One house stands on its slope. The other three worlds stay flat on
+  purpose: their timing assertions are calibrated on flat ground.
 
 ## Commands
 
@@ -47,7 +52,7 @@ bin/rails test test/system/driving_test.rb       # one system test file
 `bin/ci` deliberately leaves system tests out (they need Chrome and take minutes). Run them
 by hand after touching anything in `app/javascript/game/`.
 
-Useful URLs while the server is up: `/?world=<slug>` picks the world (`flat`, `targets`, `street`),
+Useful URLs while the server is up: `/?world=<slug>` picks the world (`flat`, `targets`, `street`, `hills`),
 `/?vehicle=buggy` picks the vehicle, `/?quality=low` drops shadows and pixel ratio, `/?match=<name>`
 picks the ActionCable match. In-game: `G` toggles the debug overlay, `V` switches vehicle,
 `R` respawns, `H` hides the controls panel, `M` mutes.
@@ -95,10 +100,11 @@ client-side. These pairs must be changed together:
 | `Game::TurboBar` | `game/turbo_bar.js` |
 | `Game::DamageResolver` + `Part#armed?` | `game/damage.js` |
 | `Game::Building::Surface` (the grid) | `game/world/surface.js` |
+| `Game::Terrain::Sampler` / `Tile.interpolate` | `game/world/terrain.js` (`Terrain#heightAt`) |
 
-The Ruby side has unit tests under `test/models/game/`; the JS side is only covered indirectly by
-the browser tests. (Comments in those JS files mention a "parity system test" — no such test
-exists yet.)
+The Ruby side has unit tests under `test/models/game/`. `test/system/parity_test.rb` hands
+both sides of every pair the same cases — plus `Game::Explosion`'s curves — and holds them
+to the same answers; `game/parity.js` is the JS end of that and is used by nothing else.
 
 **`Game::Damage::Collapse` is deliberately NOT ported**, and the file opens with the reasoning
 because the temptation to port it will recur. An individual break is monotone and self-caused, so
@@ -319,6 +325,46 @@ positions derive from the recipe seed, clearing goes through `damage`/`breaks` a
   margin and 1534 → 1553 when the margin grew and went ragged; the street's twelve moved
   with it each time.
 
+### Terrain (`game/world/terrain.js`, `physics/terrain.js`, `render/terrain_view.js`)
+
+The ground of a world with `terrain_tiles` is a heightfield. Ruby's half —
+`Game::Terrain::{Frame, Tile, HeightsCodec, Sampler, TileBuilder, Manifest}` — encodes int16
+centimetres, rows north→south and columns west→east, and ships a manifest in
+`arena.terrain` (`null` for a flat world) with one **digested URL per tile**. The digest is
+the tile's own bytes, so the URL is exactly as immutable as the response says it is
+(`public, immutable, max-age` of a year). The client fetches every tile before boot,
+decodes each to one `Float32Array`, and builds the collider, the mesh and the sampler from
+that same array.
+
+- **Never use `PlaneGeometry` for terrain.** Rapier's heightfield is column-major and
+  splits every cell on the **anti**-diagonal (measured against the vendored build with a
+  Node spike, not read off docs); `PlaneGeometry` splits the other way, and the
+  disagreement is silent — the car rests above or sinks into ground that is not where it
+  is drawn. `terrainIndexBuffer` and `terrainVertex` are the two places the convention
+  lives, `physicsHeights` is the one transpose, and `__arenaTerrainProbe` proves the three
+  agree at runtime: `terrain_test.rb` surveys both triangles of every cell and both seams
+  and asserts `|physics − render| < 1e-3`, and also that the *other* diagonal would have
+  differed, so the survey is known to have teeth.
+- **A vertical ray exactly on a grid line can miss.** Measured on `hills`: a ray straight
+  down on 28 of the 79 row lines, or 28 of the 79 column lines, gets no hit from Rapier
+  anywhere along that line, while a centimetre off it hits — float32 rounding of the cell
+  index in parry's vertical-ray special case. A measure-zero quirk, not a height
+  disagreement; the survey keeps its seam probes a quarter metre off the perpendicular
+  lines, and a moving car's wheel rays are neither exactly vertical nor exactly on a line.
+- **Interpolation is the triangle, never bilinear**, in both languages
+  (`Tile.interpolate` ↔ `interpolate`). Bilinear is 80 cm off where terrain steps across a
+  cell; that is how props float.
+- **Everything that lies on the ground asks `ground(x, z)`** — rubble's `heapFrame`,
+  shards, remnants, the chase camera. It is `null` on a flat world and every taker
+  reproduces its old behaviour exactly when it is; the three flat worlds are bit-identical.
+- **Spawns and buildings carry their own `y`.** The hills fixture computes them from the
+  function; a house on a slope stands at the mean height under its corners, buried a little
+  uphill and clear a little downhill. That is a seeder concern, never a recipe field.
+- **The bounds walls reach 10 m below the lowest ground** (`min_cm` over the tiles), or the
+  valley under a wall standing on zero is open air.
+- **Nothing crosses the wire.** The server never samples terrain during play; `Sampler`
+  exists for tests and, later, the seeder.
+
 ### The engine loop (`app/javascript/game/engine.js`)
 
 Fixed-step accumulator at `rules.physics_hz` (120Hz), capped at `max_substeps`, with render
@@ -442,7 +488,7 @@ the full run for when the change has settled. The same goes for re-running a who
 chase one failure: run that file.
 
 Every system test says which world it needs — `visit_world("flat")`, `visit_world("targets")`,
-`visit_world("street")`.
+`visit_world("street")`, `visit_world("hills")`.
 The worlds are defined once in `test/fixtures` and loaded from there by `db/seeds.rb`, so a test
 and the browser cannot disagree about what is standing where. The suite runs at `quality: "low"`,
 which drops shadows and pixel ratio; that is the tier the timing assertions are calibrated on.
@@ -484,6 +530,10 @@ The engine exposes debug/test hooks on `window`:
 | `__arenaDraws` | `renderer.info.render.calls` — turns "did the render plan regress" into an assertion |
 | `__arenaQuality` | Which tier the engine actually settled on |
 | `__arenaDebugVisible`, `__arenaMasterGain` | Overlay / audio assertions |
+| `__arenaTerrainProbe` | `(x, z)` — `{ physics, render, sampled, other, delta }`: a downward raycast against the heightfield, barycentric interpolation over the drawn triangles, the client sampler, and what the *opposite* diagonal would say |
+| `__arenaTerrainHeight` | `(x, z)` — `Terrain#heightAt`, the ported sampler; `null` on a flat world |
+| `__arenaHeapGround` | `(piece, buildingId)` — `{ x, z, ground }`: where a heap was put down and the ground it was put on |
+| `__arenaParity` | `{ turboBar, damage, explosion, surface, terrain }` — the JS side of every ported pair, fed cases by `parity_test.rb` |
 
 Most system tests drive through `__arenaInput`; one test in `driving_test.rb` uses real key events
 so the binding layer stays covered. `ApplicationSystemTestCase#wait_for` polls for engine

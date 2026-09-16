@@ -38,6 +38,16 @@ splits. Rather than read Rust, a Node script drove the vendored `rapier3d-compat
   convention**, so the Ruby side needs no flip and the JS port is a straight transcription.
 - `RAPIER.HeightFieldFlags.FIX_INTERNAL_EDGES` exists and is set; it stops a body
   catching on the internal edges between triangles and does not change the triangulation.
+- **A vertical ray exactly on a grid line can miss** (found by the survey, not the spike).
+  On `hills`, a ray straight down on 28 of the 79 row lines, or 28 of the 79 column
+  lines, gets no hit from Rapier anywhere along that line, while a centimetre off it
+  hits, and the drawn triangles and the sampler agree with each other there. That is
+  float32 rounding of the cell index in parry's vertical-ray special case, which tests
+  one cell's two triangles and never falls back to the neighbour: a raycast quirk over a
+  measure-zero set, not a disagreement about height. The survey keeps its seam probes a
+  quarter metre off the perpendicular grid lines and says so. A moving car's wheel rays
+  are cast along the chassis's own down, so they are exactly vertical only on level
+  ground, and exactly on a grid line only by float coincidence.
 
 Our blob is rows north→south (row `i` runs with z), columns west→east (column `j` runs
 with x), row-major. So the physics array is the blob **transposed** into column-major,

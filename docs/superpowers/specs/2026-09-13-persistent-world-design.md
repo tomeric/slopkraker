@@ -3,9 +3,11 @@
 Date: 2026-09-13
 Status: partly implemented.
 
-- **Built:** §1 frame, §2 schema, §4 materials, §5 buildings, §9 destruction and debris,
-  §10 server-authoritative damage, §11 collapse.
-- **Not built:** §3 terrain heightfields, §6 chunk delivery over HTTP, §7 instanced
+- **Built:** §1 frame, §2 schema, §3 terrain heightfields (see
+  `2026-09-16-terrain-design.md`, which also records the parry diagonal as measured),
+  §4 materials, §5 buildings, §9 destruction and debris, §10 server-authoritative damage,
+  §11 collapse.
+- **Not built:** §6 chunk delivery over HTTP (the tile half of §6 is built), §7 instanced
   rendering and quality tiers beyond the existing `?quality=`, §8 promotion tiers.
 - **Revised during implementation:** §11's collapse rule (see the note in that section),
   and §10's `request_state`, which takes object ids rather than `{cx, cz}` because chunk
