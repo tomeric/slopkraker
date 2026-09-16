@@ -184,7 +184,7 @@ module Game
             # example at SHARE 0.2, 1.2 peaks at 1.7m, 1.5 at 1.9m, 1.8 at 2.0m. The blade
             # tops out around 1.3m, so 1.2 is the one where the middle of the pile is a
             # heap the blade breaks rather than a wall it stops against.
-            falloff: 1.2,
+            falloff: 1.6,
             # What is left at the rim, as a share of the peak. The dome must never reach
             # zero: a heap of no height is an invisible piece with a degenerate collider,
             # something you can neither see nor drive over nor clear. The edge of a pile

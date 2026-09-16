@@ -2,7 +2,8 @@ import * as THREE from "three"
 import { PROP_GROUPS } from "game/physics/groups"
 import { eachBuildingCell, materialAt, chunkMatrix } from "game/world/surface"
 import { tileSurface } from "game/world/chunking"
-import { rubbleMatrix, shapeFor, pileOrder, SHAPES } from "game/world/rubble"
+import { heapMatrix, heapFrame, heapFragments, fragmentMaterial, fragmentPool, shapeFor, pileOrder, SHAPES } from "game/world/rubble"
+import { baseMaterial } from "game/render/piece_meshes"
 import { absorb } from "game/damage"
 
 // One building, expanded from its surfaces into pieces that can be hit.
@@ -33,7 +34,7 @@ const ABSENT = 2
 const DORMANT = 3
 
 export class Building {
-  constructor({ RAPIER, world, spec, materials, meshes, colliderIndex, contactThreshold, spread = 0, debris = null, falling = null, grid = null, rules = {}, chunk = null, rubbleRules = null, onDamage = null }) {
+  constructor({ RAPIER, world, spec, materials, meshes, colliderIndex, contactThreshold, spread = 0, debris = null, falling = null, grid = null, rules = {}, chunk = null, rubbleRules = null, remnants = null, onDamage = null }) {
     this.spec = spec
     this.materials = materials
     this.meshes = meshes
@@ -46,6 +47,7 @@ export class Building {
     this.rules = rules
     this.chunkSize = chunk
     this.rubbleRules = rubbleRules || {}
+    this.remnants = remnants
     // How much wreckage is owed, and how many falling slabs are still to deliver it.
     this.pendingRubble = 0
     this.expectedSlabs = 0
@@ -73,6 +75,12 @@ export class Building {
     // floor slab, anything the generator left on the plain grid.
     this.blockOf = new Int32Array(count).fill(-1)
     this.blockCells = []
+    // For a heap: which pool and slot each of its chunks was drawn into. Undefined for
+    // everything that is not a heap, which is what `isHeap` tests.
+    this.fragments = new Array(count)
+    // Heaps still growing out of the ground, as { index, t }.
+    this.rising = []
+    this.rise = this.rubbleRules.rise ?? 0
 
     this.build(RAPIER, colliderIndex)
   }
@@ -81,8 +89,13 @@ export class Building {
     return this.state.length
   }
 
-  // Tallied first, because an InstancedMesh cannot grow once allocated.
-  static countMaterials(spec, into = new Map(), shapes = SHAPES) {
+  // Tallied first, because an InstancedMesh cannot grow once allocated. A heap counts its
+  // base lump AND every chunk sitting in it, each against the pool it will be drawn from,
+  // by running exactly the material draw the builder runs.
+  static countMaterials(spec, into = new Map(), rubbleRules = {}) {
+    const shapes = rubbleRules.shapes ?? SHAPES
+    const fragments = rubbleRules.fragments ?? 0
+
     for (const surface of spec.surfaces) {
       for (let row = 0; row < surface.rows; row += 1) {
         for (let col = 0; col < surface.cols; col += 1) {
@@ -91,6 +104,12 @@ export class Building {
 
           const pool = Building.poolName(surface, row, col, name, shapes)
           into.set(pool, (into.get(pool) || 0) + 1)
+          if (surface.kind !== "rubble" || !surface.mix) continue
+
+          for (let k = 0; k < fragments; k += 1) {
+            const chunk = fragmentPool(fragmentMaterial(surface, row, col, k, surface.mix))
+            into.set(chunk, (into.get(chunk) || 0) + 1)
+          }
         }
       }
     }
@@ -125,7 +144,7 @@ export class Building {
       // site does not read as the grid it is laid out on. Deterministic in the surface's
       // seed, which is what makes two players agree about where it is.
       const rubble = surface.kind === "rubble"
-      if (rubble) rubbleMatrix(surface, row, col, matrix, this.origin, this.rubbleRules)
+      if (rubble) heapMatrix(surface, row, col, matrix, this.origin, this.rubbleRules)
 
       this.matrices[index] = matrix.clone()
       // Keyed by material, not per surface: a glass window in a brick wall has to break
@@ -140,12 +159,14 @@ export class Building {
       this.slot[index] = this.meshes.add(this.pool[index], matrix)
       this.colliders[index] = this.createCollider(RAPIER, matrix, surface, name, index, colliderIndex)
 
-      // Built now and revealed later. The collider array and the instance pool are both
+      // Built now and revealed later. The collider array and the instance pools are both
       // allocated at boot and cannot grow, so the only way a heap can appear when a house
-      // comes down is for it to have been here, switched off, all along.
+      // comes down is for it to have been here, switched off, all along -- the lump and
+      // every chunk in it.
       if (rubble) {
+        this.fragments[index] = this.buildFragments(surface, row, col)
         this.state[index] = DORMANT
-        this.meshes.setVisible(this.pool[index], this.slot[index], false)
+        this.hideHeap(index)
         this.colliders[index]?.setEnabled(false)
         return
       }
@@ -183,6 +204,106 @@ export class Building {
       building: this, piece: index
     })
     return collider
+  }
+
+  // The chunks of the building's own material that sit in this heap, each added to its
+  // material's pool. Their transforms are not kept: they are recomputed from the seed
+  // whenever the heap is shown, which is what lets a heap rise and lets a cleared one hand
+  // its chunks on without holding six hundred matrices per house.
+  buildFragments(surface, row, col) {
+    const frame = heapFrame(surface, row, col, this.origin, this.rubbleRules, 1, FRAME)
+    const pools = []
+    const slots = []
+
+    heapFragments(surface, row, col, frame, surface.mix, this.materials, this.rubbleRules, (k, name, matrix) => {
+      const pool = fragmentPool(name)
+      pools.push(pool)
+      slots.push(this.meshes.add(pool, matrix))
+    })
+    return { pools, slots }
+  }
+
+  isHeap(index) {
+    return this.fragments[index] !== undefined
+  }
+
+  cellOf(index) {
+    const surface = this.spec.surfaces[this.surfaceOf[index]]
+    const local = index - surface.off
+    return { surface, row: Math.floor(local / surface.cols), col: local % surface.cols }
+  }
+
+  // Draw the heap at `grow` of its full height: the lump and every chunk, all derived from
+  // one frame so they rise together.
+  showHeap(index, grow = 1) {
+    const { surface, row, col } = this.cellOf(index)
+    heapMatrix(surface, row, col, HEAP_MATRIX, this.origin, this.rubbleRules, grow)
+    this.meshes.setVisible(this.pool[index], this.slot[index], true, HEAP_MATRIX)
+
+    const chunks = this.fragments[index]
+    if (!chunks) return
+    const frame = heapFrame(surface, row, col, this.origin, this.rubbleRules, grow, FRAME)
+    heapFragments(surface, row, col, frame, surface.mix, this.materials, this.rubbleRules, (k, name, matrix) => {
+      this.meshes.setVisible(chunks.pools[k], chunks.slots[k], true, matrix)
+    })
+  }
+
+  hideHeap(index) {
+    this.meshes.setVisible(this.pool[index], this.slot[index], false)
+    const chunks = this.fragments[index]
+    if (!chunks) return
+    for (let k = 0; k < chunks.slots.length; k += 1) {
+      this.meshes.setVisible(chunks.pools[k], chunks.slots[k], false)
+    }
+  }
+
+  // Damage darkening, over the lump and its chunks alike.
+  tintPiece(index, ratio) {
+    this.meshes.tint(this.pool[index], this.slot[index], ratio)
+    const chunks = this.fragments[index]
+    if (!chunks) return
+    for (let k = 0; k < chunks.slots.length; k += 1) {
+      this.meshes.tint(chunks.pools[k], chunks.slots[k], ratio)
+    }
+  }
+
+  // What a heap leaves when it is cleared: a few of its own chunks left lying to settle
+  // and fade, and a couple thrown as shards in their own materials. Both are its chunks,
+  // in the very places they were drawn.
+  clearHeap(index, away) {
+    const keep = this.rubbleRules.remnants?.keep ?? 0
+    const shards = this.rubbleRules.shards ?? 0
+    if (keep + shards === 0) return
+
+    const { surface, row, col } = this.cellOf(index)
+    const frame = heapFrame(surface, row, col, this.origin, this.rubbleRules, 1, FRAME)
+    heapFragments(surface, row, col, frame, surface.mix, this.materials, this.rubbleRules, (k, name, matrix) => {
+      if (k < keep) this.remnants?.add(this.meshes.shapeOf(fragmentPool(name)), name, matrix)
+      else if (k < keep + shards) this.debris?.spawn(matrix, name, { away, force: 0.6 })
+    })
+  }
+
+  // Heaps grow out of the ground rather than popping into it. The collider was enabled the
+  // moment the heap was revealed; only the drawing eases.
+  update(dt) {
+    for (let i = this.rising.length - 1; i >= 0; i -= 1) {
+      const heap = this.rising[i]
+      if (this.state[heap.index] !== INTACT) {
+        this.rising.splice(i, 1)
+        continue
+      }
+
+      heap.t += dt / this.rise
+      const t = Math.min(heap.t, 1)
+      this.showHeap(heap.index, 1 - (1 - t) * (1 - t))
+      if (t >= 1) this.rising.splice(i, 1)
+    }
+  }
+
+  // Which materials this heap's chunks are made of, one entry per chunk. For the tests:
+  // it is how "the wreckage is made of what the house was made of" becomes an assertion.
+  heapFragmentMaterials(index) {
+    return this.fragments[index]?.pools.map(baseMaterial) ?? []
   }
 
   assignBlock(index, surface, blockBase) {
@@ -293,7 +414,7 @@ export class Building {
 
     this.health[index] -= amount
     if (this.health[index] > 0) {
-      this.meshes.tint(this.pool[index], this.slot[index], this.health[index] / this.maxHealth[index])
+      this.tintPiece(index, this.health[index] / this.maxHealth[index])
       return 0
     }
 
@@ -327,12 +448,20 @@ export class Building {
     // clearing a street did not survive a reload.
     if (this.state[index] !== INTACT && this.state[index] !== DORMANT) return false
 
+    const wasStanding = this.state[index] === INTACT
     this.state[index] = BROKEN
-    // Shards before the piece goes: they are spawned from the transform the piece had,
-    // which is still on hand either way, but doing it in this order keeps the two reads of
-    // that matrix next to each other.
-    if (!carried && !silent) this.debris?.spawn(this.matrices[index], this.material[index], { away })
-    this.meshes.setVisible(this.pool[index], this.slot[index], false)
+    if (this.isHeap(index)) {
+      // A heap that was actually there leaves something behind; one cleared in some earlier
+      // session and applied silently, or never revealed at all, leaves nothing.
+      if (wasStanding && !silent) this.clearHeap(index, away)
+      this.hideHeap(index)
+    } else {
+      // Shards before the piece goes: they are spawned from the transform the piece had,
+      // which is still on hand either way, but doing it in this order keeps the two reads
+      // of that matrix next to each other.
+      if (!carried && !silent) this.debris?.spawn(this.matrices[index], this.material[index], { away })
+      this.meshes.setVisible(this.pool[index], this.slot[index], false)
+    }
     if (this.targets?.[index]) this.grid?.remove(this.targets[index])
     // Disabled, never removed. The handle stays valid, the registry stays consistent, and
     // restoring is the same call with the other argument.
@@ -462,8 +591,15 @@ export class Building {
 
     this.state[index] = INTACT
     this.health[index] = this.maxHealth[index]
-    this.meshes.setVisible(this.pool[index], this.slot[index], true, this.matrices[index])
-    this.meshes.tint(this.pool[index], this.slot[index], 1)
+    // Out of the ground rather than into being: drawn at nothing and grown in over `rise`.
+    // The collider is enabled at once, because what you can hit is not a matter of taste.
+    if (this.rise > 0) {
+      this.showHeap(index, 0)
+      this.rising.push({ index, t: 0 })
+    } else {
+      this.showHeap(index, 1)
+    }
+    this.tintPiece(index, 1)
     this.colliders[index]?.setEnabled(true)
     if (this.grid && this.matrices[index]) {
       this.matrices[index].decompose(POSITION, ROTATION, SCALE)
@@ -515,8 +651,9 @@ export class Building {
 
     this.state[index] = INTACT
     this.health[index] = this.maxHealth[index]
-    this.meshes.setVisible(this.pool[index], this.slot[index], true, this.matrices[index])
-    this.meshes.tint(this.pool[index], this.slot[index], 1)
+    if (this.isHeap(index)) this.showHeap(index, 1)
+    else this.meshes.setVisible(this.pool[index], this.slot[index], true, this.matrices[index])
+    this.tintPiece(index, 1)
     this.colliders[index]?.setEnabled(true)
     if (this.grid && this.matrices[index]) {
       this.matrices[index].decompose(POSITION, ROTATION, SCALE)
@@ -552,6 +689,8 @@ export class Building {
 const SINGLE_CELL = (index) => [ index ]
 
 const SLAB_MATRIX = new THREE.Matrix4()
+const HEAP_MATRIX = new THREE.Matrix4()
+const FRAME = {}
 
 const POSITION = new THREE.Vector3()
 const ROTATION = new THREE.Quaternion()

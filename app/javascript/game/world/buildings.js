@@ -3,7 +3,9 @@ import { PieceMeshes } from "game/render/piece_meshes"
 import { Patterns } from "game/fracture/patterns"
 import { Debris } from "game/render/debris"
 import { FallingPieces } from "game/world/falling_pieces"
-import { lumpGeometry, SHAPES } from "game/world/rubble"
+import { lumpGeometry, chunkGeometry, isFragmentPool, SHAPES } from "game/world/rubble"
+import { Remnants } from "game/render/remnants"
+import { baseMaterial } from "game/render/piece_meshes"
 
 // Every building in the world, and the instanced meshes they share.
 //
@@ -26,21 +28,33 @@ export class Buildings {
       RAPIER, world, scene, colliderIndex, materials, debris: this.debris,
       rules: spec.rules.collapse?.fall
     })
+    const rubbleRules = spec.rules.collapse?.rubble || {}
+    // Built whether or not there are buildings, for the same reason the falling pool is.
+    this.remnants = new Remnants({ scene, materials, rules: rubbleRules.remnants })
     if (specs.length === 0) return
 
     // Counted across every building first, because an InstancedMesh is allocated once at
-    // its final capacity and cannot grow afterwards.
-    const shapes = spec.rules.collapse?.rubble?.shapes ?? SHAPES
+    // its final capacity and cannot grow afterwards. A heap counts its lump and every
+    // chunk in it.
     const counts = new Map()
-    for (const building of specs) Building.countMaterials(building, counts, shapes)
+    for (const building of specs) Building.countMaterials(building, counts, rubbleRules)
     // Before allocate, and that ordering is the contract: a pool is handed its geometry
     // when its InstancedMesh is built and cannot be given a different one afterwards.
+    const shapes = rubbleRules.shapes ?? SHAPES
     for (let variant = 0; variant < shapes; variant += 1) {
       this.meshes.useShape(`rubble#${variant}`, lumpGeometry(variant))
     }
+    // One chunk shape per material that any building's wreckage is made of. The pool is
+    // named for the material, so its colour, opacity and health are the material's; only
+    // the shape is this file's.
+    for (const pool of counts.keys()) {
+      if (isFragmentPool(pool)) this.meshes.useShape(pool, chunkGeometry(materials[baseMaterial(pool)]?.chunk))
+    }
     this.meshes.allocate(counts)
     // Before the loop starts, so the first explosion is not also the first tessellation.
-    this.patterns.warm(counts.keys())
+    // By MATERIAL, not by pool: `rubble#3` and `brick#rubble` break as rubble and brick,
+    // and baking a pattern per pool was a dozen needless tessellations at boot.
+    this.patterns.warm(new Set([ ...counts.keys() ].map(baseMaterial)))
 
     for (const buildingSpec of specs) {
       const building = new Building({
@@ -51,7 +65,8 @@ export class Buildings {
         debris: this.debris,
         falling: this.falling,
         chunk: spec.rules.collapse?.fall?.chunk,
-        rubbleRules: spec.rules.collapse?.rubble,
+        rubbleRules,
+        remnants: this.remnants,
         grid,
         rules: spec.rules.damage,
         onDamage
@@ -66,6 +81,8 @@ export class Buildings {
   update(dt) {
     this.debris.update(dt)
     this.falling.update(dt)
+    this.remnants.update(dt)
+    for (const building of this.list) building.update(dt)
   }
 
   // Bodies, so their meshes are read back like any other simulated thing. Called from the
@@ -155,6 +172,11 @@ export class Buildings {
     return this.debris.count
   }
 
+  // Chunks left lying by cleared heaps, still visible. Zero once they have all faded.
+  get remnantCount() {
+    return this.remnants.count
+  }
+
   get pieceCount() {
     return this.list.reduce((total, building) => total + building.pieceCount, 0)
   }
@@ -185,6 +207,7 @@ export class Buildings {
     for (const building of this.list) building.dispose(colliderIndex)
     this.falling.dispose()
     this.debris.dispose()
+    this.remnants.dispose()
     this.patterns.dispose()
     this.meshes.dispose()
     this.list = []

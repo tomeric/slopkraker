@@ -33,7 +33,7 @@ module Game
         multipliers: { blade: 1.15, slam: 1.3 },
         fracture: { method: "voronoi", mode: "3D", fragments: 16, approximate: true },
         friction: 0.9,
-        chunk: { size: [ 0.55, 0.28, 0.30 ], vary: 0.45, jitter: 0.30 }
+        chunk: { size: [ 0.70, 0.32, 0.38 ], vary: 0.45, jitter: 0.30 }
       ),
 
       # Piers, lintels, anything that wants a rocket rather than a shove. The hardness is
@@ -44,7 +44,7 @@ module Game
         multipliers: { impact: 0.85, blast: 1.25, slam: 1.2 },
         fracture: { method: "voronoi", mode: "3D", fragments: 24, impact_radius: 0.35 },
         friction: 0.95, roughness: 0.95,
-        chunk: { size: [ 0.90, 0.35, 0.60 ], vary: 0.40, jitter: 0.25 }
+        chunk: { size: [ 1.10, 0.40, 0.70 ], vary: 0.40, jitter: 0.25 }
       ),
 
       # Interior partitions. Barely structural, and it should feel that way to drive
@@ -56,7 +56,7 @@ module Game
         multipliers: { impact: 1.3, blast: 1.4 },
         fracture: { method: "voronoi", mode: "2.5D", fragments: 12 },
         friction: 0.7,
-        chunk: { size: [ 0.70, 0.08, 0.50 ], vary: 0.40, jitter: 0.20 }
+        chunk: { size: [ 0.80, 0.08, 0.55 ], vary: 0.40, jitter: 0.20 }
       ),
 
       # Window frames, door leaves, roof structure. Splinters along the grain rather than
@@ -68,7 +68,7 @@ module Game
         multipliers: { blade: 1.4, bull_bar: 1.3 },
         fracture: { method: "simple", planes: { x: false, y: true, z: false }, fragments: 10 },
         friction: 0.75,
-        chunk: { size: [ 1.40, 0.14, 0.18 ], vary: 0.35, jitter: 0.08 }
+        chunk: { size: [ 1.60, 0.16, 0.20 ], vary: 0.35, jitter: 0.08 }
       ),
 
       # Goes on anything touching it, holds nothing up, and shatters into shards that are
@@ -92,7 +92,7 @@ module Game
         multipliers: { impact: 1.4, blast: 1.3 },
         fracture: { method: "voronoi", mode: "2.5D", fragments: 8 },
         friction: 0.8,
-        chunk: { size: [ 0.45, 0.05, 0.40 ], vary: 0.30, jitter: 0.20 }
+        chunk: { size: [ 0.50, 0.05, 0.45 ], vary: 0.30, jitter: 0.20 }
       ),
 
       # Dents rather than fragments. Present so there is something that simply will not

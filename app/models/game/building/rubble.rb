@@ -70,7 +70,7 @@ module Game
       # up the rim and ploughs the middle, and a rocket takes a bite out of it. At 0.6 the
       # middle stood four and a half metres tall and nothing got through it, which is the
       # opposite of wreckage you clear.
-      SHARE = 0.2
+      SHARE = 0.25
 
       # Only used by a building made of nothing, which cannot happen, but a zero depth
       # would make a heap with no height and no health at all.

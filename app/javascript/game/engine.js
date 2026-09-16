@@ -215,6 +215,14 @@ export class GameEngine {
     // would look exactly like this working.
     window.__arenaPieceMatrix = (piece, buildingId) =>
       this.buildings?.find(buildingId)?.matrices[piece]?.toArray() ?? null
+    // Which materials a heap's chunks are made of. "The wreckage is made of what the house
+    // was made of" is an assertion about this, and two players seeing the same chunks is
+    // an assertion about it agreeing across sessions.
+    window.__arenaHeapFragments = (piece, buildingId) =>
+      this.buildings?.find(buildingId)?.heapFragmentMaterials(piece) ?? []
+    // Chunks left lying by cleared heaps. Positive the moment a heap clears, zero once
+    // they have faded -- which is the whole of what clearing a heap is meant to look like.
+    window.__arenaRemnants = () => this.buildings?.remnantCount ?? 0
     window.__arenaRemotes = () => this.remotes?.size ?? 0
     window.__arenaReported = () => this.reporter?.sent ?? 0
     window.__arenaBuildingIds = () => this.buildings?.list.map((b) => b.id) ?? []
