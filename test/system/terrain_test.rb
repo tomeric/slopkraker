@@ -53,4 +53,63 @@ class TerrainTest < ApplicationSystemTestCase
     assert_operator clearance, :>, 0.2, "sank into the slope"
     assert_operator clearance, :<, 2.5, "floating above the slope"
   end
+
+  # The one hazard in the whole design, asserted rather than read off the Rust: the ground
+  # the wheels stand on is the ground that is drawn, on both triangles of every cell of
+  # every tile, across both seams, and at hundreds of points besides. `other` is what the
+  # opposite diagonal would have given, and the test insists it differs -- a survey that
+  # could not tell the two apart would pass whatever Rapier did.
+  test "the physics ground is the drawn ground, either side of every diagonal and across every seam" do
+    boot("terrain-probe")
+
+    survey = page.evaluate_script(<<~JS)
+      (function () {
+        const terrain = JSON.parse(document.querySelector('[data-arena-target="spec"]').textContent).arena.terrain
+        const step = terrain.height_step
+        const cells = terrain.height_n - 1
+        const size = terrain.tile_size
+        const points = []
+        for (const tile of terrain.tiles) {
+          const x0 = tile.tx * size, z0 = tile.tz * size
+          for (let i = 0; i < cells; i++) for (let j = 0; j < cells; j++) {
+            const x = x0 + j * step, z = z0 + i * step
+            points.push([ x + step / 3, z + step / 3 ])         // inside the first triangle
+            points.push([ x + 2 * step / 3, z + 2 * step / 3 ]) // inside the second
+          }
+        }
+        // Both seams: on the line and a centimetre either side, every half metre -- with the
+        // OTHER coordinate kept a quarter metre off the grid lines. Measured: a vertical ray
+        // exactly on 28 of the 79 row lines, or 28 of the 79 column lines, returns no hit from
+        // Rapier anywhere along that line (float32 rounding of the cell index in its
+        // vertical-ray special case), while a centimetre off it hits. That is a raycast
+        // quirk at a measure-zero set, not a disagreement about height, and a car's wheel
+        // rays are neither exactly vertical on a slope nor exactly on a grid line.
+        for (let s = -199.75; s < 200; s += 0.5) {
+          for (const d of [ -0.01, 0, 0.01 ]) { points.push([ d, s ]); points.push([ s, d ]) }
+        }
+        // A deterministic scatter, so a rerun sees the same points.
+        let seed = 12345
+        const next = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648
+        for (let k = 0; k < 500; k++) points.push([ -199 + next() * 398, -199 + next() * 398 ])
+
+        let count = 0, misses = 0, maxDelta = 0, maxTeeth = 0, maxSampled = 0, worst = null
+        for (const [ x, z ] of points) {
+          const p = window.__arenaTerrainProbe(x, z)
+          if (!p || p.physics === null || p.render === null) { misses++; continue }
+          count++
+          const d = Math.abs(p.delta)
+          if (d > maxDelta) { maxDelta = d; worst = { x, z, ...p } }
+          maxTeeth = Math.max(maxTeeth, Math.abs(p.other - p.render))
+          maxSampled = Math.max(maxSampled, Math.abs(p.sampled - p.render))
+        }
+        return { count, misses, maxDelta, maxTeeth, maxSampled, worst }
+      })()
+    JS
+
+    assert_equal 0, survey["misses"], "some probes found no ground"
+    assert_operator survey["count"], :>, 15_000
+    assert_operator survey["maxDelta"], :<, 1e-3, "physics and render disagree: #{survey['worst'].inspect}"
+    assert_operator survey["maxSampled"], :<, 1e-3, "the sampler disagrees with the drawn triangles"
+    assert_operator survey["maxTeeth"], :>, 0.02, "the other diagonal never differed, so this proves nothing"
+  end
 end

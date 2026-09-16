@@ -1,6 +1,8 @@
 import * as THREE from "three"
 import { loadRapier } from "game/rapier"
-import { loadTerrain } from "game/world/terrain"
+import { loadTerrain, renderHeightAt } from "game/world/terrain"
+import { castTerrain } from "game/physics/terrain"
+import { buildTerrainView } from "game/render/terrain_view"
 import { createRenderer, createScene, createCamera, disposeScene, qualityFor } from "game/render/scene"
 import { buildArenaView } from "game/render/arena_view"
 import { createPhysicsWorld } from "game/physics/world"
@@ -101,6 +103,7 @@ export class GameEngine {
     this.props = props
 
     this.arenaGroup = buildArenaView(this.scene, this.spec.arena)
+    if (terrain) this.terrainGroup = buildTerrainView(this.scene, terrain, this.spec.rules.terrain)
     this.propGrid = new SpatialGrid({ cellSize: 5 })
     this.trackProps()
 
@@ -271,6 +274,10 @@ export class GameEngine {
     // The ground under a point as the client samples it -- the port of Tile.interpolate.
     // Null on a world without terrain.
     window.__arenaTerrainHeight = (x, z) => (this.terrain ? this.terrain.heightAt(x, z) : null)
+    // The proof that the ground the wheels stand on is the ground that is drawn: a physics
+    // ray against the heightfield versus the drawn triangles versus the sampler, plus what
+    // the OTHER diagonal would have said, so a test can show it would have noticed.
+    window.__arenaTerrainProbe = (x, z) => this.probeTerrain(x, z)
     window.__arenaQuality = this.qualityName
 
     this.running = true
@@ -389,6 +396,19 @@ export class GameEngine {
     this.stats.muted = this.muted
     this.onMuteChange(this.muted)
     return this.muted
+  }
+
+  // Three answers to "how high is the ground here" that must agree, and a fourth that must
+  // not: the physics ray, the drawn triangles, the sampler, and the opposite diagonal.
+  probeTerrain(x, z) {
+    if (!this.terrain || !this.terrain.tileAt(x, z)) return null
+
+    const physics = castTerrain(this.RAPIER, this.world, this.colliderIndex, this.terrain, x, z)
+    const render = renderHeightAt(this.terrain, x, z)
+    const sampled = this.terrain.heightAt(x, z)
+    const other = this.terrain.otherDiagonalAt(x, z)
+    const delta = physics === null || render === null ? null : physics - render
+    return { physics, render, sampled, other, delta }
   }
 
   spawnVehicle(key) {
