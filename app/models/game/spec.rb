@@ -335,6 +335,18 @@ module Game
           # onto whatever it was stuck on.
           unstick_impulse: 8.0,
           unstick_forward: 0.35
+        },
+        # How the ground is drawn and how it grips, for a world whose ground is a
+        # heightfield. The colours blend from `low` to `high` by height and toward `steep`
+        # by slope, between the two gradients in `steep` (rise over run). The relief is
+        # read by the driver mostly through those colours and the lighting, so they are
+        # tuning and not decoration.
+        terrain: {
+          friction: 1.1,
+          restitution: 0.05,
+          roughness: 0.95,
+          colours: { low: "#4d6b3c", high: "#8b8a6a", steep: "#6b655c" },
+          steep: [ 0.15, 0.35 ]
         }
       }
     end

@@ -307,7 +307,10 @@ module Game
           stick_sensitivity: 2.4,
           base_fov: 70.0,
           speed_fov_gain: 0.32,
-          max_fov: 94.0
+          max_fov: 94.0,
+          # How far the camera is kept above the terrain under it, in metres. On a downhill
+          # slope the camera behind the car would otherwise sink under the ground.
+          ground_clearance: 1.2
         }
       end
 

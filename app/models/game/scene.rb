@@ -10,9 +10,9 @@ module Game
   # Nothing here touches the database. A World builds a Scene; a Scene never looks a
   # World up.
   class Scene
-    attr_reader :name, :gravity, :bodies, :props, :buildings, :spawns, :bounds
+    attr_reader :name, :gravity, :bodies, :props, :buildings, :spawns, :bounds, :terrain
 
-    def initialize(name:, gravity:, bodies: [], props: [], buildings: [], spawns: [], bounds: nil)
+    def initialize(name:, gravity:, bodies: [], props: [], buildings: [], spawns: [], bounds: nil, terrain: nil)
       @name = name
       @gravity = gravity
       @bodies = bodies
@@ -20,6 +20,7 @@ module Game
       @buildings = buildings
       @spawns = spawns
       @bounds = bounds
+      @terrain = terrain
     end
 
     def to_spec
@@ -32,7 +33,11 @@ module Game
         # Surfaces, not pieces. Twenty or so of these describe what would otherwise be
         # two hundred and fifty boxes, and the client expands the grid itself.
         buildings: buildings,
-        spawns: spawns.map(&:to_spec)
+        spawns: spawns.map(&:to_spec),
+        # The heightfield manifest, or null. Tiles are fetched, not inlined: an imported
+        # town is a dozen or more of them and they belong in an immutable cache, not in
+        # every page load.
+        terrain: terrain&.to_spec
       }
     end
   end

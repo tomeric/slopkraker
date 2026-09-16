@@ -36,6 +36,7 @@ class BootTest < ApplicationSystemTestCase
     assert_equal [ 0.0, -9.81, 0.0 ], spec["arena"]["gravity"]
     assert_includes spec["arena"]["bodies"].map { |body| body["kind"] }, "ground"
     assert_not_empty spec["arena"]["spawns"]
+    assert_nil spec["arena"]["terrain"], "flat is flat"
   end
 
   # The world parameter has to actually select a world, or every test that thinks it is

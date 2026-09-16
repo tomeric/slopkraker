@@ -429,4 +429,54 @@ class Game::SpecTest < ActiveSupport::TestCase
     assert_operator remnants.fetch(:linger), :>, 0, "the pieces should lie there a moment"
     assert_operator remnants.fetch(:fade), :>, 0, "the pieces should fade rather than blink out"
   end
+
+  # A world without tiles is flat and says so with null, and every client that exists
+  # today boots on exactly that.
+  test "a world without tiles ships no terrain" do
+    assert_nil Game::Spec.for(worlds(:flat)).to_spec[:arena][:terrain]
+  end
+
+  # The client fetches the tiles; the spec says where. The frame comes along whole because
+  # it is what an imported world will need and it costs six keys.
+  test "a world with tiles ships its frame and one url per tile" do
+    terrain = Game::Spec.for(worlds(:hills)).to_spec[:arena][:terrain]
+
+    assert_equal %i[srid origin tile_size height_step height_n chunk_size tiles].sort, terrain.keys.sort
+    assert_equal 200, terrain[:tile_size]
+    assert_equal 5, terrain[:height_step]
+    assert_equal 41, terrain[:height_n]
+    assert_equal 4, terrain[:tiles].length
+    terrain[:tiles].each do |tile|
+      assert_match(%r{\A/worlds/hills/[0-9a-f]{12}/tiles/-?\d+/-?\d+\z}, tile[:url])
+      assert_operator tile[:min_cm], :<, tile[:max_cm]
+    end
+  end
+
+  # Two tiles with different bytes must never share a URL -- that is the entire immutable
+  # caching argument -- and the version has to move when the ground does.
+  test "each tile has its own url and the version depends on them" do
+    spec = Game::Spec.for(worlds(:hills)).to_spec
+    urls = spec[:arena][:terrain][:tiles].map { |tile| tile[:url] }
+
+    assert_equal urls.uniq, urls
+    assert_not_equal Game::Spec.for(worlds(:flat)).to_spec[:version], spec[:version]
+  end
+
+  test "the terrain's look and feel are numbers in the rules" do
+    terrain = Game::Spec.default_rules.fetch(:terrain)
+
+    assert_operator terrain[:friction], :>, 0
+    assert_equal %i[low high steep], terrain[:colours].keys
+    terrain[:colours].each_value { |colour| assert_match(/\A#[0-9a-f]{6}\z/, colour) }
+    from, to = terrain[:steep]
+    assert_operator from, :<, to
+  end
+
+  # On a downhill slope the camera behind the car goes under the ground and looks up
+  # through a single-sided world. How far above the ground it is kept is a feel number.
+  test "every camera keeps clear of the ground" do
+    spec[:vehicles].each_value do |vehicle|
+      assert_operator vehicle[:camera][:ground_clearance], :>, 0, "#{vehicle[:key]} camera"
+    end
+  end
 end

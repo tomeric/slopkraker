@@ -296,7 +296,8 @@ module Game
           stick_sensitivity: 2.4,
           base_fov: 72.0,
           speed_fov_gain: 0.38,
-          max_fov: 100.0
+          max_fov: 100.0,
+          ground_clearance: 1.0
         }
       end
 

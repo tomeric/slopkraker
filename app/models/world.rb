@@ -58,8 +58,18 @@ class World < ApplicationRecord
       bodies: world_objects.where(kind: "static").order(:id).map(&:to_static_body),
       props: world_objects.where(kind: "prop").order(:id).map(&:to_prop),
       buildings: world_objects.where(kind: "building").order(:id).map(&:to_building),
-      spawns: spawn_points
+      spawns: spawn_points,
+      terrain: terrain
     )
+  end
+
+  # Nil for a flat world. The client reads null as "the ground is the static bodies", which
+  # is every world that existed before terrain.
+  def terrain
+    tiles = terrain_tiles.order(:tz, :tx)
+    return nil if tiles.empty?
+
+    Game::Terrain::Manifest.new(frame: frame, tiles: tiles.map(&:manifest_entry))
   end
 
   def spawn_points

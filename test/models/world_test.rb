@@ -84,4 +84,16 @@ class WorldTest < ActiveSupport::TestCase
     assert_operator corners.max - corners.min, :>, 0.5, "the site is too level to prove anything"
     assert_in_delta corners.sum / 4, house.y, 0.01
   end
+
+  test "a world without tiles has no terrain manifest" do
+    assert_nil worlds(:flat).terrain
+  end
+
+  test "a world with tiles hands out a manifest carrying its frame" do
+    manifest = worlds(:hills).terrain
+
+    assert_equal 4, manifest.tiles.length
+    assert_equal 41, manifest.to_spec[:height_n]
+    assert_equal 4, manifest.to_spec[:tiles].length
+  end
 end
