@@ -16,8 +16,11 @@ const FRICTION = 0.72
 const SPIN = 7.0
 
 export class Debris {
-  constructor({ scene, materials, patterns, cap = 260, rules = {} }) {
+  constructor({ scene, materials, patterns, cap = 260, rules = {}, ground = null }) {
     this.scene = scene
+    // (x, z) => the height of the ground there, or null on a world whose ground is flat
+    // at zero.
+    this.ground = ground
     this.materials = materials
     this.patterns = patterns
     this.cap = cap
@@ -176,9 +179,10 @@ export class Debris {
         continue
       }
 
-      // The ground is flat at y = 0 for every world that exists so far. When terrain
-      // arrives this samples the heightfield instead.
-      const rest = piece.mesh.scale.length() * 0.25
+      // The ground under the shard, re-read as it moves: a shard kicked down a slope lands
+      // lower than it started. Zero without terrain, as every flat world's ground is.
+      const floor = this.ground ? this.ground(piece.mesh.position.x, piece.mesh.position.z) : 0
+      const rest = floor + piece.mesh.scale.length() * 0.25
       const remaining = Math.min(piece.life, 1)
 
       // Its last second, once it is down: sink into the ground rather than blinking out.

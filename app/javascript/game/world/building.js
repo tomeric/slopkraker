@@ -34,7 +34,7 @@ const ABSENT = 2
 const DORMANT = 3
 
 export class Building {
-  constructor({ RAPIER, world, spec, materials, meshes, colliderIndex, contactThreshold, spread = 0, debris = null, falling = null, grid = null, rules = {}, chunk = null, rubbleRules = null, remnants = null, onDamage = null }) {
+  constructor({ RAPIER, world, spec, materials, meshes, colliderIndex, contactThreshold, spread = 0, debris = null, falling = null, grid = null, rules = {}, chunk = null, rubbleRules = null, remnants = null, ground = null, onDamage = null }) {
     this.spec = spec
     this.materials = materials
     this.meshes = meshes
@@ -48,6 +48,9 @@ export class Building {
     this.chunkSize = chunk
     this.rubbleRules = rubbleRules || {}
     this.remnants = remnants
+    // "The ground here", for laying heaps on. Null on a flat world, where the rubble
+    // surface's own plane says where the ground is.
+    this.ground = ground
     // How much wreckage is owed, and how many falling slabs are still to deliver it.
     this.pendingRubble = 0
     this.expectedSlabs = 0
@@ -144,7 +147,7 @@ export class Building {
       // site does not read as the grid it is laid out on. Deterministic in the surface's
       // seed, which is what makes two players agree about where it is.
       const rubble = surface.kind === "rubble"
-      if (rubble) heapMatrix(surface, row, col, matrix, this.origin, this.rubbleRules)
+      if (rubble) heapMatrix(surface, row, col, matrix, this.origin, this.rubbleRules, 1, this.ground)
 
       this.matrices[index] = matrix.clone()
       // Keyed by material, not per surface: a glass window in a brick wall has to break
@@ -213,7 +216,7 @@ export class Building {
   // whenever the heap is shown, which is what lets a heap rise and lets a cleared one hand
   // its chunks on without holding six hundred matrices per house.
   buildFragments(surface, row, col) {
-    const frame = heapFrame(surface, row, col, this.origin, this.rubbleRules, 1, FRAME)
+    const frame = heapFrame(surface, row, col, this.origin, this.rubbleRules, 1, FRAME, this.ground)
     const pools = []
     const slots = []
 
@@ -229,6 +232,16 @@ export class Building {
     return this.fragments[index] !== undefined
   }
 
+  // The ground a heap was placed on and where, so a test can hold it against the terrain
+  // under that point. Null for anything that is not a heap.
+  heapGround(index) {
+    if (!this.isHeap(index)) return null
+
+    const { surface, row, col } = this.cellOf(index)
+    const frame = heapFrame(surface, row, col, this.origin, this.rubbleRules, 1, FRAME, this.ground)
+    return { x: frame.x, z: frame.z, ground: frame.ground }
+  }
+
   cellOf(index) {
     const surface = this.spec.surfaces[this.surfaceOf[index]]
     const local = index - surface.off
@@ -239,12 +252,12 @@ export class Building {
   // one frame so they rise together.
   showHeap(index, grow = 1) {
     const { surface, row, col } = this.cellOf(index)
-    heapMatrix(surface, row, col, HEAP_MATRIX, this.origin, this.rubbleRules, grow)
+    heapMatrix(surface, row, col, HEAP_MATRIX, this.origin, this.rubbleRules, grow, this.ground)
     this.meshes.setVisible(this.pool[index], this.slot[index], true, HEAP_MATRIX)
 
     const chunks = this.fragments[index]
     if (!chunks) return
-    const frame = heapFrame(surface, row, col, this.origin, this.rubbleRules, grow, FRAME)
+    const frame = heapFrame(surface, row, col, this.origin, this.rubbleRules, grow, FRAME, this.ground)
     heapFragments(surface, row, col, frame, surface.mix, this.materials, this.rubbleRules, (k, name, matrix) => {
       this.meshes.setVisible(chunks.pools[k], chunks.slots[k], true, matrix)
     })
@@ -278,7 +291,7 @@ export class Building {
     if (keep + shards === 0) return
 
     const { surface, row, col } = this.cellOf(index)
-    const frame = heapFrame(surface, row, col, this.origin, this.rubbleRules, 1, FRAME)
+    const frame = heapFrame(surface, row, col, this.origin, this.rubbleRules, 1, FRAME, this.ground)
     heapFragments(surface, row, col, frame, surface.mix, this.materials, this.rubbleRules, (k, name, matrix) => {
       if (k < keep) this.remnants?.add(this.meshes.shapeOf(fragmentPool(name)), name, matrix)
       else if (k < keep + shards) this.debris?.spawn(matrix, name, { away, force: 0.6 })

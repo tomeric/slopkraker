@@ -23,7 +23,7 @@ import { cellMatrix, materialAt } from "game/world/surface"
 // `grow` is how far risen the heap is, 0..1. A heap arrives by growing out of the ground
 // rather than popping into it, and everything about it -- the lump's height, the chunks'
 // size and where they sit -- is derived from this one frame, so the two cannot come apart.
-export function heapFrame(surface, row, col, origin, rules = {}, grow = 1, out = FRAME) {
+export function heapFrame(surface, row, col, origin, rules = {}, grow = 1, out = FRAME, ground = null) {
   const jitter = rules.jitter ?? 0.55
   const scale = rules.scale ?? 0.85
   const spread = rules.spread ?? 0.55
@@ -63,9 +63,12 @@ export function heapFrame(surface, row, col, origin, rules = {}, grow = 1, out =
   const buried = sink[0] + ((noise(surface, row, col, 59) + 1) / 2) * (sink[1] - sink[0])
   const height = Math.max(SCALE.z * heap * grow, MIN_HEIGHT)
 
-  // Cells are centred on their surface plane, and Ruby lifted the plane by half the depth
-  // so a heap would sit ON the ground: the ground is therefore half a thickness below.
-  out.ground = POSITION.y - Math.abs(surface.t) / 2
+  // Where the ground is under THIS heap, at its jittered position. With terrain that is a
+  // sample of the heightfield, so a pile on a slope lies on the slope. Without it, cells
+  // are centred on their surface plane and Ruby lifted the plane by half the depth so a
+  // heap would sit ON the ground: the ground is therefore half a thickness below, which is
+  // exactly what every flat world did before terrain existed.
+  out.ground = ground ? ground(POSITION.x, POSITION.z) : POSITION.y - Math.abs(surface.t) / 2
   out.x = POSITION.x
   out.z = POSITION.z
   out.y = out.ground + height / 2 - height * buried
@@ -86,8 +89,8 @@ export function heapFrame(surface, row, col, origin, rules = {}, grow = 1, out =
 // over forty invisible ramps; the lean lives on the chunks, where it reads as dropped
 // rather than laid. Local z is world up -- lumpGeometry is squashed along z -- so the
 // rotation carries local z onto world y before the yaw is applied.
-export function heapMatrix(surface, row, col, target, origin, rules = {}, grow = 1) {
-  const frame = heapFrame(surface, row, col, origin, rules, grow)
+export function heapMatrix(surface, row, col, target, origin, rules = {}, grow = 1, ground = null) {
+  const frame = heapFrame(surface, row, col, origin, rules, grow, FRAME, ground)
 
   ROTATION.setFromAxisAngle(WORLD_UP, frame.yaw).multiply(Z_UP)
   return target.compose(

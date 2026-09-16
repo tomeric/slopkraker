@@ -14,7 +14,9 @@ import { baseMaterial } from "game/render/piece_meshes"
 // instead of one per material per house, which is the difference that decides whether a
 // city is possible at all.
 export class Buildings {
-  constructor({ RAPIER, world, scene, spec, materials, colliderIndex, grid, onDamage = null }) {
+  // `ground` is (x, z) => height for a world with terrain, or null; everything that lays
+  // something on the ground takes it and reproduces its flat-world behaviour without it.
+  constructor({ RAPIER, world, scene, spec, materials, colliderIndex, grid, ground = null, onDamage = null }) {
     this.list = []
     this.byId = new Map()
 
@@ -22,7 +24,7 @@ export class Buildings {
     this.meshes = new PieceMeshes(scene, materials)
     this.patterns = new Patterns(materials)
     const debrisRules = spec.rules.debris || {}
-    this.debris = new Debris({ scene, materials, patterns: this.patterns, rules: debrisRules })
+    this.debris = new Debris({ scene, materials, patterns: this.patterns, rules: debrisRules, ground })
     // Built whether or not there are buildings, so the engine can wire its drain hook and
     // its telemetry to something real on a world made of nothing but ground.
     this.falling = new FallingPieces({
@@ -31,7 +33,7 @@ export class Buildings {
     })
     const rubbleRules = spec.rules.collapse?.rubble || {}
     // Built whether or not there are buildings, for the same reason the falling pool is.
-    this.remnants = new Remnants({ scene, materials, rules: rubbleRules.remnants, sweep: debrisRules })
+    this.remnants = new Remnants({ scene, materials, rules: rubbleRules.remnants, sweep: debrisRules, ground })
     if (specs.length === 0) return
 
     // Counted across every building first, because an InstancedMesh is allocated once at
@@ -70,6 +72,7 @@ export class Buildings {
         remnants: this.remnants,
         grid,
         rules: spec.rules.damage,
+        ground,
         onDamage
       })
       this.list.push(building)

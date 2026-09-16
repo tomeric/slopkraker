@@ -15,8 +15,11 @@ import * as THREE from "three"
 // Purely local. Nothing about a remnant crosses the wire: the heap it came from is what
 // is shared, and by the time one of these exists that heap is already gone everywhere.
 export class Remnants {
-  constructor({ scene, materials, rules = {}, sweep = {}, cap = 96 }) {
+  constructor({ scene, materials, rules = {}, sweep = {}, cap = 96, ground = null }) {
     this.scene = scene
+    // (x, z) => the height of the ground there, or null on a world whose ground is flat
+    // at zero.
+    this.ground = ground
     this.materials = materials
     this.settleTime = rules.settle ?? 0.35
     this.lingerTime = rules.linger ?? 2.0
@@ -64,10 +67,10 @@ export class Remnants {
     entry.kickedAge = 0
     entry.from = mesh.position.y
     entry.opacity = template.opacity
-    // Where it comes to rest once the lump under it has gone: on the ground, a little into
-    // it. Local y is the chunk's thickness and stays roughly up, so that is its height.
-    // The ground is flat at y = 0 for every world so far, as it is for the shards.
-    entry.rest = Math.max(mesh.scale.y, 0.05) * 0.35
+    // How far above the ground it comes to rest: local y is the chunk's thickness and
+    // stays roughly up, so a little over a third of that. The ground itself is sampled
+    // where the chunk is, every frame, because a kicked one moves.
+    entry.lift = Math.max(mesh.scale.y, 0.05) * 0.35
     entry.depth = mesh.scale.length() * 0.6
     this.live.push(entry)
     return entry
@@ -82,7 +85,7 @@ export class Remnants {
     mesh.receiveShadow = false
     this.scene.add(mesh)
     return {
-      mesh, age: 0, from: 0, rest: 0, depth: 0, opacity: 1,
+      mesh, age: 0, from: 0, lift: 0, depth: 0, opacity: 1,
       kicked: false, kickedAge: 0, velocity: new THREE.Vector3(), spin: new THREE.Vector3()
     }
   }
@@ -140,6 +143,12 @@ export class Remnants {
     this.kicked += 1
   }
 
+  // Where this chunk comes to rest: the ground under it, plus its own lift.
+  restOf(entry) {
+    const at = entry.mesh.position
+    return (this.ground ? this.ground(at.x, at.z) : 0) + entry.lift
+  }
+
   // Settle, linger, then fade while sinking. The sink is deliberately not a scale fade:
   // the chunk's scale is what gives it its shape, and shrinking it would turn a plank back
   // into a cube on its way out.
@@ -148,6 +157,7 @@ export class Remnants {
       const entry = this.live[i]
       const mesh = entry.mesh
       entry.age += dt
+      const rest = this.restOf(entry)
 
       // Kicked: it flies, tumbles and fades out over `kicked_life`, whatever stage of
       // settling or lingering it was at.
@@ -161,8 +171,8 @@ export class Remnants {
 
         entry.velocity.y += GRAVITY * dt
         mesh.position.addScaledVector(entry.velocity, dt)
-        if (mesh.position.y < entry.rest) {
-          mesh.position.y = entry.rest
+        if (mesh.position.y < rest) {
+          mesh.position.y = rest
           entry.velocity.y = 0
         }
         SPIN_STEP.set(entry.spin.x * dt, entry.spin.y * dt, entry.spin.z * dt)
@@ -174,13 +184,13 @@ export class Remnants {
 
       if (entry.age < this.settleTime) {
         const t = ease(entry.age / this.settleTime)
-        mesh.position.y = entry.from + (entry.rest - entry.from) * t
+        mesh.position.y = entry.from + (rest - entry.from) * t
         continue
       }
 
       const fading = entry.age - this.settleTime - this.lingerTime
       if (fading < 0) {
-        mesh.position.y = entry.rest
+        mesh.position.y = rest
         continue
       }
       if (fading >= this.fadeTime) {
@@ -190,7 +200,7 @@ export class Remnants {
 
       const f = fading / this.fadeTime
       mesh.material.opacity = entry.opacity * (1 - f)
-      mesh.position.y = entry.rest - entry.depth * f
+      mesh.position.y = rest - entry.depth * f
     }
   }
 

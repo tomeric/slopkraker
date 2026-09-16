@@ -130,6 +130,7 @@ export class GameEngine {
       RAPIER, world, scene: this.scene, spec: this.spec,
       materials: this.spec.materials, colliderIndex: this.colliderIndex,
       grid: this.propGrid,
+      ground: this.ground,
       onDamage: (id, piece, raw, kind) => this.reporter.report(id, piece, raw, kind)
     })
 
@@ -278,6 +279,9 @@ export class GameEngine {
     // ray against the heightfield versus the drawn triangles versus the sampler, plus what
     // the OTHER diagonal would have said, so a test can show it would have noticed.
     window.__arenaTerrainProbe = (x, z) => this.probeTerrain(x, z)
+    // Where a heap was put down and on what ground. "The wreckage lies on the slope" is a
+    // claim about this against __arenaTerrainHeight at the same point.
+    window.__arenaHeapGround = (piece, buildingId) => this.buildings?.find(buildingId)?.heapGround(piece) ?? null
     window.__arenaQuality = this.qualityName
 
     this.running = true

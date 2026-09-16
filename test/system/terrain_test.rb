@@ -112,4 +112,50 @@ class TerrainTest < ApplicationSystemTestCase
     assert_operator survey["maxSampled"], :<, 1e-3, "the sampler disagrees with the drawn triangles"
     assert_operator survey["maxTeeth"], :>, 0.02, "the other diagonal never differed, so this proves nothing"
   end
+
+  # Two ground-floor walls, which is what it takes to lose a storey. Damage rather than
+  # break, so the report reaches the server and a collapse is actually decided.
+  def wreck_ground_floor(building)
+    page.execute_script(<<~JS, building)
+      const id = arguments[0]
+      const spec = window.__arenaBuildingSpec(id)
+      const walls = spec.surfaces.filter(s => s.kind === "wall" && s.storey === 0)
+      for (const s of walls.slice(0, 2)) {
+        for (let i = s.off; i < s.off + s.cols * s.rows; i++) window.__arenaDamagePiece(i, 5000, id)
+      }
+    JS
+  end
+
+  # The house stands on a slope and its wreckage has to lie on that slope, not on a plane
+  # at the height the house was built at. Every standing heap reports the ground it was
+  # placed on; that ground has to be the terrain under it, and across the site those
+  # grounds have to actually differ -- on a level site this test would prove nothing.
+  test "a house on a slope leaves its wreckage on the slope" do
+    boot("terrain-rubble")
+    building = page.evaluate_script("window.__arenaBuildingIds()[0]")
+    wreck_ground_floor(building)
+
+    wait_for(timeout: 25, message: "the house never finished coming down") do
+      page.evaluate_script("window.__arenaFalling()").zero? &&
+        page.evaluate_script("window.__arenaRubble().dormant").zero?
+    end
+
+    heaps = page.evaluate_script(<<~JS, building)
+      (function (id) {
+        const s = window.__arenaBuildingSpec(id).surfaces.find(x => x.kind === "rubble")
+        const out = []
+        for (let i = s.off; i < s.off + s.cols * s.rows; i++) {
+          if (!window.__arenaPieceState(i, id).standing) continue
+          const g = window.__arenaHeapGround(i, id)
+          out.push([ g.ground, window.__arenaTerrainHeight(g.x, g.z) ])
+        }
+        return out
+      })(arguments[0])
+    JS
+
+    assert_operator heaps.length, :>, 10, "the house left almost nothing"
+    heaps.each { |ground, terrain| assert_in_delta terrain, ground, 1e-3 }
+    grounds = heaps.map(&:first)
+    assert_operator grounds.max - grounds.min, :>, 0.3, "the site is level; this proves nothing"
+  end
 end
