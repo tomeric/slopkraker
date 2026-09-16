@@ -38,22 +38,63 @@ class Game::Building::RubbleTest < ActiveSupport::TestCase
     end
   end
 
-  test "the grid covers the footprint and a margin round it in coarse cells" do
+  test "the grid covers the footprint and a margin round it in coarse cells, centred" do
     set = surface
     margin = Game::Building::Rubble::MARGIN
+    cell = Game::Building::Rubble::CELL
 
     assert_equal :rubble, set.kind
-    assert_equal 8, set.cols, "12m of footprint plus #{margin}m either side, in 2m cells"
-    assert_equal 10, set.rows, "15m of footprint plus #{margin}m either side, rounded up"
-    assert_in_delta(-margin, set.origin.x, 1e-9, "the grid starts a margin before the walls")
-    assert_in_delta(-margin, set.origin.z, 1e-9)
+    assert_equal 9, set.cols, "12m of footprint plus #{margin}m either side, in 2m cells"
+    assert_equal 11, set.rows, "15m of footprint plus #{margin}m either side, rounded up"
+    # Whole cells overshoot the grown box; the overshoot is split between the two sides.
+    assert_in_delta(-(set.cols * cell - 12.0) / 2, set.origin.x, 1e-9, "the grid is not centred on the footprint")
+    assert_in_delta(-(set.rows * cell - 15.0) / 2, set.origin.z, 1e-9)
   end
 
-  # Enough to make the site a job, few enough that the job is a pleasure. Eighty, now that
-  # the wreckage skirts the walls: every cell of the grown grid is within reach of a
-  # rectangular footprint's edge.
-  test "a house leaves roughly eighty piles" do
-    assert_in_delta 80, pile_count(surface), 10
+  # Enough to make the site a job, few enough that the job is a pleasure. The footprint's
+  # own cells plus a ragged skirt: more than the footprint alone would hold, fewer than
+  # the whole grown grid, because the far cells of the skirt thin out.
+  test "a house leaves a footprint's worth of piles and a ragged skirt" do
+    count = pile_count(surface)
+    set = surface
+
+    assert_operator count, :>, (12 * 15) / Game::Building::Rubble::CELL**2, "no skirt at all"
+    assert_operator count, :<, set.cols * set.rows, "the skirt reaches every cell, so its edge is the grid's"
+  end
+
+  # The point of drawing the reach per cell. Around the outer ring of the grown grid some
+  # cells hold a heap and some do not, so the outline is ragged rather than the grid's own
+  # rectangle -- while the first ring beyond the walls is always covered, so the skirt
+  # never opens a gap against the pile itself.
+  #
+  # The whole ring and not one row of it: the grid is centred on the footprint in whole
+  # cells, so one axis's outer row can sit further out than the other's, and a row far
+  # enough out is legitimately empty end to end.
+  test "the skirt is ragged at its edge and solid against the walls" do
+    set = surface
+    footprint = recipe.footprint
+
+    ring = []
+    set.rows.times do |row|
+      set.cols.times do |col|
+        next unless row.zero? || col.zero? || row == set.rows - 1 || col == set.cols - 1
+
+        ring << (set.material_at(row, col).name == :rubble)
+      end
+    end
+    assert ring.include?(true) && ring.include?(false),
+           "the outer ring is #{ring.all? ? "solid" : "empty"} all the way round"
+
+    set.rows.times do |row|
+      set.cols.times do |col|
+        x = set.origin.x + (col + 0.5) * Game::Building::Rubble::CELL
+        z = set.origin.z + (row + 0.5) * Game::Building::Rubble::CELL
+        next if Game::Building::Rubble.distance_to_ring(footprint, x, z) > Game::Building::Rubble::MARGIN * Game::Building::Rubble::REACH_FLOOR
+        next if Game::Building::Rubble.contains?(footprint, x, z)
+
+        assert_equal :rubble, set.material_at(row, col).name, "a gap in the skirt right against the walls at #{x}, #{z}"
+      end
+    end
   end
 
   # The whole reason positions agree in multiplayer without a byte on the wire. Every
@@ -133,8 +174,8 @@ class Game::Building::RubbleTest < ActiveSupport::TestCase
       l_shaped.cols.times do |col|
         next unless l_shaped.material_at(row, col).name == :rubble
 
-        x = -margin + (col + 0.5) * cell
-        z = -margin + (row + 0.5) * cell
+        x = l_shaped.origin.x + (col + 0.5) * cell
+        z = l_shaped.origin.z + (row + 0.5) * cell
         refute(x > 6 + margin && z > 6 + margin, "a pile landed deep in the notch of the L at #{x}, #{z}")
         skirted += 1 if x > 6 && z > 6
       end

@@ -73,16 +73,27 @@ module Game
       # would make a heap with no height and no health at all.
       MINIMUM_DEPTH = 0.25
 
-      # How far past the walls the wreckage spreads, in metres. A building does not fall
+      # How far past the walls the wreckage can spread, in metres. A building does not fall
       # neatly into its own outline: the walls topple outward and the pile skirts the
       # footprint, and a pile that stopped dead at the line of the walls read as a house
       # that had sunk into its own cellar. The grid covers the footprint grown by this on
       # every side, and a cell holds a heap when its centre is inside the footprint or
-      # within this of one of its edges -- so an L-shaped house skirts its notch as well as
+      # within REACH of one of its edges -- so an L-shaped house skirts its notch as well as
       # its outside, and rubble still has no business out on the road.
       #
-      # Changing it changes piece_count for every building, so it comes with a reseed.
-      MARGIN = 2.0
+      # Changing it changes piece_count for every building. Update the stored counts in
+      # place rather than reseeding: a reseed replaces every world row, hand-made ones
+      # included, and orphans the matches that were played on them.
+      MARGIN = 3.0
+
+      # How far the skirt actually reaches at a given cell, as a share of MARGIN, drawn per
+      # cell from the seed between this and one. A skirt that reached the full margin
+      # everywhere had a dead straight edge, because every cell of the grown grid held a
+      # heap and the outline was the grid. Drawn per cell, the far cells thin out raggedly
+      # -- a cell two metres out is covered about half the time, one at three almost never
+      # -- while the first metre beyond the walls is always covered, so the skirt never
+      # opens a gap against the pile itself.
+      REACH_FLOOR = 0.35
 
       EAST = Vector3.new(1, 0, 0)
       SOUTH = Vector3.new(0, 0, 1)
@@ -96,6 +107,10 @@ module Game
         gaps = gaps(recipe, cols, rows)
         piles = cols * rows - gaps.length
         depth = depth_for(built, piles * CELL * CELL)
+        # Centred on the footprint: the grid is whole cells, so it overshoots the grown
+        # box, and the overshoot is split between the two sides rather than all on one.
+        origin_x = recipe.min_x - (cols * CELL - recipe.width) / 2.0
+        origin_z = recipe.min_z - (rows * CELL - recipe.depth) / 2.0
 
         [ Surface.new(
           kind: :rubble,
@@ -104,7 +119,7 @@ module Game
           # Lifted by half its depth so a heap SITS ON the ground. Cells are centred on
           # their surface plane, which is right for a wall -- its thickness straddles the
           # line its origin describes -- and buries a heap to its waist.
-          origin: Vector3.new(recipe.min_x - MARGIN, depth / 2.0, recipe.min_z - MARGIN),
+          origin: Vector3.new(origin_x, depth / 2.0, origin_z),
           u: EAST,
           v: SOUTH,
           width: cols * CELL,
@@ -244,13 +259,22 @@ module Game
       end
 
       # Whether the wreckage reaches this cell: its centre, in world coordinates, is inside
-      # the footprint ring or within MARGIN of one of its edges. A building is rarely a
-      # rectangle, and the skirt follows its outline rather than its bounding box.
+      # the footprint ring or within this cell's own reach of one of its edges. A building
+      # is rarely a rectangle, and the skirt follows its outline rather than its bounding
+      # box. The reach is drawn per cell from the seed, which is what makes the skirt
+      # ragged -- and deterministic, so every client and the server agree which heaps exist.
       def self.covered?(recipe, row, col)
-        x = recipe.min_x - MARGIN + (col + 0.5) * CELL
-        z = recipe.min_z - MARGIN + (row + 0.5) * CELL
+        cols = cells(recipe.width + 2 * MARGIN)
+        rows = cells(recipe.depth + 2 * MARGIN)
+        x = recipe.min_x - (cols * CELL - recipe.width) / 2.0 + (col + 0.5) * CELL
+        z = recipe.min_z - (rows * CELL - recipe.depth) / 2.0 + (row + 0.5) * CELL
 
-        contains?(recipe.footprint, x, z) || distance_to_ring(recipe.footprint, x, z) <= MARGIN
+        contains?(recipe.footprint, x, z) || distance_to_ring(recipe.footprint, x, z) <= reach(recipe.seed, row, col)
+      end
+
+      # A different salt from the density draw, or the two would agree cell for cell.
+      def self.reach(seed, row, col)
+        MARGIN * (REACH_FLOOR + (1.0 - REACH_FLOOR) * draw(seed + 977, row, col))
       end
 
       # How far a point is from the nearest edge of the footprint.

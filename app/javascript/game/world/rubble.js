@@ -244,12 +244,18 @@ function centreDistance(surface, row, col) {
   return Math.min(1, Math.hypot(dx, dy) * 2)
 }
 
-// The dome never reaches zero. At the corners (1 - d) is exactly 0, and a heap of zero
-// height is an invisible piece with a degenerate collider -- something you can neither see
-// nor drive over nor clear. The edge of a pile still has debris on it; there is just not
-// much of it.
+// A bell, not a cone. The profile used to be (1 - d) to a power, which is very nearly a
+// straight line from the peak to the rim, and the silhouette of the pile was a triangle
+// with dead straight sides. A cosine bell is rounded on top and concave at the foot, which
+// is the shape a pile of anything loose actually takes; `falloff` raises it to a power to
+// set how steep the shoulders are.
+//
+// The dome never reaches zero. At the rim the bell is exactly 0, and a heap of zero height
+// is an invisible piece with a degenerate collider -- something you can neither see nor
+// drive over nor clear. The edge of a pile still has debris on it; there is just not much.
 function dome(surface, row, col, falloff, edge) {
-  return edge + (1 - edge) * Math.pow(1 - centreDistance(surface, row, col), falloff)
+  const bell = (1 + Math.cos(Math.PI * centreDistance(surface, row, col))) / 2
+  return edge + (1 - edge) * Math.pow(bell, falloff)
 }
 
 // The mean of the dome across the heaps this surface actually holds, so dividing by it

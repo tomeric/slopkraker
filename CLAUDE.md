@@ -237,20 +237,28 @@ positions derive from the recipe seed, clearing goes through `damage`/`breaks` a
   obstacle.** Because the wheel rays pass through heaps and the blade breaks whatever it
   meets, how tall the pile stands no longer decides whether the truck gets through, so
   `SHARE` is free to say what a fallen house looks like: 0.75, which on the worked example
-  averages about 1.2 m over the ground the wreckage covers and mounds to some three metres
+  averages about 1.3 m over the ground the wreckage covers and mounds to some three metres
   in the middle. At 0.25 it peaked at 1.75 m, which was a pile for a bungalow under a
   twelve-metre ridge. The dome's `falloff` is 1.6 and volume conserving (normalised by its
   own mean over the heaps), so the material Ruby derived is neither created nor destroyed,
   only mounded.
-- **The wreckage skirts the walls.** `Rubble::MARGIN` (2 m) grows the grid past the
-  footprint's bounding box on every side, and a cell holds a heap when its centre is inside
-  the footprint or within the margin of one of its edges (`covered?`), so an L-shaped house
-  skirts its notch as well as its outside and nothing lands on the road. A pile that stopped
-  dead at the line of the walls read as a house that had sunk into its own cellar. The depth
-  is the kept volume over the ground the heaps actually cover, not over the footprint.
-  **Changing `MARGIN` or `CELL` changes `piece_count` for every building** — the fixtures
-  carry the counts by hand, `world_summary_test` checks them, and the dev database needs
-  `bin/rails db:seed`.
+- **The wreckage skirts the walls, raggedly.** `Rubble::MARGIN` (3 m) grows the grid past
+  the footprint's bounding box on every side, centred in whole cells, and a cell holds a
+  heap when its centre is inside the footprint or within that cell's own **reach** of one of
+  its edges (`covered?`). The reach is drawn per cell from the seed between
+  `REACH_FLOOR × MARGIN` and `MARGIN`, so the first metre beyond the walls is always covered
+  and the far cells thin out — which is what stops the pile's outline being the grid's own
+  rectangle. An L-shaped house skirts its notch as well as its outside, and nothing lands
+  on the road. The depth is the kept volume over the ground the heaps actually cover, not
+  over the footprint. **Changing `MARGIN`, `REACH_FLOOR` or `CELL` changes `piece_count`
+  for every building** — the fixtures carry the counts by hand and `world_summary_test`
+  checks them. Fix the dev database by updating `piece_count` **in place** from
+  `surface_set.piece_count`; a reseed replaces every world row, hand-made ones included,
+  and orphans the matches played on them.
+- **The profile is a cosine bell, not a cone.** `(1 - d)^falloff` is nearly a straight line
+  from peak to rim, and the silhouette was a triangle with dead straight sides. The bell is
+  rounded on top and concave at the foot; `falloff` raises it to a power. Still normalised
+  by its own mean over the heaps, so the volume is conserved.
 - **Heaps arrive as the pieces carrying them land**, not when the collapse is decided, and
   each one **rises out of the ground** over `rules.collapse.rubble.rise` (the collider is
   enabled at once; only the drawing eases, from `Building#update`). A collapse works out
@@ -285,8 +293,9 @@ positions derive from the recipe seed, clearing goes through `damage`/`breaks` a
 - **`piece_count` grows, so a stale database is a real failure mode.** Rubble was appended
   and nothing renumbered, but a row holding an old count rejects every rubble index. After
   pulling a change to the grid, reseed or update `piece_count` from `surface_set.piece_count`.
-  The worked example went 1454 → 1502 when rubble arrived and 1502 → 1534 when it grew its
-  margin; the street's twelve moved with it.
+  The worked example went 1454 → 1502 when rubble arrived, 1502 → 1534 when it grew a
+  margin and 1534 → 1553 when the margin grew and went ragged; the street's twelve moved
+  with it each time.
 
 ### The engine loop (`app/javascript/game/engine.js`)
 

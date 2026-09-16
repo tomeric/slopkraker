@@ -171,21 +171,22 @@ module Game
             # ramps; the lean moved to the chunks, which is where a heap reads as dropped
             # rather than laid.
             tilt: 0.28,
-            # How sharply the pile falls away from its middle, as the exponent of a dome.
+            # How sharply the pile falls away from its middle, as the exponent of a cosine
+            # bell. A bell and not a cone: the old (1 - d) power was very nearly a straight
+            # line from peak to rim and the pile's silhouette was a triangle with dead
+            # straight sides. A bell is rounded on top and concave at the foot, which is the
+            # shape loose material takes.
             #
             # This is what makes wreckage a PILE rather than a carpet, and it costs nothing:
             # the profile is normalised so that its mean over the heaps is exactly one, so
-            # the same material is simply put where a pile actually puts it. On this house
-            # the centre goes from 1.5m to about 3m and the edges thin to a third of a
-            # metre -- which also leaves the perimeter more driveable than it was, because
-            # the material moved inward off it.
+            # the same material is simply put where a pile actually puts it.
             #
-            # Higher is steeper. Measured on the worked example at SHARE 0.25 the tallest
-            # heap on screen tops out at 1.75m, after the lump's own sink. Flatter than
-            # this read as a rug of chunks rather than a pile; steeper thins the rim to
-            # nothing. The truck's wheel rays pass through heaps, so the height is a
-            # picture rather than an obstacle: the blade breaks whatever it meets.
-            falloff: 1.6,
+            # Higher is steeper. Measured on the worked example at SHARE 0.75 over its
+            # ragged skirt: 0.8 peaks at 2.8m on screen, 1.0 at 3.2m, 1.3 at 3.7m, 1.6 at
+            # 4.2m, after the lump's own sink. The height is a picture and not an obstacle
+            # -- the wheel rays pass through heaps and the blade breaks whatever it meets --
+            # so this is purely what a fallen three-storey house should look like.
+            falloff: 1.0,
             # What is left at the rim, as a share of the peak. The dome must never reach
             # zero: a heap of no height is an invisible piece with a degenerate collider,
             # something you can neither see nor drive over nor clear. The edge of a pile

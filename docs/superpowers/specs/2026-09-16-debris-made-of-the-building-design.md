@@ -223,3 +223,16 @@ building (the worked example 1502 → 1534), which is why the fixtures and the d
 moved with it. The photographs come from
 `SHOTS=1 bin/rails test test/system/shots_test.rb -n /wreckage/` and land in `tmp/shots/`.
 
+## Third pass, same day: straight edges
+
+With every cell of the grown grid holding a heap, the pile's outline was the grid's own
+rectangle, and with a `(1 - d)^1.6` profile its silhouette was a cone with straight sides.
+
+- **A ragged reach.** `MARGIN` is 3 m and each cell's reach is drawn from the seed between
+  `REACH_FLOOR` (0.35) of it and all of it, so the first metre past the walls is always
+  covered and cells two or three metres out thin away. The grid is centred on the
+  footprint in whole cells. Worked example: 75 heaps of a 9 × 11 grid, 1553 pieces.
+- **A cosine bell.** `dome()` is now `((1 + cos πd) / 2)^falloff` with `falloff` 1.0:
+  rounded top, concave foot. On the worked example the peak is about 3.2 m on screen.
+- The dev database's counts were updated in place this time, not reseeded.
+

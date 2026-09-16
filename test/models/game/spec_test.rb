@@ -346,9 +346,10 @@ class Game::SpecTest < ActiveSupport::TestCase
     assert rubble, "the rubble drawing rules never shipped"
     assert_operator rubble.fetch(:jitter), :>, 0
     assert_operator rubble.fetch(:tilt), :>, 0, "heaps that cannot lean read as paving"
-    # A pile, not a carpet: the profile has to actually fall away from its middle, and it
-    # must never reach zero or the rim becomes invisible pieces with degenerate colliders.
-    assert_operator rubble.fetch(:falloff), :>, 1.0
+    # A pile, not a carpet: the profile is a cosine bell raised to this, so any positive
+    # exponent falls away from its middle -- and it must never reach zero at the rim or the
+    # rim becomes invisible pieces with degenerate colliders.
+    assert_operator rubble.fetch(:falloff), :>, 0.0
     assert_operator rubble.fetch(:edge), :>, 0.0
     assert_operator rubble.fetch(:edge), :<, 0.5
 
