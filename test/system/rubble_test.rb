@@ -116,7 +116,9 @@ class RubbleTest < ApplicationSystemTestCase
   # it and discard each other's traffic as their own echo.
   #
   # Compares the heaps' TRANSFORMS and not merely which indices exist. Identical indices in
-  # different positions would look exactly like this feature working and would not be.
+  # different positions would look exactly like this feature working and would not be. And
+  # the chunks in each heap, by material: two players have to see the same plank in the
+  # same heap, because the chunks are the picture.
   test "two players see the same heaps in the same places" do
     seen = {}
 
@@ -138,7 +140,7 @@ class RubbleTest < ApplicationSystemTestCase
             for (let i = s.off; i < s.off + s.cols * s.rows; i++) {
               if (!window.__arenaPieceState(i, id).standing) continue
               const m = window.__arenaPieceMatrix(i, id)
-              out.push([ i ].concat(m.map(v => Math.round(v * 1000) / 1000)))
+              out.push([ i ].concat(m.map(v => Math.round(v * 1000) / 1000), window.__arenaHeapFragments(i, id)))
             }
             return out
           })(arguments[0])
@@ -266,5 +268,53 @@ class RubbleTest < ApplicationSystemTestCase
                     "than the rubble"
     assert_operator measured["tallest"], :>, 1.0,
                     "the deepest rubble is only #{measured["tallest"].round(2)}m"
+  end
+
+  # The picture, as an assertion. A heap is drawn from chunks of what the house was made of,
+  # so over the whole site the chunks are brick and timber and tile, not one drab material.
+  test "the wreckage is made of what the house was made of" do
+    building = boot("rubble-materials")
+    wreck_storey(building, 0)
+    wait_for_the_dust_to_settle
+
+    materials = page.evaluate_script(<<~JS, building)
+      (function (id) {
+        const s = window.__arenaBuildingSpec(id).surfaces.find(x => x.kind === "rubble")
+        const seen = {}
+        for (let i = s.off; i < s.off + s.cols * s.rows; i++) {
+          if (!window.__arenaPieceState(i, id).standing) continue
+          for (const name of window.__arenaHeapFragments(i, id)) seen[name] = (seen[name] || 0) + 1
+        }
+        return seen
+      })(arguments[0])
+    JS
+
+    assert_operator materials.keys.length, :>=, 3, "the wreckage is one material: #{materials.inspect}"
+    assert_includes materials.keys, "brick", "a brick house left no brick"
+    assert_includes materials.keys, "timber"
+    assert_equal "brick", materials.max_by { |_, count| count }.first,
+                 "a house that is mostly brick should leave mostly brick: #{materials.inspect}"
+  end
+
+  # Requirement five, end to end: clearing a heap leaves a few chunks lying, and they are
+  # gone again once they have settled, lingered and faded.
+  test "clearing a heap leaves a few chunks that fade away" do
+    building = boot("rubble-remnants")
+    wreck_storey(building, 0)
+    wait_for_the_dust_to_settle
+
+    pile = a_standing_pile(building)
+    assert_operator pile, :>=, 0, "no standing heap to clear"
+    assert_equal 0, page.evaluate_script("window.__arenaRemnants()"), "remnants before anything was cleared"
+
+    page.execute_script("window.__arenaDamagePiece(arguments[0], 5000, arguments[1])", pile, building)
+    assert_operator page.evaluate_script("window.__arenaRemnants()"), :>, 0,
+                    "clearing a heap left nothing lying"
+
+    remnants = Game::Spec.default_rules.dig(:collapse, :rubble, :remnants)
+    lifetime = remnants[:settle] + remnants[:linger] + remnants[:fade]
+    wait_for(timeout: lifetime + 5, message: "the remnants never faded") do
+      page.evaluate_script("window.__arenaRemnants()").zero?
+    end
   end
 end

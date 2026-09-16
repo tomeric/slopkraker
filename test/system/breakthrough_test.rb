@@ -43,6 +43,45 @@ class BreakthroughTest < ApplicationSystemTestCase
       "#{run["after"].round(1)} m/s out)"
   end
 
+  # Requirement three, for the truck. A collapsed house's wreckage is something the truck
+  # clears THROUGH rather than climbs or stops against: the wheel rays pass through the
+  # heaps, the blade breaks the ones tall enough to meet it, and the truck comes out the
+  # far side still moving, having cleared some of them on the way.
+  #
+  # Asserted as arrival rather than as a speed profile, because arrival is what the driver
+  # sees and a speed sampled from Ruby is a lottery. The margin is the whole house: the
+  # pile spans z 8..23 and the truck has to be past 24. Measured when this was written: in
+  # at 13.7 m/s, never below 12 across the pile, nineteen heaps cleared, out in 4.5s.
+  # Before the wheel rays were told to ignore heaps it rode up onto the rim, cleared none,
+  # and stalled on top of the mound.
+  test "the truck ploughs through a fallen house's wreckage" do
+    building = page.evaluate_script("window.__arenaBuildingIds()[0]")
+    page.execute_script(<<~JS, building)
+      const id = arguments[0]
+      const spec = window.__arenaBuildingSpec(id)
+      const walls = spec.surfaces.filter(s => s.kind === "wall" && s.storey === 0)
+      for (const s of walls.slice(0, 2)) {
+        for (let i = s.off; i < s.off + s.cols * s.rows; i++) window.__arenaDamagePiece(i, 5000, id)
+      }
+    JS
+    wait_for(timeout: 25, message: "the house never came down") do
+      page.evaluate_script("window.__arenaFalling() === 0 && window.__arenaRubble().dormant === 0")
+    end
+    assert_operator page.evaluate_script("window.__arenaRubble().standing"), :>, 0, "nothing to plough through"
+
+    page.execute_script("window.__arenaPlace = { x: #{FRONT_X}, y: 2.0, z: -14, yaw: 0 }")
+    sleep 1.0
+    page.execute_script("window.__arenaInput = { throttle: 1 }")
+
+    wait_for(timeout: 12, message: "the truck never came out the far side of the wreckage") do
+      page.evaluate_script("window.__arena.z") > 24
+    end
+    page.execute_script("window.__arenaInput = null")
+
+    assert_operator page.evaluate_script("window.__arenaRubble().cleared"), :>, 0,
+                    "the truck crossed the site without clearing a single heap"
+  end
+
   private
     # Sampled from inside the page at 5ms. Selenium round trips are slower than the
     # breakthrough itself: by the time a poll from Ruby lands, the truck has either driven
