@@ -166,9 +166,10 @@ module Game
             # adjacent lumps at randomly different heights, and they stepped against each
             # other instead of running together into one mass.
             sink: [ 0.1, 0.22 ],
-            # How far a heap leans off level. A heap is not a paving slab, and this is what
-            # stops it reading as one -- it was the last thing making them look laid rather
-            # than dropped.
+            # How far a CHUNK leans off level. The base lump is level now, because the
+            # collider is sized from it and forty leaned colliders are forty invisible
+            # ramps; the lean moved to the chunks, which is where a heap reads as dropped
+            # rather than laid.
             tilt: 0.28,
             # How sharply the pile falls away from its middle, as the exponent of a dome.
             #
@@ -179,12 +180,11 @@ module Game
             # metre -- which also leaves the perimeter more driveable than it was, because
             # the material moved inward off it.
             #
-            # Higher is steeper. Softened once SHARE doubled: the height now comes from
-            # having the material rather than from concentrating it, and a gentle profile
-            # over a lot of debris reads as ONE BROAD MOUND where a steep one over the same
-            # material would be a spike. Measured at SHARE 0.6 with every cell filled:
-            # 1.2 peaks at 3.8m, 1.8 at 4.5m, 2.5 at 5.1m.
-            falloff: 1.8,
+            # Higher is steeper. Gentle now that the pile is low: measured on the worked
+            # example at SHARE 0.2, 1.2 peaks at 1.7m, 1.5 at 1.9m, 1.8 at 2.0m. The blade
+            # tops out around 1.3m, so 1.2 is the one where the middle of the pile is a
+            # heap the blade breaks rather than a wall it stops against.
+            falloff: 1.2,
             # What is left at the rim, as a share of the peak. The dome must never reach
             # zero: a heap of no height is an invisible piece with a degenerate collider,
             # something you can neither see nor drive over nor clear. The edge of a pile
@@ -205,7 +205,28 @@ module Game
             # unchanged. BOUNDED BY THE SAME GRID as spread, and for the same reason: it
             # narrows an axis, so too much of it reaches under the spacing and reopens the
             # holes spread was tightened to close. The test covers both together.
-            aspect: 0.15
+            aspect: 0.15,
+            # How many chunks of the building's own material sit in and on each heap. Fixed
+            # per heap because the instanced pools are allocated once at boot and cannot
+            # grow; rim heaps get the same number, smaller. Fourteen on forty-two heaps is
+            # about six hundred instances for a house, spread over one pool per material.
+            fragments: 14,
+            # How long a revealed heap takes to rise out of the ground, in seconds. The
+            # collider is there at once; only the drawing eases. Zero pops.
+            rise: 0.45,
+            # What clearing a heap does with its chunks: `keep` of them are left lying where
+            # they were, settle onto the ground over `settle`, lie there for `linger`, then
+            # fade out over `fade` while sinking away. `shards` more are thrown as debris in
+            # their own materials, so the impact reads in the colours of what was hit. Both
+            # are drawn from the heap's own chunks, so together they cannot exceed
+            # `fragments`.
+            shards: 2,
+            remnants: {
+              keep: 3,
+              settle: 0.35,
+              linger: 2.0,
+              fade: 1.5
+            }
           }
         },
         impact_force_threshold: 2000.0,

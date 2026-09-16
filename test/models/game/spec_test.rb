@@ -378,4 +378,22 @@ class Game::SpecTest < ActiveSupport::TestCase
     assert_operator rubble.fetch(:sink).max, :<=, 0.65
     assert_operator rubble.fetch(:sink).min, :>=, 0.0
   end
+
+  # How a heap is populated, how it arrives and what it leaves. All tuning, all in Ruby.
+  test "the client is told how many chunks a heap holds and what clearing one leaves" do
+    rubble = Game::Spec.default_rules.dig(:collapse, :rubble)
+
+    assert_kind_of Integer, rubble.fetch(:fragments)
+    assert_operator rubble.fetch(:fragments), :>, 0, "a heap of nothing is a lump"
+    assert_operator rubble.fetch(:rise), :>=, 0
+    assert_kind_of Integer, rubble.fetch(:shards)
+
+    remnants = rubble.fetch(:remnants)
+    assert_operator remnants.fetch(:keep), :>=, 1, "clearing a heap has to leave something"
+    assert_operator remnants.fetch(:keep) + rubble.fetch(:shards), :<=, rubble.fetch(:fragments),
+                    "a heap cannot leave more chunks than it had"
+    assert_operator remnants.fetch(:settle), :>=, 0
+    assert_operator remnants.fetch(:linger), :>, 0, "the pieces should lie there a moment"
+    assert_operator remnants.fetch(:fade), :>, 0, "the pieces should fade rather than blink out"
+  end
 end
