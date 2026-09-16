@@ -76,6 +76,12 @@ class World < ApplicationRecord
     )
   end
 
+  # "What is the ground height here?" for tests and seeders. The client has its own port
+  # of this, and the parity test holds the two to the same answer.
+  def sampler(fallback: 0.0)
+    Game::Terrain::Sampler.new(frame: frame, tiles: terrain_tiles.map(&:tile), fallback: fallback)
+  end
+
   private
     def grids_nest
       return if tile_size.to_i.zero?

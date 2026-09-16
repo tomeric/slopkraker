@@ -6,9 +6,10 @@
 # whenever the camber would have decided the result. A test that says what ground it
 # wants gets a straight answer.
 #
-# Neither of these carries terrain rows. A world with no tile for a point samples its
-# fallback height, which for flat ground is the whole answer -- so nothing binary has to
-# go in a fixture.
+# flat, targets and street carry no terrain rows. A world with no tile for a point samples
+# its fallback height, which for flat ground is the whole answer. hills is the one that
+# does, and its rows are generated from a named function in terrain_tiles.yml rather than
+# checked in as bytes -- see there.
 
 flat:
   slug: flat
@@ -51,3 +52,22 @@ street:
     - position: [ 0.0, 2.0, -12.0 ]
       yaw: 0.0
   content_digest: streetworld1
+
+# The ground is not flat. Four 200m heightfield tiles from Game::Terrain::Hills, meeting
+# at the origin so both seams run through the middle where the tests drive, and one house
+# standing on a slope. The spawn is on the hilltop: every term of the function is a cosine,
+# so the gradient there is zero and the car sits still until it is driven.
+#
+# tile_size is 200 rather than the default 500 so that four tiles cover the world exactly
+# rather than a square kilometre of it; chunk_size is 100 because 125 does not divide 200.
+hills:
+  slug: hills
+  name: Hills
+  bounds: [ -200, -200, 200, 200 ]
+  tile_size: 200
+  height_step: 5
+  chunk_size: 100
+  spawns:
+    - position: [ 0.0, <%= (Game::Terrain::Hills.height_at(0.0, 0.0) + 2.0).round(2) %>, 0.0 ]
+      yaw: 0.0
+  content_digest: hillsworld001

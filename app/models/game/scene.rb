@@ -36,12 +36,4 @@ module Game
       }
     end
   end
-
-  # Where a player starts, and which way they are pointed. Yaw matters: a spawn facing a
-  # wall is a spawn nobody can drive out of.
-  Spawn = Struct.new(:position, :yaw, keyword_init: true) do
-    def to_spec
-      { position: position.to_a, yaw: yaw.to_f }
-    end
-  end
 end

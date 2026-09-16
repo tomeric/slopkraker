@@ -6,7 +6,7 @@
 # spec version digest.
 require "active_record/fixtures"
 
-FIXTURES = %w[worlds world_objects].freeze
+FIXTURES = %w[worlds terrain_tiles world_objects].freeze
 
 ActiveRecord::FixtureSet.create_fixtures(Rails.root.join("test/fixtures"), FIXTURES)
 

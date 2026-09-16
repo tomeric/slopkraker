@@ -1,0 +1,21 @@
+# The hills world's ground, generated rather than checked in.
+#
+# A blob in a fixture would be bytes nobody can read, review or regenerate. Instead the
+# tile is encoded here, at fixture load, from Game::Terrain::Hills through the same
+# TileBuilder an importer will use -- so the test database, the development seed and the
+# browser (which fetches the row's bytes over the tile endpoint) all stand on one
+# definition of the ground. YAML's !!binary tag hands Active Record a binary string.
+#
+# base_cm, min_cm and max_cm are stored alongside the blob, as the schema intends: the
+# client sizes its bounds walls and probe rays from them without decoding anything.
+<% Game::Terrain::Hills::TILES.each do |tx, tz| %>
+<% tile = Game::Terrain::Hills.tile(tx, tz) %>
+hills_<%= tx.negative? ? "west" : "east" %>_<%= tz.negative? ? "north" : "south" %>:
+  world: hills
+  tx: <%= tx %>
+  tz: <%= tz %>
+  base_cm: <%= tile.base_cm %>
+  min_cm: <%= tile.min_cm %>
+  max_cm: <%= tile.max_cm %>
+  heights: !!binary <%= Base64.strict_encode64(tile.heights) %>
+<% end %>

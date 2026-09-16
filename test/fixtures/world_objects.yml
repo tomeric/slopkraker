@@ -222,3 +222,36 @@ street_<%= name %>:
     cell: <%= cell %>
     seed: <%= seed %>
 <% end %>
+
+# --- hills: one house, on a slope -------------------------------------------------
+
+# The targets house with its own seed, standing where the ground falls about seventy
+# centimetres across its footprint. Its y is the MEAN of the terrain under its corners --
+# a seeder's decision, per the persistent-world design, and never a recipe field -- so it
+# is buried a little uphill and clear a little downhill. The slope is deliberate: a test
+# that heaps of rubble are placed on the terrain can only tell that apart from "placed at
+# the building's own height" if the two differ, and on a level site they do not.
+<% hills_house_x, hills_house_z = -120.0, -135.0 %>
+hills_house:
+  world: hills
+  kind: building
+  name: house
+  cx: <%= (hills_house_x / 100).floor %>
+  cz: <%= (hills_house_z / 100).floor %>
+  x: <%= hills_house_x %>
+  y: <%= Game::Terrain::Hills.base_height(hills_house_x, hills_house_z, 12.0, 15.0).round(2) %>
+  z: <%= hills_house_z %>
+  yaw: 0.0
+  radius: 20.0
+  piece_count: 1553
+  storey_count: 3
+  recipe:
+    kind: building
+    footprint: [ [ 0, 0 ], [ 12, 0 ], [ 12, 15 ], [ 0, 15 ] ]
+    storeys: 3
+    storey_height: 3.0
+    eaves: 9.0
+    ridge: 12.75
+    roof: gable
+    cell: 1.0
+    seed: 31
