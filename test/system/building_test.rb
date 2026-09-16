@@ -1,6 +1,6 @@
 require "application_system_test_case"
 
-# A building is 1454 pieces expanded from 22 surfaces, and every one of them can be hit.
+# A building is 1553 pieces expanded from 23 surfaces, and every one of them can be hit.
 #
 # Driven through the piece hooks rather than by aiming a car at a wall. Aiming and hoping
 # is where most of this suite's flakiness comes from, and nothing worth asserting about a
@@ -12,16 +12,18 @@ class BuildingTest < ApplicationSystemTestCase
   end
 
   test "the house arrives with every one of its pieces" do
-    assert_equal 1502, telemetry["pieces"]
+    assert_equal 1553, telemetry["pieces"]
     assert_equal 1, telemetry["buildings"].length
     assert_equal "house", telemetry["buildings"].first["name"]
   end
 
   # Void cells -- the doorway, the clipped corners of the gables, and the squares of the
   # rubble grid that fall outside the footprint -- hold an index but are never standing. So
-  # do the heaps themselves until the house falls on them: 1502 indices, of which 1398 are
-  # the building, 42 are dormant wreckage and 62 are nothing at all. Every square of ground
-  # the house actually stood on holds debris, which is what stops the mound having holes.
+  # do the heaps themselves until the house falls on them: 1553 indices, of which 1398 are
+  # the building, 75 are dormant wreckage and 80 are nothing at all. Every square of ground
+  # the house actually stood on holds debris, which is what stops the mound having holes;
+  # the void is the doorway, the gables' clipped corners, and the thinned-out edge of the
+  # rubble grid's ragged skirt.
   test "void cells hold an index but nothing else" do
     assert_equal 1398, telemetry["piecesStanding"]
     assert_equal 0, telemetry["piecesBroken"]
@@ -41,7 +43,7 @@ class BuildingTest < ApplicationSystemTestCase
 
     assert_equal({
       "brick" => 445, "timber" => 366, "roof_tile" => 224, "concrete" => 180,
-      "plaster" => 108, "glass" => 72, "void" => 62, "steel" => 3, "rubble" => 42
+      "plaster" => 108, "glass" => 72, "void" => 80, "steel" => 3, "rubble" => 75
     }, materials)
   end
 
