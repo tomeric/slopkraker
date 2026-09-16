@@ -26,8 +26,6 @@ import { cellMatrix, materialAt } from "game/world/surface"
 export function heapFrame(surface, row, col, origin, rules = {}, grow = 1, out = FRAME) {
   const jitter = rules.jitter ?? 0.55
   const scale = rules.scale ?? 0.85
-  const falloff = rules.falloff ?? 2.5
-  const edge = rules.edge ?? 0.06
   const spread = rules.spread ?? 0.55
   const sink = rules.sink ?? [ 0.05, 0.45 ]
 
@@ -49,11 +47,17 @@ export function heapFrame(surface, row, col, origin, rules = {}, grow = 1, out =
   // being spread flat. That is the whole difference between a pile of debris and a bumpy
   // area, and it is free.
   const vary = 1 + noise(surface, row, col, 31) * spread
-  const heap = vary * dome(surface, row, col, falloff, edge) / domeMean(surface, falloff, edge)
+  const heap = vary * dome(surface, row, col, rules) / domeMean(surface, rules)
   // Plan proportion, per heap rather than per shape, and area preserving -- so some lumps
   // are long and narrow and others nearly square without any of them covering more ground
   // than the coverage model counted on.
   const aspect = 1 + noise(surface, row, col, 61) * (rules.aspect ?? 0.15)
+  // The fringe shrinks in plan with its height. A rim heap that kept a full three metres
+  // of plan at twenty centimetres tall was a plate, and a ring of plates was a flat edge;
+  // shrunk, it is a small mound and the fringe breaks up. Heaps at or above the mean height
+  // keep their whole plan, so this never opens a pocket in the body of the pile.
+  const rim = rules.rim ?? 1
+  const plan = rim + (1 - rim) * Math.min(1, heap)
   // How far the lump settles into the ground it landed on. Bounded well short of burying
   // it: a third has to stand proud or it stops being something you have to get around.
   const buried = sink[0] + ((noise(surface, row, col, 59) + 1) / 2) * (sink[1] - sink[0])
@@ -66,8 +70,8 @@ export function heapFrame(surface, row, col, origin, rules = {}, grow = 1, out =
   out.z = POSITION.z
   out.y = out.ground + height / 2 - height * buried
   out.yaw = noise(surface, row, col, 23) * Math.PI
-  out.a = SCALE.x * scale * vary * aspect / 2
-  out.b = SCALE.y * scale * vary / aspect / 2
+  out.a = SCALE.x * scale * vary * aspect * plan / 2
+  out.b = SCALE.y * scale * vary / aspect * plan / 2
   out.height = height
   out.top = out.ground + height * (1 - buried)
   // How this heap compares with the average heap on the site: one at the mean, small at
@@ -237,25 +241,44 @@ export function chunkGeometry(chunk = DEFAULT_CHUNK) {
 // What a chunk looks like when the material table has not said: a brick-sized block.
 const DEFAULT_CHUNK = { size: [ 0.5, 0.3, 0.3 ], vary: 0.4, jitter: 0.3 }
 
-// 0 at the middle of the grid, 1 at its corners.
-function centreDistance(surface, row, col) {
-  const dx = (col + 0.5) / surface.cols - 0.5
-  const dy = (row + 0.5) / surface.rows - 0.5
-  return Math.min(1, Math.hypot(dx, dy) * 2)
+// Where the pile's peak sits and how its outline wobbles, per building and from its seed.
+// The peak is pushed off the middle of the grid and the radius round it swells and
+// shrinks in two or three lobes, so the mound is lopsided the way a real one is rather
+// than an ellipse centred on the house. Drawn with the strong hash and off-grid
+// coordinates, because the weak one barely tells consecutive salts apart.
+function mound(surface, rules) {
+  const offset = rules.offset ?? 0
+  return {
+    ox: fnoise(surface, -1, -1, 0, 1) * offset,
+    oz: fnoise(surface, -1, -1, 0, 2) * offset,
+    lobes: fnoise(surface, -1, -1, 0, 3) > 0 ? 3 : 2,
+    phase: fnoise(surface, -1, -1, 0, 4) * Math.PI,
+    lobe: rules.lobe ?? 0
+  }
 }
 
-// A bell, not a cone. The profile used to be (1 - d) to a power, which is very nearly a
-// straight line from the peak to the rim, and the silhouette of the pile was a triangle
-// with dead straight sides. A cosine bell is rounded on top and concave at the foot, which
-// is the shape a pile of anything loose actually takes; `falloff` raises it to a power to
-// set how steep the shoulders are.
+// 0 at the peak, 1 at and beyond the rim -- measured from the lopsided centre, round the
+// lobes.
+function centreDistance(surface, row, col, rules) {
+  const shape = mound(surface, rules)
+  const dx = (col + 0.5) / surface.cols - 0.5 - shape.ox
+  const dy = (row + 0.5) / surface.rows - 0.5 - shape.oz
+  const wobble = 1 + shape.lobe * Math.sin(shape.lobes * Math.atan2(dy, dx) + shape.phase)
+  return Math.min(1, Math.hypot(dx, dy) * 2 * wobble)
+}
+
+// A rounded cone: 1 - d to a power. Not a bell -- a bell trails off into a long thin foot,
+// and the pile ran out into a flat mat on every side before it ended, which read as flat
+// edges. This keeps its bulk out toward the rim and then drops, the way a heap of anything
+// loose does; `falloff` rounds the top and holds the shoulders out.
 //
-// The dome never reaches zero. At the rim the bell is exactly 0, and a heap of zero height
+// The dome never reaches zero. At the rim 1 - d^p is exactly 0, and a heap of zero height
 // is an invisible piece with a degenerate collider -- something you can neither see nor
 // drive over nor clear. The edge of a pile still has debris on it; there is just not much.
-function dome(surface, row, col, falloff, edge) {
-  const bell = (1 + Math.cos(Math.PI * centreDistance(surface, row, col))) / 2
-  return edge + (1 - edge) * Math.pow(bell, falloff)
+function dome(surface, row, col, rules) {
+  const falloff = rules.falloff ?? 1.7
+  const edge = rules.edge ?? 0.06
+  return edge + (1 - edge) * (1 - Math.pow(centreDistance(surface, row, col, rules), falloff))
 }
 
 // The mean of the dome across the heaps this surface actually holds, so dividing by it
@@ -263,9 +286,10 @@ function dome(surface, row, col, falloff, edge) {
 // whole grid, and the same answer is wanted once per heap.
 const MEANS = new WeakMap()
 
-function domeMean(surface, falloff, edge) {
+function domeMean(surface, rules) {
+  const key = `${rules.falloff}|${rules.edge}|${rules.offset}|${rules.lobe}`
   let cached = MEANS.get(surface)
-  if (cached && cached.falloff === falloff && cached.edge === edge) return cached.mean
+  if (cached && cached.key === key) return cached.mean
 
   let total = 0
   let count = 0
@@ -273,13 +297,13 @@ function domeMean(surface, falloff, edge) {
     for (let col = 0; col < surface.cols; col += 1) {
       if (materialAt(surface, row, col) === "void") continue
 
-      total += dome(surface, row, col, falloff, edge)
+      total += dome(surface, row, col, rules)
       count += 1
     }
   }
 
   const mean = count > 0 && total > 0 ? total / count : 1
-  MEANS.set(surface, { falloff, edge, mean })
+  MEANS.set(surface, { key, mean })
   return mean
 }
 

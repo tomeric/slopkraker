@@ -236,3 +236,18 @@ rectangle, and with a `(1 - d)^1.6` profile its silhouette was a cone with strai
   rounded top, concave foot. On the worked example the peak is about 3.2 m on screen.
 - The dev database's counts were updated in place this time, not reseeded.
 
+## Fourth pass, same day: still flat on the sides
+
+The bell trailed off into a long thin foot: heaps eighty percent of the way out were
+thirty centimetres tall and three metres wide, a mat of plates ending in a line. Three
+changes, all seeded:
+
+- **A rounded cone**, `1 - d^1.7`, and the whole bulked volume kept (`SHARE` 1.0). On the
+  worked example: 3.0 m peak, 2.1 m at half radius, still 1.06 m at eight tenths.
+- **A lopsided mound.** The peak is pushed off the middle by up to `offset` (0.15) of the
+  half-extent and the radius wobbles in two or three lobes of `lobe` (0.2). Visual only:
+  the reveal order still uses the plain radius.
+- **The fringe shrinks with its height** (`rim` 0.6), so rim heaps are small mounds rather
+  than plates. Only heaps below the mean height shrink, so the reach invariant in the body
+  of the pile holds as before.
+

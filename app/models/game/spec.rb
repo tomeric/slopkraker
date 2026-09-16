@@ -171,22 +171,35 @@ module Game
             # ramps; the lean moved to the chunks, which is where a heap reads as dropped
             # rather than laid.
             tilt: 0.28,
-            # How sharply the pile falls away from its middle, as the exponent of a cosine
-            # bell. A bell and not a cone: the old (1 - d) power was very nearly a straight
-            # line from peak to rim and the pile's silhouette was a triangle with dead
-            # straight sides. A bell is rounded on top and concave at the foot, which is the
-            # shape loose material takes.
+            # The pile's profile: a rounded cone, 1 - d to this power, where d is how far out
+            # a heap sits. A cone with a rounded top and not a bell, because a bell trails
+            # off into a long thin foot and the pile ran out into a flat mat on every side
+            # before it ended -- which read as flat edges. This keeps its bulk out toward
+            # the rim and then drops, the way a heap of anything loose does.
             #
-            # This is what makes wreckage a PILE rather than a carpet, and it costs nothing:
-            # the profile is normalised so that its mean over the heaps is exactly one, so
-            # the same material is simply put where a pile actually puts it.
+            # Normalised so that its mean over the heaps is exactly one, so the same
+            # material is simply put where a pile puts it and the volume is conserved.
             #
-            # Higher is steeper. Measured on the worked example at SHARE 0.75 over its
-            # ragged skirt: 0.8 peaks at 2.8m on screen, 1.0 at 3.2m, 1.3 at 3.7m, 1.6 at
-            # 4.2m, after the lump's own sink. The height is a picture and not an obstacle
-            # -- the wheel rays pass through heaps and the blade breaks whatever it meets --
-            # so this is purely what a fallen three-storey house should look like.
-            falloff: 1.0,
+            # Higher rounds the top more and holds the shoulders out further. Measured on
+            # the worked example with the whole bulked volume kept: 1.4 peaks at 3.3m on
+            # screen with a metre at eight tenths of the way out; 1.7 at 3.0m and 1.06m;
+            # 2.0 at 2.8m and 1.1m. The height is a picture and not an obstacle -- the
+            # wheel rays pass through heaps and the blade breaks whatever it meets.
+            falloff: 1.7,
+            # Where the peak sits, as a share of the grid's half-extent it may be pushed
+            # off the middle, and how much the radius wobbles round it in two or three
+            # lobes. Both drawn from the seed per building. A pile whose peak sat dead
+            # centre with a perfectly elliptical contour read as a shape laid over the
+            # house rather than a house that fell down.
+            offset: 0.15,
+            lobe: 0.2,
+            # How much of its plan the lowest heap keeps, against a heap of mean height
+            # keeping all of it. A rim heap twenty centimetres tall and three metres wide
+            # is a plate, and a ring of plates is a flat edge; shrunk with its height it is
+            # a small mound, and the fringe breaks up into scattered mounds instead. Only
+            # the fringe shrinks -- see the reach invariant in spec_test -- because in the
+            # body of the pile a gap is a pocket of air and at its edge a gap is the edge.
+            rim: 0.6,
             # What is left at the rim, as a share of the peak. The dome must never reach
             # zero: a heap of no height is an invisible piece with a degenerate collider,
             # something you can neither see nor drive over nor clear. The edge of a pile

@@ -353,10 +353,12 @@ class Game::SpecTest < ActiveSupport::TestCase
     assert_operator rubble.fetch(:edge), :>, 0.0
     assert_operator rubble.fetch(:edge), :<, 0.5
 
-    # NO LUMP MAY BE TOO SMALL TO REACH ITS NEIGHBOUR. Heaps sit on a grid of CELL metres
-    # and are CELL * SPREAD across before their size varies; if varying can take one below
-    # the spacing it cannot touch the heaps beside it, and a hole in the mound is the
-    # result -- which is exactly what pockets of air in a pile of rubble are.
+    # NO LUMP IN THE BODY OF THE PILE MAY BE TOO SMALL TO REACH ITS NEIGHBOUR. Heaps sit on
+    # a grid of CELL metres and are CELL * SPREAD across before their size varies; if
+    # varying can take one below the spacing it cannot touch the heaps beside it, and a
+    # hole in the mound is the result -- which is exactly what pockets of air in a pile of
+    # rubble are. The fringe is exempt: `rim` shrinks heaps BELOW the mean height, and at
+    # the edge of a pile a gap is the edge, not a pocket.
     # Both shrinking factors at once: a heap at its smallest, on its narrower axis. Spread
     # alone was checked here once and the aspect quietly undid it -- the narrow axis came
     # out at 1.59m on a 2m grid while this assertion was passing.
@@ -373,6 +375,17 @@ class Game::SpecTest < ActiveSupport::TestCase
     # leaves would quietly stop being the volume the house was made of.
     assert_equal Game::Building::Rubble::SPREAD, rubble.fetch(:scale)
     assert_equal Game::Building::Rubble::SHAPES, rubble.fetch(:shapes)
+
+    # The fringe shrinks with its height, but a rim heap keeps more than half its plan, so
+    # the fringe breaks up into small mounds rather than vanishing into dots.
+    assert_operator rubble.fetch(:rim), :>, 0.5
+    assert_operator rubble.fetch(:rim), :<=, 1.0
+    # A lopsided mound, within reason: the peak stays inside the middle half of the grid
+    # and the lobes cannot fold the outline back on itself.
+    assert_operator rubble.fetch(:offset), :>=, 0.0
+    assert_operator rubble.fetch(:offset), :<, 0.25
+    assert_operator rubble.fetch(:lobe), :>=, 0.0
+    assert_operator rubble.fetch(:lobe), :<, 0.5
 
     # A third of every heap stands proud, whatever the seed picks. Below that a heap stops
     # being something you have to get around and becomes a stain on the ground.

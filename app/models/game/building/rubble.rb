@@ -64,10 +64,12 @@ module Game
       # and the blade breaks whatever it meets, so how tall the pile stands is a question
       # of what a fallen house should look like and nothing else. At 0.25 the worked
       # example peaked at 1.75m, which was a pile for a bungalow under a twelve metre ridge.
-      # Spread over the footprint and its margin, at 0.75 it averages about 1.2m and mounds
-      # to some three metres in the middle -- a storey of wreckage, skirting out past where
-      # the walls stood, which is what a three-storey house leaves.
-      SHARE = 0.75
+      # All of it. Spread over the footprint and its ragged skirt the bulked volume comes
+      # to about 1.8m on the worked example, and the rounded cone the client mounds it into
+      # peaks at three metres and still stands a metre tall most of the way to the rim --
+      # a storey of wreckage with shoulders, which is what a three-storey house leaves.
+      # Anything less, spread this wide, thinned the shoulders into a mat.
+      SHARE = 1.0
 
       # Only used by a building made of nothing, which cannot happen, but a zero depth
       # would make a heap with no height and no health at all.

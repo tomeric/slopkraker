@@ -236,9 +236,10 @@ positions derive from the recipe seed, clearing goes through `damage`/`breaks` a
 - **The pile is the size of the house, and its height is a picture rather than an
   obstacle.** Because the wheel rays pass through heaps and the blade breaks whatever it
   meets, how tall the pile stands no longer decides whether the truck gets through, so
-  `SHARE` is free to say what a fallen house looks like: 0.75, which on the worked example
-  averages about 1.3 m over the ground the wreckage covers and mounds to some three metres
-  in the middle. At 0.25 it peaked at 1.75 m, which was a pile for a bungalow under a
+  `SHARE` is free to say what a fallen house looks like: 1.0, all of the bulked volume,
+  which on the worked example averages about 1.8 m over the ground the wreckage covers and
+  mounds to some three metres in the middle with shoulders a metre tall most of the way
+  out. At 0.25 it peaked at 1.75 m, which was a pile for a bungalow under a
   twelve-metre ridge. The dome's `falloff` is 1.6 and volume conserving (normalised by its
   own mean over the heaps), so the material Ruby derived is neither created nor destroyed,
   only mounded.
@@ -255,10 +256,15 @@ positions derive from the recipe seed, clearing goes through `damage`/`breaks` a
   checks them. Fix the dev database by updating `piece_count` **in place** from
   `surface_set.piece_count`; a reseed replaces every world row, hand-made ones included,
   and orphans the matches played on them.
-- **The profile is a cosine bell, not a cone.** `(1 - d)^falloff` is nearly a straight line
-  from peak to rim, and the silhouette was a triangle with dead straight sides. The bell is
-  rounded on top and concave at the foot; `falloff` raises it to a power. Still normalised
-  by its own mean over the heaps, so the volume is conserved.
+- **The profile is a rounded cone, `1 - d^falloff`, lopsided.** A straight `(1 - d)` power
+  made a triangle; a cosine bell trailed off into a flat mat on every side, which read as
+  flat edges. The rounded cone keeps its bulk toward the rim and then drops. Its centre is
+  pushed off the middle by `offset` and its radius wobbles in two or three seeded lobes
+  (`lobe`), so the mound is a lopsided blob rather than an ellipse over the house; and the
+  fringe shrinks in plan with its height (`rim`), so the edge is scattered small mounds
+  rather than a ring of plates. Still normalised by its own mean over the heaps, so the
+  volume is conserved. The reveal ORDER still uses the plain radius: the shape is a picture,
+  the order is a contract with the server.
 - **Heaps arrive as the pieces carrying them land**, not when the collapse is decided, and
   each one **rises out of the ground** over `rules.collapse.rubble.rise` (the collider is
   enabled at once; only the drawing eases, from `Building#update`). A collapse works out
