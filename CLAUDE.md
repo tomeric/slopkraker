@@ -233,11 +233,24 @@ positions derive from the recipe seed, clearing goes through `damage`/`breaks` a
   because a blade hit clears a plus of five heaps and at a wall's toll that stalled the
   truck two thirds of the way across. Measured after: in at 13.7 m/s, never below 12 across
   the pile, nineteen heaps cleared.
-- **The pile is low on purpose.** `SHARE` is 0.25: the worked example averages 0.74 m over
-  its footprint and the tallest heap tops out at 1.75 m. At 0.6 it was a four-and-a-half
-  metre hill nothing got through; at 0.2 it read as a rug rather than a pile. The dome's
-  `falloff` is 1.6 and volume conserving (normalised by its own mean over the heaps), so the
-  material Ruby derived is neither created nor destroyed, only mounded.
+- **The pile is the size of the house, and its height is a picture rather than an
+  obstacle.** Because the wheel rays pass through heaps and the blade breaks whatever it
+  meets, how tall the pile stands no longer decides whether the truck gets through, so
+  `SHARE` is free to say what a fallen house looks like: 0.75, which on the worked example
+  averages about 1.2 m over the ground the wreckage covers and mounds to some three metres
+  in the middle. At 0.25 it peaked at 1.75 m, which was a pile for a bungalow under a
+  twelve-metre ridge. The dome's `falloff` is 1.6 and volume conserving (normalised by its
+  own mean over the heaps), so the material Ruby derived is neither created nor destroyed,
+  only mounded.
+- **The wreckage skirts the walls.** `Rubble::MARGIN` (2 m) grows the grid past the
+  footprint's bounding box on every side, and a cell holds a heap when its centre is inside
+  the footprint or within the margin of one of its edges (`covered?`), so an L-shaped house
+  skirts its notch as well as its outside and nothing lands on the road. A pile that stopped
+  dead at the line of the walls read as a house that had sunk into its own cellar. The depth
+  is the kept volume over the ground the heaps actually cover, not over the footprint.
+  **Changing `MARGIN` or `CELL` changes `piece_count` for every building** — the fixtures
+  carry the counts by hand, `world_summary_test` checks them, and the dev database needs
+  `bin/rails db:seed`.
 - **Heaps arrive as the pieces carrying them land**, not when the collapse is decided, and
   each one **rises out of the ground** over `rules.collapse.rubble.rise` (the collider is
   enabled at once; only the drawing eases, from `Building#update`). A collapse works out
@@ -272,6 +285,8 @@ positions derive from the recipe seed, clearing goes through `damage`/`breaks` a
 - **`piece_count` grows, so a stale database is a real failure mode.** Rubble was appended
   and nothing renumbered, but a row holding an old count rejects every rubble index. After
   pulling a change to the grid, reseed or update `piece_count` from `surface_set.piece_count`.
+  The worked example went 1454 → 1502 when rubble arrived and 1502 → 1534 when it grew its
+  margin; the street's twelve moved with it.
 
 ### The engine loop (`app/javascript/game/engine.js`)
 

@@ -209,9 +209,10 @@ module Game
             aspect: 0.15,
             # How many chunks of the building's own material sit in and on each heap. Fixed
             # per heap because the instanced pools are allocated once at boot and cannot
-            # grow; rim heaps get the same number, smaller. Fourteen on forty-two heaps is
-            # about six hundred instances for a house, spread over one pool per material.
-            fragments: 14,
+            # grow; rim heaps get the same number, smaller and centre heaps the same number,
+            # larger. Twenty on forty-two heaps is under a thousand instances for a house,
+            # spread over one pool per material.
+            fragments: 20,
             # How long a revealed heap takes to rise out of the ground, in seconds. The
             # collider is there at once; only the drawing eases. Zero pops.
             rise: 0.45,

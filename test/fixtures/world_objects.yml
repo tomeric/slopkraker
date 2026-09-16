@@ -109,7 +109,7 @@ targets_house:
   z: 8.0
   yaw: 0.0
   radius: 20.0
-  piece_count: 1502
+  piece_count: 1534
   storey_count: 3
   recipe:
     kind: building
@@ -175,18 +175,18 @@ street_road:
 <%
   street_houses = [
     # name,           side,  depth, frontage, storeys, roof,    cell, seed, pieces
-    [ "house_east_1", :east,     9,       11,       2, "gable", 1.0,    11,   696 ],
-    [ "house_east_2", :east,    11,       13,       3, "gable", 1.5,    12,   565 ],
-    [ "house_east_3", :east,     8,       10,       2, "flat",  1.5,    13,   241 ],
-    [ "house_east_4", :east,    12,       14,       4, "flat",  1.5,    14,   738 ],
-    [ "house_east_5", :east,    10,       12,       3, "gable", 1.5,    15,   520 ],
-    [ "house_east_6", :east,     9,       10,       2, "gable", 1.5,    16,   317 ],
-    [ "house_west_1", :west,    10,       12,       3, "flat",  1.5,    21,   476 ],
-    [ "house_west_2", :west,     9,       11,       2, "gable", 1.5,    22,   330 ],
-    [ "house_west_3", :west,    12,       13,       4, "gable", 1.0,    23,  1678 ],
-    [ "house_west_4", :west,     8,       10,       2, "flat",  1.5,    24,   241 ],
-    [ "house_west_5", :west,    11,       14,       3, "gable", 1.5,    25,   573 ],
-    [ "house_west_6", :west,    10,       11,       2, "flat",  1.5,    26,   317 ]
+    [ "house_east_1", :east,     9,       11,       2, "gable", 1.0,    11,   722 ],
+    [ "house_east_2", :east,    11,       13,       3, "gable", 1.5,    12,   595 ],
+    [ "house_east_3", :east,     8,       10,       2, "flat",  1.5,    13,   263 ],
+    [ "house_east_4", :east,    12,       14,       4, "flat",  1.5,    14,   768 ],
+    [ "house_east_5", :east,    10,       12,       3, "gable", 1.5,    15,   546 ],
+    [ "house_east_6", :east,     9,       10,       2, "gable", 1.5,    16,   341 ],
+    [ "house_west_1", :west,    10,       12,       3, "flat",  1.5,    21,   502 ],
+    [ "house_west_2", :west,     9,       11,       2, "gable", 1.5,    22,   356 ],
+    [ "house_west_3", :west,    12,       13,       4, "gable", 1.0,    23,  1708 ],
+    [ "house_west_4", :west,     8,       10,       2, "flat",  1.5,    24,   263 ],
+    [ "house_west_5", :west,    11,       14,       3, "gable", 1.5,    25,   603 ],
+    [ "house_west_6", :west,    10,       11,       2, "flat",  1.5,    26,   343 ]
   ]
 %>
 <% street_houses.each_with_index do |(name, side, depth, frontage, storeys, roof, cell, seed, pieces), index| %>

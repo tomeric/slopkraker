@@ -55,27 +55,34 @@ module Game
       # And how much of that is still in the way afterwards.
       #
       # Be honest about what this number is doing. A three-storey house is 353 cubic metres
-      # of material and 559 tonnes of it, so the truthful answer is 530 cubic metres over a
-      # 180 square metre footprint -- nearly THREE METRES DEEP, wall to wall. That is not a
-      # pile you clear, it is a hill you cannot get onto, and it would bury the car that
-      # knocked it down.
+      # of material and 559 tonnes of it, so all of it bulked is 530 cubic metres -- and
+      # spread over the footprint alone that is three metres deep wall to wall, which is a
+      # hill rather than a pile. A share stays and the rest is taken to have gone to dust,
+      # which the shards a collapse throws are already selling.
       #
-      # So a share stays and the rest is taken to have gone to dust. Which is not entirely
-      # a fiction: the shards a collapse throws are carrying that material away in front of
-      # you as it lands, and they fade rather than settling.
-      #
-      # At 0.25 the worked example averages 0.74m over its footprint and mounds to about
-      # 1.75m in the middle, with a rim of a hand's breadth. That is deliberately a pile the
-      # truck's blade meets and breaks rather than a slope its wheels climb -- the wheel
-      # rays pass through heaps, so the truck stays on the ground and ploughs the middle,
-      # and a rocket takes a bite out of it. At 0.6 the middle stood four and a half metres
-      # tall and nothing got through it, which is the opposite of wreckage you clear; at 0.2
-      # it read as a rug rather than a pile.
-      SHARE = 0.25
+      # The share is a picture, not an obstacle. The truck's wheel rays pass through heaps
+      # and the blade breaks whatever it meets, so how tall the pile stands is a question
+      # of what a fallen house should look like and nothing else. At 0.25 the worked
+      # example peaked at 1.75m, which was a pile for a bungalow under a twelve metre ridge.
+      # Spread over the footprint and its margin, at 0.75 it averages about 1.2m and mounds
+      # to some three metres in the middle -- a storey of wreckage, skirting out past where
+      # the walls stood, which is what a three-storey house leaves.
+      SHARE = 0.75
 
       # Only used by a building made of nothing, which cannot happen, but a zero depth
       # would make a heap with no height and no health at all.
       MINIMUM_DEPTH = 0.25
+
+      # How far past the walls the wreckage spreads, in metres. A building does not fall
+      # neatly into its own outline: the walls topple outward and the pile skirts the
+      # footprint, and a pile that stopped dead at the line of the walls read as a house
+      # that had sunk into its own cellar. The grid covers the footprint grown by this on
+      # every side, and a cell holds a heap when its centre is inside the footprint or
+      # within this of one of its edges -- so an L-shaped house skirts its notch as well as
+      # its outside, and rubble still has no business out on the road.
+      #
+      # Changing it changes piece_count for every building, so it comes with a reseed.
+      MARGIN = 2.0
 
       EAST = Vector3.new(1, 0, 0)
       SOUTH = Vector3.new(0, 0, 1)
@@ -84,10 +91,11 @@ module Game
       # bigger building leaves a bigger mess -- for ever, and without anybody choosing a
       # number. A constant here would pile a bungalow and a tower block identically.
       def self.build(recipe, built = [])
-        cols = cells(recipe.width)
-        rows = cells(recipe.depth)
+        cols = cells(recipe.width + 2 * MARGIN)
+        rows = cells(recipe.depth + 2 * MARGIN)
         gaps = gaps(recipe, cols, rows)
-        depth = depth_for(built, recipe.footprint_area)
+        piles = cols * rows - gaps.length
+        depth = depth_for(built, piles * CELL * CELL)
 
         [ Surface.new(
           kind: :rubble,
@@ -96,7 +104,7 @@ module Game
           # Lifted by half its depth so a heap SITS ON the ground. Cells are centred on
           # their surface plane, which is right for a wall -- its thickness straddles the
           # line its origin describes -- and buries a heap to its waist.
-          origin: Vector3.new(recipe.min_x, depth / 2.0, recipe.min_z),
+          origin: Vector3.new(recipe.min_x - MARGIN, depth / 2.0, recipe.min_z - MARGIN),
           u: EAST,
           v: SOUTH,
           width: cols * CELL,
@@ -112,19 +120,20 @@ module Game
       end
 
       # How deep the wreckage lies: the building's own material, swollen by breaking, the
-      # share of it that stays, spread over THE GROUND THE BUILDING STOOD ON.
+      # share of it that stays, spread over THE GROUND THE WRECKAGE COVERS -- the footprint
+      # and its margin, as the heaps actually occupy it.
       #
-      # Over the footprint and not over the lumps, because the lumps overlap by design and
+      # Over the ground and not over the lumps, because the lumps overlap by design and
       # overlapping lumps do not stack their heights -- they interpenetrate. Dividing by the
       # lumps' own area assumes they sit side by side, and under that assumption widening
       # them makes them thinner, which is how a field of debris turns back into a floor of
-      # tiles. What the material comes to over the footprint is the honest figure, and for
-      # this house it is 0.88m, mounded by the client to about 1.5m at the centre.
-      def self.depth_for(built, footprint_area)
-        return MINIMUM_DEPTH if footprint_area <= 0
+      # tiles. What the material comes to over the ground is the honest figure, and for the
+      # worked example it is about 1.2m, mounded by the client to some three at the centre.
+      def self.depth_for(built, ground_area)
+        return MINIMUM_DEPTH if ground_area <= 0
 
         kept = material_volume(built) * BULK * SHARE
-        [ kept / footprint_area, MINIMUM_DEPTH ].max
+        [ kept / ground_area, MINIMUM_DEPTH ].max
       end
 
       # Every cubic metre the building is made of, by material. Voids are holes and weigh
@@ -229,19 +238,35 @@ module Game
       end
 
       def self.pile?(recipe, row, col)
-        return false unless inside?(recipe, row, col)
+        return false unless covered?(recipe, row, col)
 
         draw(recipe.seed, row, col) < DENSITY
       end
 
-      # The cell's centre, in world coordinates, tested against the footprint ring. A
-      # building is rarely a rectangle, and rubble has no business on the pavement.
-      def self.inside?(recipe, row, col)
-        contains?(
-          recipe.footprint,
-          recipe.min_x + (col + 0.5) * CELL,
-          recipe.min_z + (row + 0.5) * CELL
-        )
+      # Whether the wreckage reaches this cell: its centre, in world coordinates, is inside
+      # the footprint ring or within MARGIN of one of its edges. A building is rarely a
+      # rectangle, and the skirt follows its outline rather than its bounding box.
+      def self.covered?(recipe, row, col)
+        x = recipe.min_x - MARGIN + (col + 0.5) * CELL
+        z = recipe.min_z - MARGIN + (row + 0.5) * CELL
+
+        contains?(recipe.footprint, x, z) || distance_to_ring(recipe.footprint, x, z) <= MARGIN
+      end
+
+      # How far a point is from the nearest edge of the footprint.
+      def self.distance_to_ring(footprint, x, z)
+        footprint.each_with_index.map do |(x1, z1), index|
+          x2, z2 = footprint[(index + 1) % footprint.length]
+          distance_to_segment(x, z, x1, z1, x2, z2)
+        end.min
+      end
+
+      def self.distance_to_segment(px, pz, x1, z1, x2, z2)
+        dx = x2 - x1
+        dz = z2 - z1
+        length2 = dx * dx + dz * dz
+        t = length2.zero? ? 0.0 : (((px - x1) * dx + (pz - z1) * dz) / length2).clamp(0.0, 1.0)
+        Math.hypot(px - (x1 + t * dx), pz - (z1 + t * dz))
       end
 
       # Ray casting, the standard even-odd test. The footprint is a closed ring of points.

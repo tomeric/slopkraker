@@ -54,6 +54,63 @@ class ShotsTest < ApplicationSystemTestCase
     Dir.children(SHOTS).sort.each { |f| puts "      #{f}" }
   end
 
+  # The wreckage, for judging by eye what no number settles: whether the pile a house
+  # leaves is the size of the house. Brings the targets house down through the piece
+  # hooks, waits for the dust, and photographs the pile from the front, the diagonal and
+  # the side, then drives the truck through it and photographs that.
+  test "photograph the wreckage" do
+    skip "set SHOTS=1 to take screenshots" unless ENV["SHOTS"]
+
+    FileUtils.mkdir_p(SHOTS)
+    visit_world("targets", vehicle: "monster_truck", quality: "high", match: "shots-wreckage")
+    wait_for(message: "engine never booted") { page.evaluate_script("!!(window.__arena && window.__arena.ready)") }
+    sleep 1.5
+    press("g")
+    press("h")
+    sleep 0.6
+
+    building = page.evaluate_script("window.__arenaBuildingIds()[0]")
+    page.execute_script(<<~JS, building)
+      const id = arguments[0]
+      const spec = window.__arenaBuildingSpec(id)
+      const walls = spec.surfaces.filter(s => s.kind === "wall" && s.storey === 0)
+      for (const s of walls.slice(0, 2)) {
+        for (let i = s.off; i < s.off + s.cols * s.rows; i++) window.__arenaDamagePiece(i, 5000, id)
+      }
+    JS
+    park(26, -12)
+    sleep 1.2
+    shot "10-coming-down"
+    wait_for(timeout: 25, message: "the house never came down") do
+      page.evaluate_script("window.__arenaFalling() === 0 && window.__arenaRubble().dormant === 0")
+    end
+    sleep 1.0
+
+    # The pile now skirts the walls by two metres, so it runs from about z = 6 to 25.
+    park(26, -12)
+    shot "11-wreckage-front"
+    park(8, -6, yaw: 0.72)
+    shot "12-wreckage-diagonal"
+    park(4, 15.5, yaw: Math::PI / 2)
+    shot "13-wreckage-side"
+
+    # Through it. From z = -16 at full throttle the truck is in the thick of the pile at
+    # about three and a half seconds and coming out of it a second later.
+    park(26, -16)
+    page.execute_script("window.__arenaInput = { throttle: 1 }")
+    sleep 3.6
+    shot "14-ploughing"
+    sleep 0.9
+    shot "15-ploughing-out"
+    page.execute_script("window.__arenaInput = null")
+    sleep 1.5
+    park(26, -12)
+    shot "16-the-path-it-cleared"
+
+    puts "\n--- shots in #{SHOTS}"
+    Dir.children(SHOTS).sort.each { |f| puts "      #{f}" }
+  end
+
   private
     def press(key)
       page.driver.browser.action.key_down(key).key_up(key).perform

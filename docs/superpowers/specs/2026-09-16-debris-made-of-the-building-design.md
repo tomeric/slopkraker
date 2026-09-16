@@ -204,3 +204,22 @@ design had not seen:
   car pays: 1.0 for everything solid, 0.15 for wreckage. Measured after: in at 13.7 m/s,
   never below 12 across the pile, nineteen heaps cleared, out the far side in 4.5 s.
 
+## Second pass, same day: too small for the house
+
+Judged on the screen, a 1.75 m pile confined to its own footprint was a pile for a
+bungalow under a twelve-metre ridge. Two changes, both possible only because the truck now
+goes through heaps rather than over them, so height is a picture and not an obstacle:
+
+- **`SHARE` 0.25 → 0.75.** Three quarters of the bulked volume stays.
+- **`Rubble::MARGIN` = 2 m.** The grid grows past the footprint on every side and a cell
+  holds a heap when its centre is inside the footprint or within the margin of an edge, so
+  the pile skirts the walls the way a real collapse does and an L still keeps its notch.
+  The depth is now the kept volume over the ground the heaps cover, not the footprint.
+
+Together, on the worked example: about 1.2 m mean, some three metres at the peak, a
+16 × 19 m spread. Fragments went from 14 to 20 per heap and grow with the heap, so the
+centre carries whole wall sections rather than gravel. `piece_count` changed for every
+building (the worked example 1502 → 1534), which is why the fixtures and the dev database
+moved with it. The photographs come from
+`SHOTS=1 bin/rails test test/system/shots_test.rb -n /wreckage/` and land in `tmp/shots/`.
+

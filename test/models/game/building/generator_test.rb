@@ -18,7 +18,7 @@ class Game::Building::GeneratorTest < ActiveSupport::TestCase
     set = house
 
     assert_equal 23, set.surfaces.length
-    assert_equal 1502, set.piece_count
+    assert_equal 1534, set.piece_count
     assert_equal 3, set.storey_count
 
     assert_equal %i[wall wall wall wall wall wall wall wall wall wall wall wall

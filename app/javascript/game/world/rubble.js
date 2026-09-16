@@ -107,10 +107,12 @@ export function heapFragments(surface, row, col, frame, mix, materials, rules = 
   const tilt = rules.tilt ?? 0.28
   if (!mix || mix.length === 0 || count <= 0) return
 
-  // Rim heaps carry smaller chunks rather than fewer: the count is fixed because the pools
-  // are sized up front, and scattered small chunks are what the edge of a pile looks like.
-  // While the heap is still rising its chunks are rising with it.
-  const size = (0.55 + 0.45 * Math.min(1, frame.relative)) * (0.5 + 0.5 * frame.grow)
+  // Rim heaps carry smaller chunks and centre heaps larger ones, rather than fewer and
+  // more: the count is fixed because the pools are sized up front. Scattered small chunks
+  // are what the edge of a pile looks like, and the whole wall sections that survive a
+  // fall are buried in the middle of it. While the heap is still rising its chunks are
+  // rising with it.
+  const size = (0.55 + 0.45 * Math.min(1.6, frame.relative)) * (0.5 + 0.5 * frame.grow)
   const cosYaw = Math.cos(frame.yaw)
   const sinYaw = Math.sin(frame.yaw)
 

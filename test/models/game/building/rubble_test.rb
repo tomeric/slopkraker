@@ -38,18 +38,22 @@ class Game::Building::RubbleTest < ActiveSupport::TestCase
     end
   end
 
-  test "the grid covers the footprint in coarse cells" do
+  test "the grid covers the footprint and a margin round it in coarse cells" do
     set = surface
+    margin = Game::Building::Rubble::MARGIN
 
     assert_equal :rubble, set.kind
-    assert_equal 6, set.cols, "12m of footprint in 2m cells"
-    assert_equal 8, set.rows, "15m of footprint in 2m cells, rounded up"
+    assert_equal 8, set.cols, "12m of footprint plus #{margin}m either side, in 2m cells"
+    assert_equal 10, set.rows, "15m of footprint plus #{margin}m either side, rounded up"
+    assert_in_delta(-margin, set.origin.x, 1e-9, "the grid starts a margin before the walls")
+    assert_in_delta(-margin, set.origin.z, 1e-9)
   end
 
-  # Which is what the design asks for: enough to make the site a job, few enough that the
-  # job is a pleasure.
-  test "a house leaves roughly forty piles" do
-    assert_in_delta 40, pile_count(surface), 8
+  # Enough to make the site a job, few enough that the job is a pleasure. Eighty, now that
+  # the wreckage skirts the walls: every cell of the grown grid is within reach of a
+  # rectangular footprint's edge.
+  test "a house leaves roughly eighty piles" do
+    assert_in_delta 80, pile_count(surface), 10
   end
 
   # The whole reason positions agree in multiplayer without a byte on the wire. Every
@@ -65,26 +69,26 @@ class Game::Building::RubbleTest < ActiveSupport::TestCase
     end
   end
 
-  # Every square of ground the building stood on gets debris on it, whatever the seed. A
+  # Every square of ground the wreckage reaches gets debris on it, whatever the seed. A
   # cell left empty is a hole in the mound by construction, and a hole in a pile of rubble
   # reads as a pocket of air rather than as variety -- the irregularity belongs in the
   # shapes and how they overlap, which is the client's business and still seeded.
   #
   # This replaced a test that the seed changed which cells were occupied. At full density
   # it no longer does, and that is the point rather than a regression.
-  test "every square of the footprint holds debris, whatever the seed" do
+  test "every square the wreckage reaches holds debris, whatever the seed" do
     [ 7, 8, 99 ].each do |seed|
       set = surface(seed: seed)
       recipe = recipe(seed: seed)
 
       set.rows.times do |row|
         set.cols.times do |col|
-          inside = Game::Building::Rubble.inside?(recipe, row, col)
+          covered = Game::Building::Rubble.covered?(recipe, row, col)
           held = set.material_at(row, col).name == :rubble
 
-          assert_equal inside, held,
+          assert_equal covered, held,
                        "cell #{row},#{col} at seed #{seed} is #{held ? "debris" : "empty"} " \
-                       "but #{inside ? "inside" : "outside"} the footprint"
+                       "but #{covered ? "within" : "beyond"} the wreckage's reach"
         end
       end
     end
@@ -116,19 +120,27 @@ class Game::Building::RubbleTest < ActiveSupport::TestCase
                  Game::Building::Rubble.revealed_count(set, storey_count: 3, collapsed_from: nil)
   end
 
-  # A building is rarely a rectangle, and rubble has no business out on the pavement.
-  test "no pile sits outside the footprint" do
+  # A building is rarely a rectangle. The wreckage skirts the walls by its margin and no
+  # further, so the notch of an L gets a skirt along its two inner edges and nothing in
+  # the middle of it -- rubble has no business out on the pavement.
+  test "no pile sits further than the margin from the footprint" do
+    margin = Game::Building::Rubble::MARGIN
+    cell = Game::Building::Rubble::CELL
     l_shaped = surface(footprint: [ [ 0, 0 ], [ 12, 0 ], [ 12, 6 ], [ 6, 6 ], [ 6, 15 ], [ 0, 15 ] ])
+    skirted = 0
 
     l_shaped.rows.times do |row|
       l_shaped.cols.times do |col|
         next unless l_shaped.material_at(row, col).name == :rubble
 
-        x = 0.0 + (col + 0.5) * Game::Building::Rubble::CELL
-        z = 0.0 + (row + 0.5) * Game::Building::Rubble::CELL
-        refute(x > 6 && z > 6, "a pile landed in the notch of the L at #{x}, #{z}")
+        x = -margin + (col + 0.5) * cell
+        z = -margin + (row + 0.5) * cell
+        refute(x > 6 + margin && z > 6 + margin, "a pile landed deep in the notch of the L at #{x}, #{z}")
+        skirted += 1 if x > 6 && z > 6
       end
     end
+
+    assert_operator skirted, :>, 0, "the notch's inner edges got no skirt at all"
   end
 
   # What a house leaves is what a house was MADE of. A three storey house is 353 cubic
@@ -136,15 +148,17 @@ class Game::Building::RubbleTest < ActiveSupport::TestCase
   # same on a bungalow and a tower -- which is the difference between wreckage and a
   # decoration that happens to be lying where a building used to be.
   #
-  # Measured as DEPTH OVER THE FOOTPRINT rather than as the sum of the lumps, because the
-  # lumps overlap by design and overlapping lumps do not stack their heights. What the
-  # material comes to when it is spread over the ground the house stood on is the honest
-  # figure, and it is what a collapsed house actually looks like: under a metre, mounded.
-  test "the heaps are as deep as the material comes to over the footprint" do
+  # Measured as DEPTH OVER THE GROUND THE WRECKAGE COVERS rather than as the sum of the
+  # lumps, because the lumps overlap by design and overlapping lumps do not stack their
+  # heights. What the material comes to when it is spread over the footprint and its skirt
+  # is the honest figure, and it is what a collapsed house actually looks like: about a
+  # metre, mounded.
+  test "the heaps are as deep as the material comes to over the ground they cover" do
     set = surface
     kept = material_volume * Game::Building::Rubble::BULK * Game::Building::Rubble::SHARE
+    ground = pile_count(set) * Game::Building::Rubble::CELL**2
 
-    assert_in_delta kept / (12.0 * 15.0), set.thickness, 0.02
+    assert_in_delta kept / ground, set.thickness, 0.02
   end
 
   # Wreckage covers the ground the building stood on. At 58% it read as scattered lumps on
@@ -244,11 +258,16 @@ class Game::Building::RubbleTest < ActiveSupport::TestCase
     refute wall.to_spec.key?(:mix), "a wall has no business shipping a mix"
   end
 
-  # A pile the truck ploughs, not a hill it climbs. The share of the house that stays as
-  # wreckage is a feel number and will move, but the CONSEQUENCE is what this pins: the
-  # worked example's wreckage averages under a metre deep over its footprint.
-  test "the pile is something a truck ploughs rather than a hill it climbs" do
-    assert_operator surface.thickness, :<, 1.0,
+  # A pile the size of the house that fell. The share of the house that stays as wreckage
+  # is a feel number and will move, but the CONSEQUENCE is what this pins: a three-storey
+  # house leaves wreckage that averages more than a metre over its footprint -- not a rug
+  # -- and less than a storey, which would be a hill. How tall the pile stands is a picture
+  # and not an obstacle: the truck's wheel rays pass through heaps and the blade breaks
+  # whatever it meets, so this number is free to say what a fallen house looks like.
+  test "a three-storey house leaves a pile, not a rug and not a hill" do
+    assert_operator surface.thickness, :>, 1.0,
+                    "#{surface.thickness.round(2)}m of wreckage is a rug under a twelve metre ridge"
+    assert_operator surface.thickness, :<, recipe.storey_height,
                     "#{surface.thickness.round(2)}m of wreckage wall to wall is a hill"
   end
 end
