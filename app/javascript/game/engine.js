@@ -3,6 +3,7 @@ import { loadRapier } from "game/rapier"
 import { loadTerrain, renderHeightAt } from "game/world/terrain"
 import { castTerrain } from "game/physics/terrain"
 import { buildTerrainView } from "game/render/terrain_view"
+import { installParityHooks } from "game/parity"
 import { createRenderer, createScene, createCamera, disposeScene, qualityFor } from "game/render/scene"
 import { buildArenaView } from "game/render/arena_view"
 import { createPhysicsWorld } from "game/physics/world"
@@ -282,6 +283,8 @@ export class GameEngine {
     // Where a heap was put down and on what ground. "The wreckage lies on the slope" is a
     // claim about this against __arenaTerrainHeight at the same point.
     window.__arenaHeapGround = (piece, buildingId) => this.buildings?.find(buildingId)?.heapGround(piece) ?? null
+    // The JS side of every ported Ruby/JS pair, for parity_test.rb.
+    installParityHooks({ spec: this.spec, buildings: this.buildings, terrain: this.terrain })
     window.__arenaQuality = this.qualityName
 
     this.running = true
