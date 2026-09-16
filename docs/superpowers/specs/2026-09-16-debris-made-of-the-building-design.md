@@ -251,3 +251,13 @@ changes, all seeded:
   than plates. Only heaps below the mean height shrink, so the reach invariant in the body
   of the pile holds as before.
 
+## Fifth pass, same day: the flat sides were the lumps
+
+A close-up from the road showed what the profile changes could not fix: each base lump is
+an icosahedron normalised to fill a box, and at a metre and a half tall that has vertical
+flanks and door-sized facets. A row of them along the pile's edge is a faceted wall.
+`lumpGeometry` is now a rounded cone built in rings with a lobed outline and small facets,
+open underneath, normalised to fill its box as before, and the chunks sit on its slope. Two
+close-up shots from the road join the photograph test so this is judged from where a
+driver sees it.
+

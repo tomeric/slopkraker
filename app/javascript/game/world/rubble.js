@@ -136,8 +136,8 @@ export function heapFragments(surface, row, col, frame, mix, materials, rules = 
     const sz = chunk.size[2] * (1 + chunk.vary * fnoise(surface, row, col, k, 4)) * size
 
     // Sitting IN the top of the lump, some further in than others, and never below the
-    // ground: the lump's crest falls away from its middle roughly as a dome does.
-    const crest = frame.ground + (frame.top - frame.ground) * Math.sqrt(Math.max(0, 1 - radius * radius))
+    // ground: the lump's flank falls away from its apex as the mound's own profile does.
+    const crest = frame.ground + (frame.top - frame.ground) * (1 - Math.pow(radius, MOUND_PROFILE))
     const embed = 0.15 + 0.4 * ((fnoise(surface, row, col, k, 5) + 1) / 2)
     const y = Math.max(crest - sy * embed, frame.ground + sy * 0.35)
 
@@ -343,47 +343,83 @@ export function shapeFor(surface, row, col, shapes = SHAPES) {
   return Math.floor(((noise(surface, row, col, 53) + 1) / 2) * shapes) % shapes
 }
 
-// A lump of dust and mortar, not a box.
+// A mound of dust and mortar: wide at the foot, rounded at the top, sloped in between.
 //
-// An icosahedron with every vertex shoved about and then squashed flat: the faces come out
-// irregular, the silhouette is angular rather than square, and the twelve of them look like
-// twelve different heaps rather than one heap rotated. Vertices are displaced by a hash of
-// their own position and the variant, so a given variant is the same lump on every client
-// and in every session -- these are geometry, not decoration, and a heap you drive around
-// has to be the heap everybody else drives around.
+// It used to be an icosahedron squashed and normalised to fill its box, and that was the
+// flat side of the pile. Normalised to a box a metre and a half tall, a twenty-faced solid
+// has near-vertical flanks and facets the size of a door, and a row of them along the
+// edge of the pile lined up into a faceted wall -- which is what "flat sides" looked like
+// from the road, however the pile as a whole was profiled. So the lump is now what a heap
+// of anything loose is: a rounded cone, `1 - r^MOUND_PROFILE`, built as rings from the
+// apex to the foot with the outline wobbled in two low-frequency lobes per variant and
+// every vertex nudged a little, then normalised to fill its box so the instance scale is
+// still the heap's real size. Non-indexed, so the shading is faceted at the size of a
+// brick rather than a door.
+//
+// No underside. The foot ring sits at the bottom of the box, which the sink puts below
+// the ground, and the pool's material is single-sided; a face nobody can ever see would
+// still be rasterised in the shadow pass.
+//
+// Vertices are displaced by a hash of their own position and the variant, so a given
+// variant is the same mound on every client and in every session -- these are geometry,
+// not decoration, and a heap you drive around has to be the heap everybody else drives
+// around.
+// The exponent of the mound's own profile, 1 - r^p. Higher is rounder on top and steeper
+// at the foot: at 1.6 each heap was a pointed tent and a pile of them read as a rockery of
+// little peaks; at 2.2 the top is a dome, and heaps that overlap by construction merge
+// into one lumpy mass instead of standing out as individual cones.
+export const MOUND_PROFILE = 2.2
+
 export function lumpGeometry(variant) {
-  // Alternating the base solid as well as the wobble. Twelve wobbles of one icosahedron
-  // are twelve versions of the same silhouette; a dodecahedron and a subdivided
-  // icosahedron bring genuinely different face counts and profiles, and the eye reads that
-  // long before it reads a displaced vertex.
-  const geometry = baseSolid(variant)
-  const position = geometry.attributes.position
+  const rings = 9
+  const segments = 16
+  const lobeA = 0.12 + 0.08 * ((hash(variant, 1, 2, 3) + 1) / 2)
+  const lobeB = 0.06 + 0.06 * ((hash(variant, 4, 5, 6) + 1) / 2)
+  const phaseA = hash(variant, 7, 8, 9) * Math.PI
+  const phaseB = hash(variant, 10, 11, 12) * Math.PI
 
-  // WHICH AXIS IS UP: a lump's local z is world up -- heapMatrix rotates it there -- so
-  // squashing z is what flattens a heap. Squashing y flattened it sideways and left it
-  // free to grow upward, which is how these once came out as vertical spikes.
-  for (let i = 0; i < position.count; i += 1) {
-    const x = position.getX(i)
-    const y = position.getY(i)
-    const z = position.getZ(i)
-    const wobble = 1 + hash(x, y, z, variant) * 0.6
+  // The outline swells and shrinks round the mound, and each vertex sits a little off it.
+  const radiusAt = (t, theta) => t * (
+    1 + lobeA * Math.sin(3 * theta + phaseA) + lobeB * Math.sin(5 * theta + phaseB) +
+    0.05 * hash(t, theta, 0, variant)
+  )
+  const heightAt = (t, theta) => (1 - Math.pow(t, MOUND_PROFILE)) * (1 + 0.08 * hash(t, theta, 1, variant))
 
-    position.setXYZ(
-      i,
-      x * wobble,
-      y * wobble,
-      // Up. Squashed, because a heap settles, and squashed LAST so the wobble cannot undo
-      // it and put a spike back.
-      z * wobble * 0.5
-    )
+  const vertex = (ring, segment) => {
+    if (ring === 0) return [ 0, 0, heightAt(0, 0) ]
+    const t = ring / rings
+    const theta = ((segment % segments) / segments) * Math.PI * 2
+    const r = radiusAt(t, theta) * 0.5
+    return [ r * Math.cos(theta), r * Math.sin(theta), heightAt(t, theta) ]
   }
+
+  // Wound so the normals face up and out: seen from above, counter-clockwise.
+  const positions = []
+  for (let j = 0; j < segments; j += 1) {
+    positions.push(...vertex(0, 0), ...vertex(1, j), ...vertex(1, j + 1))
+  }
+  for (let i = 1; i < rings; i += 1) {
+    for (let j = 0; j < segments; j += 1) {
+      const p = vertex(i, j)
+      const q = vertex(i, j + 1)
+      const r = vertex(i + 1, j + 1)
+      const s = vertex(i + 1, j)
+      positions.push(...p, ...s, ...r)
+      positions.push(...p, ...r, ...q)
+    }
+  }
+
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3))
 
   // NORMALISED TO FILL ITS BOX, and this is the difference between a volume model that is
   // right on paper and rubble that is right on screen. A lump is scaled by a box whose
-  // height is the depth Ruby computed from the building's own material -- so a lump filling
-  // 42% of that box drew 42% of the debris, and left the other 58% as collider standing
-  // invisibly above the rubble. Now the box's extents ARE the lump's extents: what the
-  // model says is what you see and what you hit.
+  // height is the depth Ruby computed from the building's own material -- so a lump
+  // filling 42% of that box once drew 42% of the debris, and left the other 58% as
+  // collider standing invisibly above the rubble. The box's extents ARE the lump's
+  // extents: what the model says is what you see and what you hit. Each axis on its own,
+  // because the wobble leaves the plan extents unequal and the box is a x b.
+  const position = geometry.attributes.position
   const box = new THREE.Box3().setFromBufferAttribute(position)
   const size = box.getSize(new THREE.Vector3())
   const centre = box.getCenter(new THREE.Vector3())
@@ -400,14 +436,6 @@ export function lumpGeometry(variant) {
   position.needsUpdate = true
   geometry.computeVertexNormals()
   return geometry
-}
-
-function baseSolid(variant) {
-  switch (variant % 3) {
-    case 0: return new THREE.IcosahedronGeometry(0.5, 0)
-    case 1: return new THREE.DodecahedronGeometry(0.5, 0)
-    default: return new THREE.IcosahedronGeometry(0.5, 1)
-  }
 }
 
 // Deterministic in the vertex's own position, so the same variant is the same lump

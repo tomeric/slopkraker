@@ -94,6 +94,13 @@ class ShotsTest < ApplicationSystemTestCase
     park(4, 15.5, yaw: Math::PI / 2)
     shot "13-wreckage-side"
 
+    # Close, from the road, which is where a driver actually sees a pile from and where
+    # the flat sides of the old lumps showed.
+    park(26, 1.5)
+    shot "13b-edge-close"
+    park(15, -1, yaw: 0.35)
+    shot "13c-along-the-edge"
+
     # Through it. From z = -16 at full throttle the truck is in the thick of the pile at
     # about three and a half seconds and coming out of it a second later.
     park(26, -16)

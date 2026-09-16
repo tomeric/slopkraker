@@ -223,6 +223,13 @@ positions derive from the recipe seed, clearing goes through `damage`/`breaks` a
   ground, a yaw, two half-extents, a height) and `heapMatrix` carries the lump's local z
   onto world up before the yaw. The lump is level; the lean is on the chunks. The collider
   is sized from the level lump, because forty leaned boxes are forty invisible ramps.
+- **The lump is a mound, not a solid.** `lumpGeometry` used to be an icosahedron squashed
+  and normalised to fill its box; normalised to a box a metre and a half tall that has
+  near-vertical flanks and facets the size of a door, and a row of them along the edge of
+  the pile lined up into a faceted wall — the "flat sides" seen from the road, whatever the
+  pile's overall profile was. It is now a rounded cone (`1 - r^MOUND_PROFILE`) built in
+  rings with a lobed outline and brick-sized facets, no underside, still normalised to fill
+  its box. The chunks are seated on that same slope.
 - **The truck goes THROUGH wreckage, not over it, and that is a collision-group rule.** The
   wheels are raycasts, so anything they land on is ground: with heaps in their filter the
   truck rode up the rim, its blade never reached a heap, and it stalled on top of the mound
