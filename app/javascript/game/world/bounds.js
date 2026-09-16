@@ -9,10 +9,16 @@ import { WORLD_GROUPS } from "game/physics/groups"
 // through at speed. Thickness is the real defence: a fast rocket moves about half a metre
 // per physics step, so a thin wall could be on the far side of the collider before the
 // solver ever sees a contact.
+//
+// And DEEP enough. A wall standing on y = 0 over a valley seven metres below it is seven
+// metres of open air, so the walls reach SINK below the lowest ground there is.
 const HEIGHT = 60.0
 const THICKNESS = 4.0
+const SINK = 10.0
 
-export function createWorldBounds(RAPIER, world, bounds) {
+// `floor` is the lowest ground in the world: the terrain's minimum, or zero without one,
+// which is exactly the wall every flat world had.
+export function createWorldBounds(RAPIER, world, bounds, floor = 0) {
   if (!bounds) return []
 
   const [ minX, minZ, maxX, maxZ ] = bounds
@@ -21,16 +27,18 @@ export function createWorldBounds(RAPIER, world, bounds) {
   const midX = (minX + maxX) / 2
   const midZ = (minZ + maxZ) / 2
   const half = THICKNESS / 2
-  const y = HEIGHT / 2
+  const bottom = Math.min(floor, 0) - SINK
+  const height = HEIGHT - bottom
+  const y = (bottom + HEIGHT) / 2
 
   // Each wall is placed with its inner face exactly on the boundary, so the playable area
   // is the bounds themselves rather than the bounds plus however thick the wall happens
   // to be. The side walls are inset by the thickness so the corners do not overlap.
   return [
-    [ midX, y, minZ - half, width + THICKNESS * 2, HEIGHT, THICKNESS ],
-    [ midX, y, maxZ + half, width + THICKNESS * 2, HEIGHT, THICKNESS ],
-    [ minX - half, y, midZ, THICKNESS, HEIGHT, depth ],
-    [ maxX + half, y, midZ, THICKNESS, HEIGHT, depth ]
+    [ midX, y, minZ - half, width + THICKNESS * 2, height, THICKNESS ],
+    [ midX, y, maxZ + half, width + THICKNESS * 2, height, THICKNESS ],
+    [ minX - half, y, midZ, THICKNESS, height, depth ],
+    [ maxX + half, y, midZ, THICKNESS, height, depth ]
   ].map(([ x, cy, z, w, h, d ]) =>
     world.createCollider(
       RAPIER.ColliderDesc.cuboid(w / 2, h / 2, d / 2)

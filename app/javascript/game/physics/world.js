@@ -1,11 +1,13 @@
 import { WORLD_GROUPS, PROP_GROUPS } from "game/physics/groups"
 import { ColliderRegistry } from "game/sim/collider_registry"
 import { createWorldBounds } from "game/world/bounds"
+import { createTerrainColliders } from "game/physics/terrain"
 
 // Builds the Rapier world from the Ruby arena spec. Static geometry gets parentless
 // colliders (Rapier treats those as fixed); props get dynamic bodies so they can be
-// knocked about and eventually broken.
-export function createPhysicsWorld(RAPIER, spec) {
+// knocked about and eventually broken. `terrain` is the loaded heightfield, or null for
+// a world whose ground is a slab among the static bodies.
+export function createPhysicsWorld(RAPIER, spec, terrain = null) {
   const [gx, gy, gz] = spec.arena.gravity
   const world = new RAPIER.World({ x: gx, y: gy, z: gz })
   world.timestep = 1 / spec.rules.physics_hz
@@ -30,9 +32,15 @@ export function createPhysicsWorld(RAPIER, spec) {
     colliders.set(collider.handle, { kind: body.kind, name: body.name, destructible: false, body: null })
   }
 
+  // The ground, where the world has a heightfield rather than a slab. Registered so a
+  // contact with it is a contact with something named.
+  if (terrain) {
+    createTerrainColliders(RAPIER, world, terrain, spec.rules.terrain, colliders, spec.rules.impact_force_threshold)
+  }
+
   // The hard edges. Registered like any other static geometry so a contact with one is
-  // reported rather than silently ignored.
-  for (const collider of createWorldBounds(RAPIER, world, spec.arena.bounds)) {
+  // reported rather than silently ignored. They reach below the lowest ground there is.
+  for (const collider of createWorldBounds(RAPIER, world, spec.arena.bounds, terrain ? terrain.min : 0)) {
     colliders.set(collider.handle, { kind: "bounds", name: "bounds", destructible: false, body: null })
   }
 

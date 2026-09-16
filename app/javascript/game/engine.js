@@ -1,5 +1,6 @@
 import * as THREE from "three"
 import { loadRapier } from "game/rapier"
+import { loadTerrain } from "game/world/terrain"
 import { createRenderer, createScene, createCamera, disposeScene, qualityFor } from "game/render/scene"
 import { buildArenaView } from "game/render/arena_view"
 import { createPhysicsWorld } from "game/physics/world"
@@ -74,9 +75,15 @@ export class GameEngine {
 
   async start() {
     this.onStatus("Loading physics…")
-    const RAPIER = await loadRapier()
+    // The wasm and the tiles both take a round trip, so they take it together. A tile
+    // that fails to load rejects with its coordinates, which the controller shows.
+    const [ RAPIER, terrain ] = await Promise.all([ loadRapier(), loadTerrain(this.spec.arena.terrain) ])
     if (this.disposed) return
     this.RAPIER = RAPIER
+    this.terrain = terrain
+    // "The ground here", for everything that lays something on it. Null on a flat world,
+    // and everything that takes it reproduces its old behaviour exactly when it is null.
+    this.ground = terrain ? (x, z) => terrain.heightAt(x, z) : null
 
     this.fixedDt = 1 / this.spec.rules.physics_hz
     this.maxSubsteps = this.spec.rules.max_substeps
@@ -88,7 +95,7 @@ export class GameEngine {
     this.camera = createCamera(this.aspect())
     this.resize()
 
-    const { world, colliders, props } = createPhysicsWorld(RAPIER, this.spec)
+    const { world, colliders, props } = createPhysicsWorld(RAPIER, this.spec, terrain)
     this.world = world
     this.colliderIndex = colliders
     this.props = props
@@ -261,6 +268,9 @@ export class GameEngine {
     window.__arenaUnstuck = () => this.vehicle?.unstuck ?? 0
     // What is holding the car up when no wheel can reach anything -- null while driving.
     window.__arenaSupports = () => this.vehicle?.supports?.length ?? 0
+    // The ground under a point as the client samples it -- the port of Tile.interpolate.
+    // Null on a world without terrain.
+    window.__arenaTerrainHeight = (x, z) => (this.terrain ? this.terrain.heightAt(x, z) : null)
     window.__arenaQuality = this.qualityName
 
     this.running = true
