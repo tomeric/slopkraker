@@ -20,10 +20,11 @@ module Game
       KINDS = %i[wall partition floor roof gable rubble].freeze
 
       attr_reader :kind, :storey, :material, :origin, :u, :v, :normal,
-                  :width, :height, :cols, :rows, :thickness, :patches, :piece_offset, :seed
+                  :width, :height, :cols, :rows, :thickness, :patches, :piece_offset, :seed,
+                  :mix
 
       def initialize(kind:, storey:, material:, origin:, u:, v:, width:, height:,
-                     cols:, rows:, thickness:, patches: [], piece_offset: 0, seed: 0)
+                     cols:, rows:, thickness:, patches: [], piece_offset: 0, seed: 0, mix: nil)
         @kind = kind
         @storey = storey
         @material = material
@@ -39,6 +40,9 @@ module Game
         @patches = patches
         @piece_offset = piece_offset
         @seed = seed
+        # Only a rubble surface carries one: what the building was made of, by share of its
+        # volume, largest first. The client draws a heap's chunks from it in that order.
+        @mix = mix
       end
 
       def piece_count = cols * rows
@@ -96,7 +100,7 @@ module Game
         self.class.new(
           kind: kind, storey: storey, material: material, origin: origin, u: u, v: v,
           width: width, height: height, cols: cols, rows: rows, thickness: thickness,
-          patches: patches, piece_offset: offset, seed: seed
+          patches: patches, piece_offset: offset, seed: seed, mix: mix
         )
       end
 
@@ -137,7 +141,11 @@ module Game
           # One block id per cell, row-major, or absent where the plain grid is right.
           blocks: blocks,
           patches: patches.map(&:to_spec)
-        }
+        }.tap do |spec|
+          # Only when there is one. A wall shipping an empty mix would be a wall the client
+          # has to ask a question of that it has no answer to.
+          spec[:mix] = mix.map { |name, share| [ name.to_s, share.round(4) ] } if mix
+        end
       end
 
       # A rectangle of cells whose material differs from the surface's own: a window, a

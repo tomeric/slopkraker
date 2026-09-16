@@ -44,8 +44,9 @@ module Game
 
       # How many different lumps there are to go round. They cost a draw call each, but the
       # pools are shared by every building in the world -- so this is what a city costs, not
-      # what a house costs, and it can afford to be generous.
-      SHAPES = 16
+      # what a house costs. The lump is the dust the building's own chunks sit in now, and
+      # every material's chunks add a pool of their own on top, so twelve is plenty.
+      SHAPES = 12
 
       # How much broken masonry swells as it breaks. Rubble does not pack back into the
       # space the wall occupied: roughly half as much again.
@@ -63,11 +64,13 @@ module Game
       # a fiction: the shards a collapse throws are carrying that material away in front of
       # you as it lands, and they fade rather than settling.
       #
-      # At 0.6 the mound peaks around 4.5m with a rim under half a metre. That centre is
-      # genuinely impassable -- taller than anything else in the game -- so getting through
-      # a collapsed house means clearing a path rather than driving round it. That is the
-      # point: it is wreckage that has to be cleared.
-      SHARE = 0.6
+      # At 0.2 the worked example averages 0.59m over its footprint and mounds to about
+      # 1.7m in the middle, with a rim of a hand's breadth. That is deliberately a pile the
+      # truck's blade meets and breaks rather than a slope its wheels climb: the truck rides
+      # up the rim and ploughs the middle, and a rocket takes a bite out of it. At 0.6 the
+      # middle stood four and a half metres tall and nothing got through it, which is the
+      # opposite of wreckage you clear.
+      SHARE = 0.2
 
       # Only used by a building made of nothing, which cannot happen, but a zero depth
       # would make a heap with no height and no health at all.
@@ -101,7 +104,9 @@ module Game
           rows: rows,
           thickness: depth,
           patches: gaps,
-          seed: recipe.seed
+          seed: recipe.seed,
+          # What the heaps are drawn from: the building's own materials, in proportion.
+          mix: mix_for(built)
         ) ]
       end
 
@@ -121,19 +126,43 @@ module Game
         [ kept / footprint_area, MINIMUM_DEPTH ].max
       end
 
-      # Every cubic metre the building is made of. Voids are holes and weigh nothing.
-      def self.material_volume(built)
-        Array(built).sum do |surface|
-          next 0.0 if surface.kind == :rubble
+      # Every cubic metre the building is made of, by material. Voids are holes and weigh
+      # nothing, and rubble is excluded because a building's wreckage cannot be made of
+      # itself.
+      def self.volumes_by_material(built)
+        volumes = Hash.new(0.0)
 
-          surface.rows.times.sum do |row|
-            surface.cols.times.sum do |col|
-              next 0.0 if surface.material_at(row, col).name == :void
+        Array(built).each do |surface|
+          next if surface.kind == :rubble
 
-              surface.cell_area * surface.thickness
+          surface.rows.times do |row|
+            surface.cols.times do |col|
+              material = surface.material_at(row, col)
+              next if material.name == :void
+
+              volumes[material.name] += surface.cell_area * surface.thickness
             end
           end
         end
+
+        volumes
+      end
+
+      def self.material_volume(built)
+        volumes_by_material(built).values.sum
+      end
+
+      # What the wreckage is drawn from: each material's share of the building's volume,
+      # largest first. Sorted with the name as tie-break so the order is total, because the
+      # client walks it in sequence to pick a chunk's material and two clients have to walk
+      # the same list.
+      def self.mix_for(built)
+        volumes = volumes_by_material(built)
+        total = volumes.values.sum
+        return [] if total <= 0
+
+        volumes.sort_by { |name, volume| [ -volume, name ] }
+               .map { |name, volume| [ name, volume / total ] }
       end
 
       # How many of the piles a collapse from `collapsed_from` actually leaves. A house

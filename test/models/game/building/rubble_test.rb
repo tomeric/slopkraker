@@ -215,4 +215,40 @@ class Game::Building::RubbleTest < ActiveSupport::TestCase
     assert_equal Game::Building::Rubble.pile_indices(surface),
                  Game::Building::Rubble.pile_indices(surface)
   end
+
+  # A heap is drawn from what the building was made of, in proportion. The shares are
+  # worked out here from the surfaces the generator built, and shipped, so a bungalow with
+  # a flat concrete roof leaves different wreckage from a gabled brick house without
+  # anybody choosing a number.
+  test "the wreckage is what the house was made of, by share" do
+    mix = surface.mix
+
+    assert mix, "the rubble surface carries no mix"
+    assert_in_delta 1.0, mix.sum(&:last), 1e-6
+    names = mix.map(&:first)
+    assert_equal names, names.uniq
+    refute_includes names, :void, "a hole is not a material"
+    refute_includes names, :rubble, "rubble is what the chunks sit in, not a chunk"
+    assert_equal :brick, names.first, "a brick house should be mostly brick"
+    assert_includes names, :timber
+    assert_equal mix, mix.sort_by { |name, share| [ -share, name ] }, "shares are shipped largest first"
+  end
+
+  test "the mix ships with the surface and nothing else carries one" do
+    set = Game::Building::Generator.call(recipe)
+    rubble = set.surfaces.last
+    wall = set.surfaces.first
+
+    assert_equal rubble.mix.map { |name, share| [ name.to_s, share.round(4) ] }, rubble.to_spec[:mix]
+    assert_nil wall.mix
+    refute wall.to_spec.key?(:mix), "a wall has no business shipping a mix"
+  end
+
+  # A pile the truck ploughs, not a hill it climbs. The share of the house that stays as
+  # wreckage is a feel number and will move, but the CONSEQUENCE is what this pins: the
+  # worked example's wreckage averages under a metre deep over its footprint.
+  test "the pile is something a truck ploughs rather than a hill it climbs" do
+    assert_operator surface.thickness, :<, 1.0,
+                    "#{surface.thickness.round(2)}m of wreckage wall to wall is a hill"
+  end
 end
