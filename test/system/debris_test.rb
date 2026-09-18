@@ -44,7 +44,9 @@ class DebrisTest < ApplicationSystemTestCase
     assert_equal 0, kicked, "shards were kicked before anything reached them"
 
     page.execute_script("window.__arenaInput = { throttle: 1 }")
-    wait_for(timeout: 8, message: "the car drove through the shards and touched none of them") { kicked.positive? }
+    # Simulated seconds: a loaded machine slows the accumulator, and the car reaching the
+    # shards is simulated time, not wall time -- see `wait_for_simulated`'s own comment.
+    wait_for_simulated(8, message: "the car drove through the shards and touched none of them") { kicked.positive? }
     page.execute_script("window.__arenaInput = null")
 
     # Out of the debris entirely, then long enough for anything kicked to be gone.
@@ -67,7 +69,8 @@ class DebrisTest < ApplicationSystemTestCase
     sleep 0.3
     page.execute_script("window.__arenaInput = null")
 
-    wait_for(timeout: 6, message: "the blast left the shards where they were") { kicked.positive? }
+    # Same reasoning: the rocket's flight and the blast's sweep are simulated time too.
+    wait_for_simulated(6, message: "the blast left the shards where they were") { kicked.positive? }
     sleep 2.5
     assert_operator page.evaluate_script("window.__arena.shards"), :>, 0,
                     "the blast swept away the shards it had just thrown itself"

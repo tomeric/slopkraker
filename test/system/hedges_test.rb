@@ -42,6 +42,12 @@ class HedgesTest < ApplicationSystemTestCase
   GARDEN = 4.5
   # The ceiling on the drive, in simulation steps. The normal exit is being through.
   STEPS = 600
+  # A few simulated seconds: parked, the buggy drops 1.5 m onto its wheels and settles.
+  # Simulated, not wall -- see `wait_for_simulated`'s own comment for why geleen needs that.
+  SETTLE_BUDGET = 5
+  # Twice STEPS' own ceiling, converted to simulated seconds -- a generous backstop. STEPS
+  # is the real cap: the block below returns the moment it is reached, budget or no.
+  DRIVE_BUDGET = STEPS / Game::Spec::PHYSICS_HZ.to_f * 2
 
   def boot(match:)
     visit_world("geleen", vehicle: "buggy", quality: "low", match: match, spawn: 0)
@@ -88,8 +94,12 @@ class HedgesTest < ApplicationSystemTestCase
     # And out the other side on the road. Against the car's own resting clearance, because
     # a buggy standing on a one-metre hedge is a metre up and no more.
     assert_operator last["past"], :>, 0, "the car never reached the far side"
-    assert_operator clearance(last), :<, resting + 0.8,
-                    "the car came out #{(clearance(last) - resting).round(2)} m higher than it went in: it climbed the hedge"
+    # The MAXIMUM over every sample once the hedge started breaking, not the last: a car
+    # that rode up and dropped back off the far side before the final reading would pass a
+    # last-sample check despite having climbed it.
+    peak = through.map { |s| clearance(s) }.max
+    assert_operator peak, :<, resting + 0.8,
+                    "the car reached #{(peak - resting).round(2)} m higher than it went in: it climbed the hedge"
     assert_operator clearance(last), :>, 0.1, "the car sank into the ground"
     assert_empty page.evaluate_script("window.__arenaNetErrors()")
   end
@@ -200,7 +210,7 @@ class HedgesTest < ApplicationSystemTestCase
       page.execute_script("window.__arenaPlace = { x: #{x}, y: #{ground + 1.5}, z: #{z}, yaw: #{target['yaw']} }")
       # Returns the settled reading rather than a second round trip for it: the car is
       # only known to be still for as long as the assertion that found it still.
-      wait_for(timeout: 60, message: "the buggy never settled on the road") do
+      wait_for_simulated(SETTLE_BUDGET, message: "the buggy never settled on the road") do
         t = telemetry
         t if t["grounded"] == 4 && t["speed"] < 0.5
       end
@@ -210,21 +220,20 @@ class HedgesTest < ApplicationSystemTestCase
     # rather than measured at the end, because what is being measured is the speed WHILE
     # it is in the hedge -- a car that stalls against one and is nudged through by the
     # accumulator arrives with a perfectly good final speed.
+    #
+    # The wait is simulated, not wall: STEPS is still the real ceiling, checked on every
+    # sample, and `wait_for_simulated`'s stall detector stands in for what used to be a
+    # 240-wall-second deadline -- geleen can run this drive slowly under load and still be
+    # healthy, which a wall clock cannot tell apart from having actually stopped.
     def drive_through(target)
       from = page.evaluate_script("window.__arena.steps")
       samples = [ sample(target) ]
       page.execute_script("window.__arenaInput = { throttle: 1 }")
-      deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + 240
 
-      loop do
+      wait_for_simulated(DRIVE_BUDGET, message: "the car never got through the hedge") do
         s = sample(target)
         samples << s
-        break if s["past"] > THROUGH
-        break if s["steps"] - from >= STEPS
-        if Process.clock_gettime(Process::CLOCK_MONOTONIC) > deadline
-          flunk("the car never got through: #{s.slice('past', 'speed', 'broken')} after #{s['steps'] - from} steps")
-        end
-        sleep 0.05
+        s["past"] > THROUGH || s["steps"] - from >= STEPS
       end
       samples
     ensure

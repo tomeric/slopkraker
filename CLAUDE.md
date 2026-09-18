@@ -687,7 +687,13 @@ The engine exposes debug/test hooks on `window`:
 Most system tests drive through `__arenaInput`; one test in `driving_test.rb` uses real key events
 so the binding layer stays covered. `ApplicationSystemTestCase#wait_for` polls for engine
 milestones (Capybara doesn't retry `evaluate_script`) and surfaces SEVERE console errors on
-timeout — a silent timeout is almost always a boot exception.
+timeout — a silent timeout is almost always a boot exception. `wait_for_simulated` is the other
+half: it budgets and times out in SIMULATED seconds counted off `__arena.steps`, with a stall
+detector standing in for the deadline. Use it for any assertion — on `geleen` above all — about
+something that takes simulated time to happen: a settle, a drive, a collapse finishing. Geleen
+measures 0.04 to 0.05 simulated seconds per wall second under load, so ninety wall seconds of
+plain `wait_for` can buy less simulated time than the six-second `life` backstop that is what
+eventually retires a falling piece.
 
 Directional assertions are made against the **camera's** right vector, not a world axis: "right"
 only means something relative to what the player sees, and a world-axis assertion happily passes
