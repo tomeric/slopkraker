@@ -611,6 +611,7 @@ The engine exposes debug/test hooks on `window`:
 | `__arenaBays` | `(buildingId)` — the `{bay: storey}` map this client holds. A bay missing from it is a dwelling still standing, and a single-bay house has at most the one entry under `0`, so "the house next door is untouched" is a reading rather than an inference |
 | `__arenaPileOrder` | `(buildingId, bay)` — the order this client will reveal that bay's heaps in. Held against `Rubble.pile_indices` in `bays_test`: the server gates damage on the revealed PREFIX, so a client revealing a different order has heaps it can see and cannot clear |
 | `__arenaRoadVertices` | How many vertices the road ribbon has. Zero on a world with no roads, and the only way to tell "the roads are drawn" from "the roads are data nobody built a mesh out of" |
+| `__arenaNetUp` | Whether the ActionCable subscription is up. A break made before it is up is dropped by design, so tests that need the server to have heard one wait on it first |
 | `__arenaNetErrors` | Every reason the server has refused this session — `not_authoritative`, a batch over the cap. Empty is the assertion: a test that breaks a houseful in one frame while the server quietly refuses every report otherwise passes |
 | `__arenaDraws` | `renderer.info.render.calls` — turns "did the render plan regress" into an assertion |
 | `__arenaBuildingLabels` | The debug overlay's plate for every building — `{ id, name, category, ids, shown }` — so "which building is that" is a name rather than a pointer, and a test can assert on the words |

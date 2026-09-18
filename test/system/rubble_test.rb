@@ -96,6 +96,11 @@ class RubbleTest < ApplicationSystemTestCase
     # Wait for the count to GROW, not merely to be positive: bringing the house down
     # already reported eighty-odd hits, so "positive" is true before the heap is touched,
     # and flushing on that signal writes the rows a beat before the clearing reaches them.
+    #
+    # And wait for the socket itself first: a batch sent while the subscription is still
+    # coming up is dropped by design, not queued, so a clearing sent in that window never
+    # moves __arenaReported() and the wait below would hang for the full timeout every time.
+    wait_for_socket
     before = page.evaluate_script("window.__arenaReported()")
     page.execute_script("window.__arenaDamagePiece(arguments[0], 5000, arguments[1])", pile, building)
     wait_for(timeout: 15, message: "the clearing never reached the server") do

@@ -275,6 +275,10 @@ export class GameEngine {
     window.__arenaDebrisKickedLive = () => this.buildings?.debrisKickedLive ?? 0
     window.__arenaRemotes = () => this.remotes?.size ?? 0
     window.__arenaReported = () => this.reporter?.sent ?? 0
+    // Whether the ActionCable subscription is up. A damage batch sent before it is up is
+    // dropped by design (DamageReporter resyncs rather than replays), so a test that needs
+    // the server to have heard a break must wait for this before making it.
+    window.__arenaNetUp = () => this.connection?.connected ?? false
     window.__arenaBuildingIds = () => this.buildings?.list.map((b) => b.id) ?? []
     window.__arenaBuildingSpec = (id) => this.buildings?.find(id)?.spec ?? null
     // How many slabs THIS building put in the air on its own behalf, as against how many

@@ -138,6 +138,11 @@ class CollapseTest < ApplicationSystemTestCase
   # the page alone would be served out of memory and prove nothing about the rows.
   test "damage survives the process that recorded it" do
     building = boot("collapse-reload")
+    # A batch sent before the subscription is up is dropped by design (DamageReporter
+    # resyncs rather than replays), and `ready` only says the engine booted -- the socket
+    # connects on its own clock. Without this wait, the damage below can be dropped on the
+    # floor and __arenaReported() never becomes positive, however long the next wait runs.
+    wait_for_socket
     page.execute_script("window.__arenaDamagePiece(0, 5000, arguments[0])", building)
 
     wait_for(timeout: 15, message: "the break never reached the server") do

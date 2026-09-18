@@ -128,6 +128,16 @@ class ApplicationSystemTestCase < ActionDispatch::SystemTestCase
     end
   end
 
+  # The socket, not the engine. `ready` says the engine booted; the ActionCable
+  # subscription connects on its own clock, and a break reported before it is up is
+  # dropped by design and never counted. Any test that asserts the server heard
+  # something waits here first.
+  def wait_for_socket
+    wait_for(timeout: 30, message: "the socket never connected") do
+      page.evaluate_script("!!(window.__arenaNetUp && window.__arenaNetUp())")
+    end
+  end
+
   def severe_console_errors
     page.driver.browser.logs.get(:browser)
       .select { |entry| entry.level == "SEVERE" }
