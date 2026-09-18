@@ -431,6 +431,13 @@ how the pool's ONE material is dressed and how each instance is coloured.
   and by weight, and left out of the rubble mix. Lawns are rings the client drapes into
   the roads' mesh. The importer finds garages (a one-storey annex whose street edge is a
   car wide) and gardens (the strip to the nearest road across the front).
+- **Appending hedges renumbered every gardened row's rubble.** Hedges come after the boxes
+  and before the rubble grid, so every heap index in a row with gardens moved up by the
+  hedges' cells. Damage recorded against `geleen` before this change therefore addresses
+  the wrong heaps, and there is no `geleen` in production — so a dev database that has
+  played it wants its geleen matches cleared rather than migrated. Everything else is
+  untouched: a `building` recipe has no gardens, and the three hand-made worlds have no
+  `row` recipes at all.
 - **Daylight is the default.** `rules.sky.{day,night}`; `?time=night` is the sky the game
   was lit for until now. At high quality the sky is a gradient texture filtered once
   into an environment map so steel reflects something; at low it is the horizon colour.
