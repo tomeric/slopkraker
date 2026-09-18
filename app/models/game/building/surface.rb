@@ -21,10 +21,11 @@ module Game
 
       attr_reader :kind, :storey, :material, :origin, :u, :v, :normal,
                   :width, :height, :cols, :rows, :thickness, :patches, :piece_offset, :seed,
-                  :mix
+                  :mix, :bay, :between, :bays
 
       def initialize(kind:, storey:, material:, origin:, u:, v:, width:, height:,
-                     cols:, rows:, thickness:, patches: [], piece_offset: 0, seed: 0, mix: nil)
+                     cols:, rows:, thickness:, patches: [], piece_offset: 0, seed: 0, mix: nil,
+                     bay: 0, between: nil, bays: nil)
         @kind = kind
         @storey = storey
         @material = material
@@ -43,6 +44,13 @@ module Game
         # Only a rubble surface carries one: what the building was made of, by share of its
         # volume, largest first. The client draws a heap's chunks from it in that order.
         @mix = mix
+        # The part of the building this surface stands or falls with (0 unless a building
+        # has more than one bay). A party wall instead names the two bays it is shared
+        # between, and belongs to neither exclusively; `bays` gives a bay per cell for a
+        # surface -- a foundation strip, say -- that itself spans more than one.
+        @bay = bay.to_i
+        @between = between&.map(&:to_i)
+        @bays = bays
       end
 
       def piece_count = cols * rows
@@ -100,7 +108,28 @@ module Game
         self.class.new(
           kind: kind, storey: storey, material: material, origin: origin, u: u, v: v,
           width: width, height: height, cols: cols, rows: rows, thickness: thickness,
-          patches: patches, piece_offset: offset, seed: seed, mix: mix
+          patches: patches, piece_offset: offset, seed: seed, mix: mix,
+          bay: bay, between: between, bays: bays
+        )
+      end
+
+      # A party wall: supports the bays on both sides of it and is felled by neither.
+      def shared? = !between.nil?
+
+      # The same surface turned about the world's y axis, which is how a building generated
+      # in its own frame is put down at its real bearing. Origin, u and v turn; every count,
+      # index, patch and material is untouched, because a rotation is a picture and the
+      # indices are the contract.
+      def rotated(yaw)
+        return self if yaw.zero?
+
+        c = Math.cos(yaw)
+        s = Math.sin(yaw)
+        turn = ->(vec) { Vector3.new(vec.x * c - vec.z * s, vec.y, vec.x * s + vec.z * c) }
+        self.class.new(
+          kind: kind, storey: storey, material: material, origin: turn.call(origin), u: turn.call(u), v: turn.call(v),
+          width: width, height: height, cols: cols, rows: rows, thickness: thickness,
+          patches: patches, piece_offset: piece_offset, seed: seed, mix: mix, bay: bay, between: between, bays: bays
         )
       end
 
@@ -147,6 +176,12 @@ module Game
           # Only when there is one. A wall shipping an empty mix would be a wall the client
           # has to ask a question of that it has no answer to.
           spec[:mix] = mix.map { |name, share| [ name.to_s, share.round(4) ] } if mix
+          # Omitted at their defaults, same reasoning as mix: a plain single-bay building
+          # should gain no key in a spec that three seeded worlds already compare byte for
+          # byte in their tests.
+          spec[:bay] = bay unless bay.zero?
+          spec[:between] = between if between
+          spec[:bays] = bays if bays
         end
       end
 

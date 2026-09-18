@@ -30,6 +30,14 @@ class Game::Building::GeneratorTest < ActiveSupport::TestCase
                  set.surfaces.map(&:piece_offset)
   end
 
+  test "a single house is one bay with nothing shared" do
+    set = house
+
+    assert_equal [ 0 ], set.bays
+    assert_empty set.for_bay(0)[:shared]
+    assert_equal set.surfaces.reject { |s| s.kind == :rubble }.length, set.for_bay(0)[:own].length
+  end
+
   # Rubble is generated last and must stay last. Every index before it keeps the number it
   # had before rubble existed, which is what let a building start reserving space for its
   # own wreckage without renumbering a world that had already been played and damaged.

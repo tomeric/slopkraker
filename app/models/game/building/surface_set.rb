@@ -45,6 +45,23 @@ module Game
         surfaces.select { |surface| surface.storey == storey }
       end
 
+      # Every bay in the building: the part of it that stands or falls together. A single
+      # house is one bay; a terrace is one per dwelling; a church one per part. Rubble is
+      # left out -- it belongs to no bay's structure -- and a shared wall belongs to both
+      # of its neighbours.
+      def bays
+        surfaces.reject { |s| s.kind == :rubble }.flat_map { |s| s.between || [ s.bay ] }.uniq.sort
+      end
+
+      # What the collapse rule weighs for one bay: its own surfaces, and the shared walls
+      # it leans on.
+      def for_bay(bay)
+        {
+          own: surfaces.select { |s| s.kind != :rubble && !s.shared? && s.bay == bay },
+          shared: surfaces.select { |s| s.shared? && s.between.include?(bay) }
+        }
+      end
+
       # What the collapse rule weighs: the load-bearing area of one storey. Glass and empty
       # doorways contribute nothing, so a wall of windows holds nothing up. With a block,
       # only the cells it accepts -- which is how Damage::Collapse asks what is still up.
