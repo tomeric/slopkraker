@@ -56,6 +56,17 @@ class Game::MaterialsTest < ActiveSupport::TestCase
     assert_in_delta 1800.0 * 2.25 * 0.25, brick.mass_for(2.25, 0.25), 1e-6
   end
 
+  # Health is computed on both sides of the wire -- shipped to the client, recomputed by
+  # the server -- so it must be the same number to the last digit on both. Rounding here,
+  # in the one method both call, is what makes that true by construction.
+  test "health and mass are rounded where both sides compute them" do
+    brick = Game::Materials.fetch(:brick)
+
+    assert_equal brick.health_for(0.87, 0.3).round(3), brick.health_for(0.87, 0.3)
+    assert_equal brick.mass_for(0.87, 0.3).round(3), brick.mass_for(0.87, 0.3)
+    assert_in_delta 3.812, brick.health_for(0.87, 0.3), 1e-9
+  end
+
   # Twice as thick should not be twice as hard to breach; what fails is the face being
   # punched through, not the whole volume at once.
   test "thickness helps less than in proportion" do

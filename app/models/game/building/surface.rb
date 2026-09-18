@@ -116,15 +116,17 @@ module Game
           kind: kind.to_s,
           storey: storey,
           mat: material.name.to_s,
-          o: origin.to_a,
-          u: u.to_a,
-          v: v.to_a,
-          n: normal.to_a,
-          w: width,
-          h: height,
+          # Geometry only. Nothing on the client derives health or mass from these; hp and
+          # kg ship precomputed by the one method the server also calls.
+          o: origin.to_a.map { |f| f.round(5) },
+          u: u.to_a.map { |f| f.round(5) },
+          v: v.to_a.map { |f| f.round(5) },
+          n: normal.to_a.map { |f| f.round(5) },
+          w: width.round(3),
+          h: height.round(3),
           cols: cols,
           rows: rows,
-          t: thickness,
+          t: thickness.round(3),
           off: piece_offset,
           # The client lays rubble out from this. Two players seeing heaps in the same
           # place depends entirely on both deriving them from the same seed, so a surface

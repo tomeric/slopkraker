@@ -60,15 +60,16 @@ module Game
       multipliers.fetch(kind.to_sym, 1.0)
     end
 
-    # A cell's own health and mass, from its area and how thick it is. Computed here and
-    # shipped once per surface rather than once per cell -- a wall is a grid of identical
-    # cells, so repeating the number for each of them is pure payload.
+    # Rounded HERE and nowhere else. This number is shipped to the client in the spec and
+    # recomputed by the server when a hit lands, and the two have to be identical to the
+    # last digit or a client breaks a piece the server still holds standing. Three
+    # decimals is a thousandth of a hit point.
     def health_for(area, thickness)
-      health_per_m2 * area * thickness_factor(thickness)
+      (health_per_m2 * area * thickness_factor(thickness)).round(3)
     end
 
     def mass_for(area, thickness)
-      density * area * thickness
+      (density * area * thickness).round(3)
     end
 
     # A thicker wall is tougher, but not in proportion: one twice as thick is not twice as

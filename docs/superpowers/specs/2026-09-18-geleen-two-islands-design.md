@@ -190,9 +190,9 @@ Health and mass ARE derived on both sides — `hp`/`kg` in the spec for the clie
 `Material#health_for` in `ObjectState#remaining` for the server — so they must be the
 same number to the last digit or a client breaks a piece the server still holds standing.
 Rounding happens inside `Material#health_for` and `#mass_for` (3 decimals), which both
-paths call, and the `damage` parity case is extended with `health_for` over every material
-× cell size × thickness. Rounding the spec alone would have introduced exactly the silent
-desync this codebase exists to prevent.
+paths call, and `surface_test` asserts the spec's `hp` equals `health_for` exactly; the
+client never computes health, so there is no JS side to hold to parity. Rounding the spec
+alone would have introduced exactly the silent desync this codebase exists to prevent.
 
 Hoisting the per-material tables out of each surface is a further 16% and is left for
 when the byte budget needs it.
