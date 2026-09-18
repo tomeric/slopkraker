@@ -1,0 +1,197 @@
+module Game
+  module Import
+    # Clusters of 3DBAG parts in, row recipes out. Everything the spike's build_world.rb
+    # decided, as a class with one job per method: frame a cluster, find its street side,
+    # slice the shared depth into dwellings, turn every other part into a box.
+    class Rows
+      DWELLING_EAVES = 4.0        # a main part lower than this is a shed
+      STOREY_TARGET = 2.8
+      CELLS = { "house" => 1.0, "shed" => 1.0, "church" => 2.0, "hall" => 2.0, "apartments" => 1.5 }.freeze
+
+      # A cluster's own axes, not the world's. Named Frame because that is what it is, and
+      # deliberately never confused with Terrain::Frame: that one maps survey metres to
+      # game metres and is what `@frame` holds, this one maps game metres to one row's
+      # local x-along/z-across. Nothing here reaches for the other by a bare constant.
+      Frame = Struct.new(:origin, :yaw, keyword_init: true) do
+        def u = [ Math.cos(yaw), Math.sin(yaw) ]
+        def v = [ -Math.sin(yaw), Math.cos(yaw) ]
+        def to_local(gx, gz) = [ (gx - origin[0]) * u[0] + (gz - origin[1]) * u[1], (gx - origin[0]) * v[0] + (gz - origin[1]) * v[1] ]
+        def to_world(lx, lz) = [ origin[0] + lx * u[0] + lz * v[0], origin[1] + lx * u[1] + lz * v[1] ]
+        def normalised(points)
+          locals = points.map { |gx, gz| to_local(gx, gz) }
+          Frame.new(origin: to_world(locals.map(&:first).min, locals.map(&:last).min), yaw: yaw)
+        end
+        def flipped = Frame.new(origin: origin, yaw: yaw + Math::PI)
+      end
+
+      def initialize(window:, clusters:, frame:, roads:, categories: nil)
+        @parts = window["parts"].to_h { |p| [ p["id"], p ] }
+        @clusters = clusters
+        @frame = frame
+        # A line of one point is not a line: it has no segment to measure against and the
+        # client's ribbon has nothing to extrude, so it is dropped here rather than half
+        # the way down the pipeline.
+        @roads = roads.map { |r| Array(r["points"]) }.select { |pts| pts.length >= 2 }
+                      .map { |pts| pts.map { |x, y| frame.to_game(x, y) } }
+        # Which long side of a row is its street is decided by the roads and nothing else.
+        # With none there is no answer to give, and every row would silently take whichever
+        # way its annexes happened to lie -- a world of houses facing their own back gardens.
+        raise ArgumentError, "a window with no roads cannot say which side of a row is its street" if @roads.empty?
+
+        @categories = categories || {}
+      end
+
+      def objects = @clusters.map { |c| build(c) }
+
+      def road_distance(gx, gz)
+        @roads.map { |line| line.each_cons(2).map { |(x1, z1), (x2, z2)| segment_distance(gx, gz, x1, z1, x2, z2) }.min }.min
+      end
+
+      private
+        def ring(geojson)
+          coords = geojson["type"] == "MultiPolygon" ? geojson["coordinates"].max_by { |poly| area(poly[0]) } : geojson["coordinates"]
+          pts = coords[0].map { |x, y| @frame.to_game(x, y) }
+          pts.pop if pts.first == pts.last
+          pts
+        end
+
+        def area(pts) = pts.each_with_index.sum { |(x1, y1), i| x2, y2 = pts[(i + 1) % pts.length]; x1 * y2 - x2 * y1 }.abs / 2.0
+        def centroid(pts) = [ pts.sum(&:first) / pts.size, pts.sum(&:last) / pts.size ]
+        def bbox(pts) = [ pts.map(&:first).min, pts.map(&:last).min, pts.map(&:first).max, pts.map(&:last).max ]
+        def median(values) = values.sort.then { |s| s.size.odd? ? s[s.size / 2] : (s[s.size / 2 - 1] + s[s.size / 2]) / 2.0 }
+        def part_height(p) = p["eaves"] && p["ridge"] ? (p["eaves"] + p["ridge"]) / 2.0 : p["h70"]
+
+        def axis_of(env)
+          a, b, c = env[0], env[1], env[2]
+          e1 = [ b[0] - a[0], b[1] - a[1] ]
+          e2 = [ c[0] - b[0], c[1] - b[1] ]
+          long = Math.hypot(*e1) >= Math.hypot(*e2) ? e1 : e2
+          Math.atan2(long[1], long[0])
+        end
+
+        def segment_distance(px, pz, x1, z1, x2, z2)
+          dx, dz = x2 - x1, z2 - z1
+          l2 = dx * dx + dz * dz
+          t = l2.zero? ? 0.0 : (((px - x1) * dx + (pz - z1) * dz) / l2).clamp(0.0, 1.0)
+          Math.hypot(px - (x1 + t * dx), pz - (z1 + t * dz))
+        end
+
+        def build(c)
+          mains = c["main_ids"].map { |id| @parts[id] }
+          members = c["pands"].flat_map { |pand| @parts.values.select { |p| p["pand"] == pand } }
+          annexes = members - mains
+          houses = mains.all? { |m| (m["eaves"] || m["h70"]) >= DWELLING_EAVES }
+          category = @categories[c["pands"].first] || (houses ? "house" : "shed")
+          env = ring(c["envelope"])
+
+          # The row runs along one of the envelope's edge directions; the dwellings'
+          # centroids say which of the two.
+          yaw = axis_of(env)
+          if houses && mains.size >= 2
+            cs = mains.map { |m| centroid(ring(m["env"])) }
+            along = cs.map { |x, z| x * Math.cos(yaw) + z * Math.sin(yaw) }
+            across = cs.map { |x, z| -x * Math.sin(yaw) + z * Math.cos(yaw) }
+            yaw += Math::PI / 2 if across.max - across.min > along.max - along.min
+          end
+          everything = members.flat_map { |p| ring(p["geom"]) } + ring(c["union"])
+          frame = Frame.new(origin: env[0], yaw: yaw).normalised(everything)
+
+          # The street side: the nearer road when the two long sides differ by more than
+          # three metres, else the side the annexes are not on.
+          probe = houses ? mains.flat_map { |m| ring(m["env"]) } : ring(c["union"])
+          ux0, uz0, ux1, uz1 = bbox(probe.map { |g| frame.to_local(*g) })
+          d_min = road_distance(*frame.to_world((ux0 + ux1) / 2, uz0))
+          d_max = road_distance(*frame.to_world((ux0 + ux1) / 2, uz1))
+          flip =
+            if (d_min - d_max).abs > 3.0
+              d_max < d_min
+            elsif annexes.any? && houses
+              mz = mains.sum { |m| centroid(ring(m["env"]).map { |g| frame.to_local(*g) })[1] } / mains.size
+              az = annexes.sum { |p| centroid(ring(p["simple"]).map { |g| frame.to_local(*g) })[1] } / annexes.size
+              az < mz
+            else
+              false
+            end
+          frame = frame.flipped.normalised(everything) if flip
+
+          local = ->(part, key) { ring(part[key]).map { |g| frame.to_local(*g) } }
+          seed = c["pands"].first[-6..].to_i % 1000
+          recipe = { "kind" => "row", "category" => category, "pands" => c["pands"].map { |p| p[-6..] },
+                     "yaw" => frame.yaw.round(5), "cell" => CELLS.fetch(category, 1.0), "seed" => seed,
+                     "dwellings" => [], "boxes" => [] }
+
+          if houses
+            boxes = mains.map { |m| [ m, bbox(local.call(m, "env")) ] }.sort_by { |_, b| (b[0] + b[2]) / 2 }
+            band_z0 = boxes.map { |_, b| b[1] }.max
+            band_z1 = boxes.map { |_, b| b[3] }.min
+            if band_z1 - band_z0 < 5.0
+              band_z0 = median(boxes.map { |_, b| b[1] })
+              band_z1 = median(boxes.map { |_, b| b[3] })
+            end
+            xs = boxes.map { |_, b| [ b[0], b[2] ] }
+            bounds = [ xs.first[0] ] + xs.each_cons(2).map { |a, b| (a[1] + b[0]) / 2.0 } + [ xs.last[1] ]
+            recipe["dwellings"] = boxes.each_index.map { |i| { "x0" => bounds[i].round(2), "x1" => bounds[i + 1].round(2) } }
+            recipe["band"] = [ band_z0.round(2), band_z1.round(2) ]
+            eaves = mains.map { |m| m["eaves"] || m["h70"] * 0.75 }.max
+            ridge = median(mains.map { |m| m["ridge"] || m["h70"] * 1.1 })
+            storeys = [ (eaves / STOREY_TARGET).round, 1 ].max
+            recipe.merge!("eaves" => eaves.round(2), "ridge" => [ ridge, eaves ].max.round(2), "storeys" => storeys,
+                          "storey_height" => (eaves / storeys).round(3), "roof" => ridge - eaves > 0.8 ? "gable" : "flat")
+            # A main that reaches past the shared band keeps the excess as a full-height box.
+            boxes.each_with_index do |(m, _), i|
+              [ [ band_z1, 1 ], [ band_z0, -1 ] ].each do |at, side|
+                over = Building::RowGenerator.clip(local.call(m, "simple"), 1, at, side)
+                next if over.size < 3 || area(over) < 4.0
+
+                recipe["boxes"] << { "ring" => over.map { |x, z| [ x.round(2), z.round(2) ] }, "eaves" => (m["eaves"] || eaves).round(2),
+                                     "ridge" => (m["eaves"] || eaves).round(2), "storeys" => storeys, "roof" => "flat", "door" => false, "solid" => false,
+                                     "bay" => i, "name" => "#{m['source_id'][-8..]} overflow" }
+              end
+            end
+            annexes.each do |p|
+              ring = local.call(p, "simple").map { |x, z| [ x.round(2), z.round(2) ] }
+              recipe["boxes"] << { "ring" => ring, "eaves" => part_height(p).round(2), "ridge" => part_height(p).round(2), "storeys" => 1,
+                                   "roof" => "flat", "door" => false, "solid" => false, "bay" => bay_of(recipe["dwellings"], ring), "name" => p["source_id"][-8..] }
+            end
+          else
+            recipe.merge!("band" => [ 0.0, 0.0 ], "storeys" => [ mains.map { |m| ((m["eaves"] || m["h70"]) / 4.0).round }.max, 1 ].max,
+                          "storey_height" => 3.0, "eaves" => mains.map { |m| part_height(m) }.max.round(2), "roof" => "flat")
+            recipe["ridge"] = recipe["eaves"]
+            (mains + annexes).sort_by { |p| -p["area"] }.each_with_index do |p, i|
+              ring = local.call(p, category == "church" ? "simple" : "env").map { |x, z| [ x.round(2), z.round(2) ] }
+              eaves = p["eaves"] || p["h70"] * 0.8
+              ridge = p["ridge"] || p["h70"] * 1.1
+              roof =
+                if category == "church" && p["h70"] / Math.sqrt(p["area"]) > 1.8 && p["area"] < 120
+                  "pyramid"
+                elsif category == "church" && ridge - eaves > 1.5
+                  "gable"
+                else
+                  "flat"
+                end
+              storeys = category == "church" ? [ (eaves / 4.0).round, 1 ].max : 1
+              recipe["boxes"] << { "ring" => ring, "eaves" => eaves.round(2), "ridge" => [ ridge, eaves ].max.round(2), "storeys" => storeys,
+                                   "roof" => roof, "door" => category == "church" && i.zero?, "solid" => category == "shed", "bay" => i, "name" => p["source_id"][-8..] }
+            end
+            recipe["storeys"] = recipe["boxes"].map { |b| b["storeys"] }.max
+          end
+          recipe["footprint"] = ring(c["union"]).map { |g| frame.to_local(*g) }.map { |x, z| [ x.round(2), z.round(2) ] }
+          # Read back before it leaves: a recipe that Row would refuse -- a roof it has no
+          # name for, a box with no bay, dwellings with a gap between them -- is caught here,
+          # where the cluster that produced it is still in hand, rather than at fixture load
+          # in a suite that cannot say which of a hundred rows was wrong.
+          Building::Row.from(recipe)
+
+          radius = everything.map { |g| Math.hypot(*frame.to_local(*g)) }.max + 4.0
+          { name: "#{category == 'house' ? 'row' : category}-#{c['cluster']}", x: frame.origin[0].round(3), z: frame.origin[1].round(3),
+            yaw: frame.yaw.round(5), radius: radius.round(1), category: category, pands: c["pands"], recipe: recipe }
+        end
+
+        # The dwelling a box overlaps most along the row.
+        def bay_of(dwellings, ring)
+          xs = ring.map(&:first)
+          dwellings.each_index.max_by { |i| [ [ dwellings[i]["x1"], xs.max ].min - [ dwellings[i]["x0"], xs.min ].max, 0 ].max } || 0
+        end
+    end
+  end
+end

@@ -5,9 +5,8 @@ class Game::Import::DemTest < ActiveSupport::TestCase
   # the height is 1 + x/10 + y/100 so every answer can be worked by hand.
   def dem
     @dem ||= begin
-      path = Rails.root.join("tmp/dem_test.raw")
       samples = (0...3).flat_map { |row| (0...3).map { |col| 1.0 + (100 + col * 10 + 5) / 10.0 + (130 - row * 10 - 5) / 100.0 } }
-      path.binwrite(samples.pack("e*"))
+      path = binary_fixture("dem_test.raw", samples.pack("e*"))
       Game::Import::Dem.new(path: path, origin_x: 100.0, origin_y: 130.0, step: 10.0, cols: 3, rows: 3)
     end
   end
