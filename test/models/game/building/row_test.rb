@@ -400,4 +400,94 @@ class Game::Building::RowTest < ActiveSupport::TestCase
     assert_raises(Game::Building::Row::Invalid) { pair("boxes" => [ annex("eaves" => 0.0, "ridge" => 0.0) ]) }
     assert_raises(Game::Building::Row::Invalid) { pair("boxes" => [ annex("roof" => "gable") ]) }
   end
+
+  def gardened(**overrides)
+    pair(**{ "gardens" => [ { "bay" => 0, "depth" => 5.0 }, { "bay" => 1, "depth" => 5.0 } ] }.merge(overrides))
+  end
+
+  # STEP 7 OF THE CONTRACT. A hedge is one row of cells per garden, after the boxes and
+  # before the rubble, so a row that gains a garden keeps every index it had and the rubble
+  # moves back by the hedge -- 6 cells per 6 m dwelling here.
+  test "hedges come after the boxes and before the rubble, one per garden" do
+    set = gardened
+
+    assert_equal 31, set.surfaces.length
+    assert_equal 852, set.piece_count
+    assert_equal %i[hedge hedge rubble], set.surfaces.last(3).map(&:kind)
+    assert_equal [ 768, 774, 780 ], set.surfaces.last(3).map(&:piece_offset)
+    hedges = set.surfaces.select { |s| s.kind == :hedge }
+    assert_equal [ 0, 1 ], hedges.map(&:bay)
+    assert_equal [ -1, -1 ], hedges.map(&:storey), "a hedge stands outside every storey the collapse rule can reach"
+    assert_equal [ 6, 6 ], hedges.map(&:cols)
+    assert_equal [ 1, 1 ], hedges.map(&:rows)
+    assert_equal :hedge, hedges.first.material.name
+    # The front line is z = 0, the road edge 5 m out; the hedge stands KERB in from it,
+    # its thickness straddling its plane, on the ground.
+    assert_in_delta(-5.0 + 0.4 + 0.25, hedges.first.origin.z, 1e-9)
+    assert_in_delta 0.0, hedges.first.origin.y, 1e-9
+    assert_equal [ 0.0, 6.0 ], hedges.map { |h| h.origin.x }
+  end
+
+  test "a hedge is broken at the garden path, which meets the door" do
+    set = gardened
+    hedge = set.surfaces.find { |s| s.kind == :hedge }
+    front = set.surfaces.first
+    door = front.patches.find { |p| p.material == :door }
+    void = hedge.patches.select { |p| p.material == :void }.map(&:col0).sort
+
+    assert_equal 2, void.length, "a 1.2 m path is two one-metre cells"
+    assert_includes void, door.col0, "the path meets the door"
+    assert void.each_cons(2).all? { |a, b| b == a + 1 }, "the path is one gap, not two"
+  end
+
+  test "a row with no gardens has no hedges and moves nothing" do
+    assert_equal 840, pair.piece_count
+    assert_empty pair.surfaces.select { |s| s.kind == :hedge }
+    assert_empty Game::Building::RowGenerator.lawns(Game::Building::Row.from(pair_recipe))
+  end
+
+  test "the wreckage of a house is not made of leaves" do
+    rubble = gardened.surfaces.last
+
+    refute_includes rubble.mix.map(&:first), :hedge
+    assert_equal pair.surfaces.last.mix, rubble.mix, "a garden changes nothing about what the house is made of"
+    assert_in_delta pair.surfaces.last.thickness, rubble.thickness, 1e-9, "nor how deep its wreckage lies"
+  end
+
+  # Two rectangles per front garden either side of the path, and one strip behind the row.
+  test "lawns are the front garden minus the path, and a strip behind" do
+    row = Game::Building::Row.from(pair_recipe("gardens" => [ { "bay" => 0, "depth" => 5.0 }, { "bay" => 1, "depth" => 5.0 } ]))
+    lawns = Game::Building::Gardens.lawns(row)
+
+    assert_equal 5, lawns.length
+    fronts = lawns.first(4)
+    fronts.each do |ring|
+      assert_equal 4, ring.length
+      assert_equal [ -5.0, 0.0 ], [ ring.map(&:last).min, ring.map(&:last).max ], "a front lawn runs from the road edge to the front line"
+    end
+    assert_in_delta 12.0 - 2 * 2.0, fronts.sum { |ring| ring.map(&:first).max - ring.map(&:first).min }, 1e-9,
+                    "the two paths are the only gaps"
+    back = lawns.last
+    assert_equal [ 9.0, 14.0 ], [ back.map(&:last).min, back.map(&:last).max ], "five metres behind the footprint"
+    assert_equal [ 0.0, 12.0 ], [ back.map(&:first).min, back.map(&:first).max ]
+  end
+
+  test "lawns turn with the row" do
+    recipe = pair_recipe("yaw" => Math::PI / 2, "gardens" => [ { "bay" => 0, "depth" => 5.0 } ])
+    flat = Game::Building::Gardens.lawns(Game::Building::Row.from(recipe.merge("yaw" => 0.0)))
+    turned = Game::Building::RowGenerator.lawns(Game::Building::Row.from(recipe))
+
+    assert_equal flat.length, turned.length
+    fx, fz = flat.first.first
+    tx, tz = turned.first.first
+    assert_in_delta(-fz, tx, 1e-9)
+    assert_in_delta fx, tz, 1e-9
+    assert_equal turned, Game::Building::Generator.lawns(recipe)
+    assert_empty Game::Building::Generator.lawns(footprint: [ [ 0, 0 ], [ 12, 0 ], [ 12, 15 ], [ 0, 15 ] ], storeys: 2, cell: 1.0, seed: 7)
+  end
+
+  test "a garden must front a dwelling and reach the road" do
+    assert_raises(Game::Building::Row::Invalid) { pair("gardens" => [ { "bay" => 2, "depth" => 5.0 } ]) }
+    assert_raises(Game::Building::Row::Invalid) { pair("gardens" => [ { "bay" => 0, "depth" => 0.0 } ]) }
+  end
 end

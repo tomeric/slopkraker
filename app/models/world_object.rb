@@ -40,7 +40,10 @@ class WorldObject < ApplicationRecord
       pands: recipe["pands"],
       # Which colours it is drawn in. A hand-made recipe names none and gets the default,
       # which is tuned to today's colours so the four worlds look like themselves.
-      palette: recipe["palette"] || Game::Palettes::DEFAULT.to_s
+      palette: recipe["palette"] || Game::Palettes::DEFAULT.to_s,
+      # Rings the client drapes as lawn, in the building's rotated frame like its surfaces;
+      # nothing for a building without gardens, so the four worlds gain no key.
+      lawns: Game::Building::Generator.lawns(recipe).presence
     }.compact.merge(surface_set.to_spec)
   end
 

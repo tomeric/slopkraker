@@ -42,6 +42,11 @@ module Game
 
         recipe.is_a?(Hash) && recipe.transform_keys(&:to_s)["kind"] == "row"
       end
+
+      # The lawns of a row, or nothing: a picture the client drapes, never pieces.
+      def self.lawns(recipe)
+        row?(recipe) ? RowGenerator.lawns(recipe) : []
+      end
     end
   end
 end

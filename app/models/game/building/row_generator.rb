@@ -16,12 +16,23 @@ module Game
 
       def self.call(row)
         row = Row.from(row) unless row.is_a?(Row)
-        built = dwellings(row) + boxes(row)
+        # 7. Hedges after the boxes: a row that gains a garden keeps every index it had.
+        built = dwellings(row) + boxes(row) + Gardens.hedges(row)
         surfaces = built + rubble(row, built)
         SurfaceSet.new(surfaces.map { |s| s.rotated(row.yaw) }, storey_count: row.storeys)
       end
 
-      # 1 fronts and backs, 2 ends, 3 party walls, 4 interiors, 5 roof sections.
+      # The lawns, turned by the row's yaw exactly as its surfaces are, so the client can add
+      # the building's position to them as it does to every surface origin.
+      def self.lawns(row)
+        row = Row.from(row) unless row.is_a?(Row)
+        c = Math.cos(row.yaw)
+        s = Math.sin(row.yaw)
+        Gardens.lawns(row).map { |ring| ring.map { |x, z| [ (x * c - z * s).round(3), (x * s + z * c).round(3) ] } }
+      end
+
+      # 1 fronts and backs, 2 ends, 3 party walls, 4 interiors, 5 roof sections, 6 boxes,
+      # 7 hedges, then rubble LAST.
       def self.dwellings(row)
         return [] if row.dwellings.empty?
 

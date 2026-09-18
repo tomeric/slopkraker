@@ -360,4 +360,30 @@ class Game::Damage::CollapseTest < ActiveSupport::TestCase
     assert_operator tower.length, :>, 0, "nothing stands where the tower was put"
     assert_empty result.broken & indices_of(tower), "the tower came down with the nave"
   end
+
+  # A hedge stands at storey -1, is skipped by name, and holds nothing up: three defences
+  # against a collapse weighing a garden or felling one. Its cells appear in neither the
+  # support nor the load nor the pieces that fall.
+  test "a hedge neither holds a house up nor falls with it" do
+    recipe = {
+      "kind" => "row", "category" => "house", "pands" => %w[000001 000002], "yaw" => 0.0, "cell" => 1.0, "seed" => 1,
+      "band" => [ 0.0, 9.0 ], "storeys" => 2, "storey_height" => 3.0, "eaves" => 6.0, "ridge" => 8.5, "roof" => "gable",
+      "dwellings" => [ { "x0" => 0.0, "x1" => 6.0 }, { "x0" => 6.0, "x1" => 12.0 } ], "boxes" => [],
+      "footprint" => [ [ 0, 0 ], [ 12, 0 ], [ 12, 9 ], [ 0, 9 ] ]
+    }
+    bare = Game::Building::Generator.call(recipe)
+    gardened = Game::Building::Generator.call(recipe.merge("gardens" => [ { "bay" => 0, "depth" => 5.0 }, { "bay" => 1, "depth" => 5.0 } ]))
+    hedge_indices = gardened.surfaces.select { |s| s.kind == :hedge }.flat_map { |s| (s.piece_offset...(s.piece_offset + s.piece_count)).to_a }
+    # Every storey-0 wall of bay 0 that is not shared, in both buildings the same indices.
+    walls = bare.surfaces.select { |s| s.kind == :wall && s.storey.zero? && s.bay.zero? && !s.shared? }
+    broken = walls.flat_map { |s| (s.piece_offset...(s.piece_offset + s.piece_count)).to_a }
+
+    before = Game::Damage::Collapse.evaluate(surfaces: bare, broken: broken, rules: rules)
+    after = Game::Damage::Collapse.evaluate(surfaces: gardened, broken: broken, rules: rules)
+
+    assert_equal before.collapsed, after.collapsed, "a garden changed whether the house stands"
+    assert_equal({ 0 => 0 }, after.collapsed)
+    assert_empty after.broken & hedge_indices, "the collapse felled the hedge"
+    assert_equal before.broken.sort, after.broken.sort, "the collapse broke different pieces because of a garden"
+  end
 end

@@ -71,4 +71,8 @@ class WorldObjectTest < ActiveSupport::TestCase
 
     assert_equal "red_brick", house.to_building[:palette]
   end
+
+  test "a hand-made building has no lawns and ships none" do
+    refute world_objects(:targets_house).to_building.key?(:lawns)
+  end
 end

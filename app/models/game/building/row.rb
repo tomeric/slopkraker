@@ -26,8 +26,13 @@ module Game
         end
       end
 
+      # A front garden: the dwelling it fronts, and how far the lawn runs from the row's
+      # front line to the road's edge. Written by the importer from the roads, never
+      # guessed here.
+      Garden = Struct.new(:bay, :depth, keyword_init: true)
+
       attr_reader :yaw, :cell, :seed, :band, :storeys, :storey_height, :eaves, :ridge, :roof,
-                  :dwellings, :boxes, :footprint, :category, :pands, :palette
+                  :dwellings, :boxes, :footprint, :category, :pands, :palette, :gardens
 
       def self.from(attributes)
         a = attributes.to_h.transform_keys(&:to_s)
@@ -41,7 +46,8 @@ module Game
           boxes: Array(a["boxes"]).map.with_index { |b, i| box_from(b, i) },
           footprint: Array(a.fetch("footprint")).map { |x, z| [ x.to_f, z.to_f ] },
           category: a.fetch("category", "building").to_s, pands: Array(a["pands"]).map(&:to_s),
-          palette: a.fetch("palette", Palettes::DEFAULT.to_s).to_s
+          palette: a.fetch("palette", Palettes::DEFAULT.to_s).to_s,
+          gardens: Array(a["gardens"]).map { |g| g = g.transform_keys(&:to_s); Garden.new(bay: g.fetch("bay").to_i, depth: g.fetch("depth").to_f) }
         )
       end
 
@@ -55,10 +61,11 @@ module Game
         )
       end
 
-      def initialize(yaw:, cell:, seed:, band:, storeys:, storey_height:, eaves:, ridge:, roof:, dwellings:, boxes:, footprint:, category:, pands:, palette:)
+      def initialize(yaw:, cell:, seed:, band:, storeys:, storey_height:, eaves:, ridge:, roof:, dwellings:, boxes:, footprint:, category:, pands:, palette:, gardens: [])
         @yaw, @cell, @seed, @band, @storeys, @storey_height = yaw, cell, seed, band, storeys, storey_height
         @eaves, @ridge, @roof, @dwellings, @boxes, @footprint, @category, @pands = eaves, ridge, roof, dwellings, boxes, footprint, category, pands
         @palette = palette
+        @gardens = gardens
         validate!
       end
 
@@ -108,6 +115,10 @@ module Game
             raise Invalid, "a box needs eaves" unless box.eaves.positive?
             raise Invalid, "a gable box needs a ridge above its eaves" if box.roof == "gable" && box.ridge <= box.eaves
             raise Invalid, "a box door is true, false or \"garage\"" unless [ true, false, "garage" ].include?(box.door)
+          end
+          gardens.each do |garden|
+            raise Invalid, "a garden must front a dwelling" unless garden.bay.between?(0, dwellings.length - 1)
+            raise Invalid, "a garden must reach the road" unless garden.depth.positive?
           end
         end
     end

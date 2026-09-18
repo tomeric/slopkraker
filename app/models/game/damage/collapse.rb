@@ -270,7 +270,9 @@ module Game
               # storey of -1 already puts it outside every bound here, and this says so out
               # loud, because the failure would be silent and permanent -- a house that
               # quietly never leaves any wreckage, with nothing downstream looking wrong.
-              next if surface.kind == :rubble
+              # A hedge is the garden a house stands behind, at the same storey of -1 for
+              # the same reason: nothing a collapse does reaches it.
+              next if %i[rubble hedge].include?(surface.kind)
               next if from && surface.storey < from
               next if only && surface.storey != only
 

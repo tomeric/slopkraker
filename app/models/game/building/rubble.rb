@@ -160,7 +160,10 @@ module Game
         volumes = Hash.new(0.0)
 
         Array(built).each do |surface|
-          next if surface.kind == :rubble
+          # Rubble, because a building's wreckage cannot be made of itself; hedges, because
+          # the wreckage of a house is not made of leaves and a garden must not change how
+          # deep it lies.
+          next if %i[rubble hedge].include?(surface.kind)
 
           surface.rows.times do |row|
             surface.cols.times do |col|
