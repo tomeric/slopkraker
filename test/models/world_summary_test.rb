@@ -9,6 +9,16 @@ class WorldSummaryTest < ActiveSupport::TestCase
     assert_equal "ground", worlds(:flat).summary
   end
 
+  # An imported world is not spelled out anywhere a person can read: its rows come out of
+  # the importer, and how many there are is whatever the survey had. So this asserts the
+  # shape of the sentence rather than the sentence -- that a world built from recipes still
+  # describes itself from what is in it, and does not come back "empty" because nothing in
+  # it was hand-placed. "rows", not "buildings": `role` is the RECIPE's kind, and a terrace
+  # of four dwellings is one `row`.
+  test "an imported world counts the rows it was generated from" do
+    assert_match(/\A\d+ rows\z/, worlds(:geleen).summary)
+  end
+
   test "a world with nothing in it does not claim otherwise" do
     empty = World.create!(
       slug: "void", name: "Void", bounds: [ 0, 0, 1, 1 ], spawns: [],

@@ -29,8 +29,9 @@ churches.each_with_index do |(pand, ps), n|
     ridge = p["ridge"] || p["h70"] * 1.1
     slender = p["h70"] / Math.sqrt(p["area"])
     roof = if slender > 1.8 && p["area"] < 120 then "pyramid"
-           elsif ridge - eaves > 1.5 then "gable"
-           else "flat" end
+    elsif ridge - eaves > 1.5 then "gable"
+    else "flat"
+    end
     storeys = [ (eaves / 4.0).round, 1 ].max
     { "ring" => ring.map { |x, z| [ x.round(2), z.round(2) ] }, "eaves" => eaves.round(2), "ridge" => ridge.round(2),
       "storeys" => storeys, "roof" => roof, "door" => p.equal?(nave), "name" => p["source_id"][-8..],

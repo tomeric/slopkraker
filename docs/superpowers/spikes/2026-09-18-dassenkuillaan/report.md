@@ -6,6 +6,11 @@ SQL that was run read-only against the sibling database, Ruby that generated the
 outside the app, and the pictures. No app code, fixture or migration changed. The next step
 is the design doc; the questions it has to settle are listed at the end.
 
+**Superseded by the `geleen` world.** Everything this spike measured offline is now in the app:
+`bin/rails geleen:import` writes the fixtures, `row` recipes carry the clusters, and the two
+rows of four come down one dwelling at a time. The throwaway server this folder shipped is gone
+from `.claude/launch.json`; read this for the reasoning, not for anything to run.
+
 The brief asked for four things before any importer is written: classify all of Geleen-Noord
 and score it against OSM, cluster the 54 `Pand` in the 50 m window by adjacency, run them
 through a generator offline, and report the category table, the accuracy, the clustering,

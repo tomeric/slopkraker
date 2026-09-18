@@ -118,14 +118,75 @@ class ShotsTest < ApplicationSystemTestCase
     Dir.children(SHOTS).sort.each { |f| puts "      #{f}" }
   end
 
+  # The imported world from the driver's seat, which is the only place the question
+  # settles: does a terrace of four real dwellings on real ground read as a street, and
+  # is the church the size of a church. Both are framed from the building's OWN frame
+  # rather than from a world offset, because every row stands at its survey bearing.
+  test "photograph geleen" do
+    skip "set SHOTS=1 to take screenshots" unless ENV["SHOTS"]
+
+    FileUtils.mkdir_p(SHOTS)
+    visit_world("geleen", vehicle: "buggy", quality: "high", match: "shots-geleen")
+    wait_for(timeout: 120, message: "geleen never booted") { page.evaluate_script("!!(window.__arena && window.__arena.ready)") }
+    wait_for(timeout: 120, message: "the world never stepped") { page.evaluate_script("window.__arena.steps").positive? }
+    sleep 2.0
+    press("g")
+    press("h")
+    sleep 0.6
+
+    # A terrace of four on the ESTATE. The church island has one too, but it is hemmed in
+    # by its neighbours, and a chase camera eight metres back from a building there stands
+    # inside the building behind -- which photographs a terrace through somebody's window.
+    row = page.evaluate_script(<<~JS)
+      window.__arenaBuildingIds().find(i => {
+        const s = window.__arenaBuildingSpec(i)
+        if (s.category !== "house" || !s.name.startsWith("estate-")) return false
+        const walls = s.surfaces.filter(x => x.kind === "wall")
+        const bays = new Set(walls.filter(x => !x.between).map(x => x.bay ?? 0))
+        return bays.size >= 4 && walls.some(x => x.between)
+      })
+    JS
+    park_in_front_of(row, back: 8)
+    shot "20-geleen-row-from-the-kerb"
+
+    church = page.evaluate_script("window.__arenaBuildingIds().find(i => window.__arenaBuildingSpec(i).category === 'church')")
+    park_in_front_of(church, back: 25)
+    shot "21-geleen-church"
+
+    puts "\n--- shots in #{SHOTS}"
+    Dir.children(SHOTS).sort.each { |f| puts "      #{f}" }
+  end
+
   private
+    # A row is generated in a frame of its own -- local x along the terrace, local z
+    # across it, the street at z = 0 -- and then set down at `o` and turned by `yaw`. So
+    # "stand in front of it" is a point in THAT frame carried out to the world, and the
+    # car has to be turned back down the local +z axis or it photographs the far side of
+    # the road.
+    def park_in_front_of(id, back:)
+      spec = page.evaluate_script("window.__arenaBuildingSpec(arguments[0])", id)
+      ring = WorldObject.find(id).recipe.fetch("footprint")
+      lx = (ring.map(&:first).min + ring.map(&:first).max) / 2.0
+      lz = -back
+      ox, _, oz = spec.fetch("o")
+      yaw = spec.fetch("yaw")
+
+      park(ox + lx * Math.cos(yaw) - lz * Math.sin(yaw),
+           oz + lx * Math.sin(yaw) + lz * Math.cos(yaw),
+           yaw: Math.atan2(-Math.sin(yaw), Math.cos(yaw)))
+    end
+
     def press(key)
       page.driver.browser.action.key_down(key).key_up(key).perform
       sleep 0.3
     end
 
-    def park(x, z, yaw: 0)
-      page.execute_script("window.__arenaPlace = { x: #{x}, y: 2.0, z: #{z}, yaw: #{yaw} }")
+    # `y` is a height above the GROUND, not above zero: on a world with terrain, parking
+    # at a fixed 2.0 puts the car underneath the hill it was meant to be photographing
+    # from. Flat worlds answer null and keep the height they always had.
+    def park(x, z, yaw: 0, y: 2.0)
+      ground = page.evaluate_script("window.__arenaTerrainHeight(arguments[0], arguments[1])", x, z) || 0.0
+      page.execute_script("window.__arenaPlace = { x: #{x}, y: #{ground + y}, z: #{z}, yaw: #{yaw} }")
       sleep 1.2
     end
 

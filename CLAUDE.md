@@ -33,6 +33,18 @@ Currently:
   the client over `/worlds/:slug/:digest/tiles/:tx/:tz` and stood on as Rapier
   heightfields. One house stands on its slope. The other three worlds stay flat on
   purpose: their timing assertions are calibrated on flat ground.
+- `geleen` is the first world nobody wrote: two islands of the real town, imported from
+  3D BAG over BAG, AHN and OpenStreetMap by `bin/rails geleen:import`. Forty-eight
+  buildings — an estate of terraces 50 m around RD (186330, 332234), and the church with
+  its hall and apartments 60 m around RD (187006, 331447), a kilometre apart with nothing
+  in between — on nine 500 m heightfield tiles resampled from the DEM, with 266 roads
+  drawn on the ground as ribbons. `?spawn=1` starts beside the church instead of on the
+  estate. Every building is a `row` rather than a house, and a terrace comes down one
+  dwelling at a time; the three hand-made worlds and `hills` stay as they are, because
+  their timing assertions are calibrated on worlds with a dozen buildings and this one has
+  four times that. The three fixture files are **generated and never edited by hand** —
+  `piece_count` in particular is what the generator produced when the file was written,
+  and a row holding a stale count rejects every index past it.
 
 ## Commands
 
@@ -52,10 +64,11 @@ bin/rails test test/system/driving_test.rb       # one system test file
 `bin/ci` deliberately leaves system tests out (they need Chrome and take minutes). Run them
 by hand after touching anything in `app/javascript/game/`.
 
-Useful URLs while the server is up: `/?world=<slug>` picks the world (`flat`, `targets`, `street`, `hills`),
-`/?vehicle=buggy` picks the vehicle, `/?quality=low` drops shadows and pixel ratio, `/?match=<name>`
-picks the ActionCable match. In-game: `G` toggles the debug overlay, `V` switches vehicle,
-`R` respawns, `H` hides the controls panel, `M` mutes.
+Useful URLs while the server is up: `/?world=<slug>` picks the world (`flat`, `targets`, `street`,
+`hills`, `geleen`), `/?vehicle=buggy` picks the vehicle, `/?spawn=1` picks which of the world's
+spawns to start from (a town has several and driving between them takes a minute), `/?quality=low`
+drops shadows and pixel ratio, `/?match=<name>` picks the ActionCable match. In-game: `G` toggles
+the debug overlay, `V` switches vehicle, `R` respawns, `H` hides the controls panel, `M` mutes.
 
 `bin/dev` resolves its own port: an explicit `PORT`/`-p` wins, else the port recorded in
 `.dev-port`, else the first free one in the 31xx band, which it then records. Several worktrees
@@ -136,6 +149,53 @@ Cells are tiled into polyomino **blocks** (`Game::Building::Blocks`) that break 
 come out ragged rather than as clean rectangles. `Game::Materials` is the frozen table every
 destructible thing behaves by; `void` is a real entry with zero everything, which is what keeps
 the index arithmetic uniform.
+
+### Rows and bays (`game/building/row.rb`, `row_generator.rb`, `damage/collapse.rb`)
+
+A terrace is ONE building. The `row` recipe (`kind: row`) is a footprint ring with a list of
+`dwellings` — spans `x0..x1` along the row's own local x — plus `boxes` for annexes, sheds and
+church wings, all in a frame whose x runs along the terrace, whose z runs across it with the
+street at z = 0, and which is then turned by the row's `yaw` and set down at its `o`. Four
+attached houses are ONE row of four **bays** and one `world_objects` record — not four records
+standing flush — because a terrace has one ridge, one roof and one party wall between each pair,
+and generating them separately draws every shared wall twice and gables the ends of each.
+
+- **The order is pinned, seven steps deep**, for exactly the reason a single house's
+  `Walls → Interior → Roof` is: `RowGenerator` hands out offsets by walking the surfaces in
+  sequence, so the order *is* the piece numbering. It is (1) every dwelling's front and back,
+  (2) the two ends, (3) the party walls, (4) the interiors, (5) the roof sections, then
+  (6) the boxes and (7) the rubble grid, appended last as it is for any building. Reorder any
+  of it and damage recorded against a front wall comes back applied to a roof. `row_test.rb`
+  pins the order, the offsets and the count.
+- **Every surface carries a `bay`; a party wall carries `between` as well, and that is what is
+  read.** A shared wall belongs to neither neighbour exclusively, so it is `between: [i, i + 1]`
+  and is weighed into both bays' support at **half** (`Collapse::SHARED_WEIGHT`). Counted in full, a mid-terrace
+  dwelling keeps 70% of its support with its front and back gone and never falls — measured on
+  the spike, which is where the row-as-a-unit alternative died. At half it comes down, an end
+  dwelling needs its partition as well, and a party wall taken out condemns both neighbours.
+- **A bay that falls never fells a shared wall**, so a row does not domino: each bay is weighed
+  against what is standing, the bays that fail drop their OWN surfaces, and the party wall is
+  left holding up the dwelling next door. That is what `bays_test` asserts, one dwelling gutted
+  and its neighbour and their shared wall still standing.
+- **Collapse state is a map, not a storey.** `object_damages.collapsed` is `{bay => storey}`,
+  and it is monotone per bay: an entry appears and only ever goes lower. The wire carries
+  `[object_id, from_storey, bay]` and the client expands it against the surfaces it already
+  holds, exactly as it did when a building was one bay under the key `0`.
+- **Rubble is per bay too.** One rubble surface still covers the whole terrace, but it carries a
+  `bays` array so `Rubble.pile_indices(surface, bay:)` and `pileOrder(surface, bay)` reveal one
+  dwelling's heaps from that dwelling's own centroid — the grid's middle is out under somebody
+  else's house. The two must return the same sequence, because the server gates damage on the
+  revealed prefix; `bays_test` holds them side by side.
+- **Roads are drawn and nothing else.** A world's `roads` are polylines in the spec; the client
+  makes them one mesh, mitred and subdivided, every vertex laid on the ground it crosses plus a
+  few centimetres. **No colliders** — a thousand segments as static bodies would be a thousand
+  meshes and, on a slope, a thousand lips to catch a wheel. The car drives on the heightfield.
+
+`bin/rails geleen:import` reads the sibling PostGIS database (read-only, by `PGOPTIONS` as well
+as by rule) and the AHN DEM and writes the three fixture files; `bin/rails geleen:seed` upserts
+only those rows into whichever database is connected, which is how a dev database gets the world
+without `db:seed` replacing every hand-made world row and orphaning the matches played on them.
+The fixtures are **generated, never edited by hand**.
 
 ### A condemned house falls as slabs (`game/world/falling_pieces.js`, `chunking.js`)
 
@@ -447,10 +507,12 @@ server  breaks {broken, collapses: [[object_id, from_storey, bay], …], authori
 
 Four rules hold it together:
 
-- **Everything is monotone.** A piece goes standing → broken and never back; `collapsed_from`
-  goes NULL → lower and is never raised. So every message is idempotent, a self-predicted
-  break is always confirmed, and a client that already broke a piece ignores any `state`
-  saying it stands — which is what makes a rollback after a restart invisible.
+- **Everything is monotone.** A piece goes standing → broken and never back; `collapsed` is a
+  map of bay to the storey that bay has come down from, and each bay's entry appears once and
+  only ever goes lower — per bay, because a terrace's dwellings fall independently and one
+  neighbour's storey says nothing about the other's. So every message is idempotent, a
+  self-predicted break is always confirmed, and a client that already broke a piece ignores any
+  `state` saying it stands — which is what makes a rollback after a restart invisible.
 - **`breaks` is broadcast without a `player_id`.** Every other broadcast is stamped, and
   `NetConnection` drops its own echo — but the client that knocked the walls out is exactly
   the one that most needs to hear the house came down.
@@ -488,7 +550,7 @@ the full run for when the change has settled. The same goes for re-running a who
 chase one failure: run that file.
 
 Every system test says which world it needs — `visit_world("flat")`, `visit_world("targets")`,
-`visit_world("street")`, `visit_world("hills")`.
+`visit_world("street")`, `visit_world("hills")`, `visit_world("geleen")`.
 The worlds are defined once in `test/fixtures` and loaded from there by `db/seeds.rb`, so a test
 and the browser cannot disagree about what is standing where. The suite runs at `quality: "low"`,
 which drops shadows and pixel ratio; that is the tier the timing assertions are calibrated on.
@@ -527,6 +589,10 @@ The engine exposes debug/test hooks on `window`:
 | `__arenaFallingCells` | How many cells those slabs carry. Against `__arenaFalling` it says how much of the house left the ground, and how coarsely |
 | `__arenaSlabsDropped` | `(buildingId)` — how many slabs THAT building put up, as against how many are up altogether. The two are the same number while one house exists, which is how the shared budget was over-subscribed in silence |
 | `__arenaBuildingStanding` | `(buildingId)` — one building's standing pieces. Moves both ways: a piece breaking takes it down, a heap of rubble being revealed puts it up, so "exactly unchanged" is what proves a neighbour was untouched |
+| `__arenaBays` | `(buildingId)` — the `{bay: storey}` map this client holds. A bay missing from it is a dwelling still standing, and a single-bay house has at most the one entry under `0`, so "the house next door is untouched" is a reading rather than an inference |
+| `__arenaPileOrder` | `(buildingId, bay)` — the order this client will reveal that bay's heaps in. Held against `Rubble.pile_indices` in `bays_test`: the server gates damage on the revealed PREFIX, so a client revealing a different order has heaps it can see and cannot clear |
+| `__arenaRoadVertices` | How many vertices the road ribbon has. Zero on a world with no roads, and the only way to tell "the roads are drawn" from "the roads are data nobody built a mesh out of" |
+| `__arenaNetErrors` | Every reason the server has refused this session — `not_authoritative`, a batch over the cap. Empty is the assertion: a test that breaks a houseful in one frame while the server quietly refuses every report otherwise passes |
 | `__arenaDraws` | `renderer.info.render.calls` — turns "did the render plan regress" into an assertion |
 | `__arenaBuildingLabels` | The debug overlay's plate for every building — `{ id, name, category, ids, shown }` — so "which building is that" is a name rather than a pointer, and a test can assert on the words |
 | `__arenaQuality` | Which tier the engine actually settled on |

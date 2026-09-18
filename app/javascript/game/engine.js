@@ -27,6 +27,7 @@ import { Interpolator, createEntry, savePrevious, readBack } from "game/sim/inte
 import { BlastWave } from "game/blast_wave"
 import { SpatialGrid } from "game/sim/spatial_grid"
 import { Buildings } from "game/world/buildings"
+import { pileOrder } from "game/world/rubble"
 import { Telemetry } from "game/telemetry"
 import { NetConnection } from "game/net/connection"
 import { DamageReporter } from "game/net/damage_reporter"
@@ -289,6 +290,14 @@ export class GameEngine {
     // still standing, and a single-bay house has at most the one entry, under 0 -- so "the
     // dwelling next door is untouched" is a reading rather than an inference.
     window.__arenaBays = (id) => this.buildings?.find(id)?.bays ?? {}
+    // The order this client will reveal one bay's heaps in. Not a picture: the server gates
+    // damage on the revealed PREFIX, so a client that reveals its wreckage in a different
+    // order than Rubble.pile_indices computed has heaps it can see and cannot clear, and
+    // nothing about that looks wrong from either end. bays_test holds the two side by side.
+    window.__arenaPileOrder = (id, bay) => {
+      const surface = this.buildings?.find(id)?.spec.surfaces.find((s) => s.kind === "rubble")
+      return surface ? pileOrder(surface, bay) : []
+    }
     // What the overlay says about every building -- category, name, source ids -- and
     // whether its plate is showing, so a test can assert on the words rather than pixels.
     window.__arenaBuildingLabels = () => this.buildingLabels?.readout() ?? []

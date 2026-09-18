@@ -59,7 +59,7 @@ def build_cluster(c)
 
   # Which long side is the street: the nearer road, or failing a clear answer, the side
   # the annexes are not on. Judged from the dwellings' own rectangle, never the union.
-  probe = houses ? mains.map { |m| Spike.ring(m["env"]) }.flatten(1) : Spike.ring(c["union"])
+  probe = houses ? mains.flat_map { |m| Spike.ring(m["env"]) } : Spike.ring(c["union"])
   ux0, uz0, ux1, uz1 = bbox(probe.map { |g| frame.to_local(*g) })
   d_min = road_distance(*frame.to_world((ux0 + ux1) / 2, uz0))
   d_max = road_distance(*frame.to_world((ux0 + ux1) / 2, uz1))
