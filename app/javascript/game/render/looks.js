@@ -98,7 +98,15 @@ export class Looks {
   }
 
   readout() {
-    return { enabled: this.enabled, tile: TILE, size: SIZE, textured: [ ...this.textures.keys() ].sort() }
+    const painted = [ ...this.textures.entries() ]
+    return {
+      enabled: this.enabled, tile: TILE, size: SIZE,
+      textured: painted.map(([ name ]) => name).sort(),
+      // Read off the records rather than listed a second time. "A normal map on `high` and
+      // none on `low`" is only an assertion while the readout cannot say a material has one
+      // that `paint` never gave it.
+      normals: painted.filter(([ , look ]) => Boolean(look.normalMap)).map(([ name ]) => name).sort()
+    }
   }
 
   dispose() {

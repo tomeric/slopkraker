@@ -4,9 +4,9 @@ require "application_system_test_case"
 # from the numbers in the spec, the texture coordinates run in metres along a surface, and
 # the colours are a palette applied per instance -- each of which has a readout.
 class LooksTest < ApplicationSystemTestCase
-  def boot(world, quality:, match:, spawn: nil, time: nil)
+  def boot(world, quality:, match:, spawn: nil, time: nil, timeout: 90)
     visit_world(world, quality: quality, match: match, spawn: spawn, time: time)
-    wait_for(timeout: 90, message: "#{world} never booted") { page.evaluate_script("!!(window.__arena && window.__arena.ready)") }
+    wait_for(timeout: timeout, message: "#{world} never booted") { page.evaluate_script("!!(window.__arena && window.__arena.ready)") }
   end
 
   def looks = page.evaluate_script("window.__arenaLooks()")
@@ -18,9 +18,16 @@ class LooksTest < ApplicationSystemTestCase
 
     assert readout["enabled"]
     assert_equal 2, readout["tile"], "one texture covers two metres of surface"
-    %w[brick roof_tile timber glass plaster concrete].each { |name| assert_includes readout["textured"], name }
+    # `door` and `hedge` are the two materials this branch added, so they are the two worth
+    # naming: everything else was painted before either existed.
+    %w[brick roof_tile timber glass plaster concrete door hedge].each do |name|
+      assert_includes readout["textured"], name
+    end
     refute_includes readout["textured"], "steel", "steel is flat and reflective"
     refute_includes readout["textured"], "rubble"
+    # The relief is the other half of the look: a painted albedo with no normal map is a
+    # photograph of brick rather than brick.
+    assert_equal readout["textured"], readout["normals"], "a painted material with no relief"
     assert_empty severe_console_errors
   end
 
@@ -31,6 +38,7 @@ class LooksTest < ApplicationSystemTestCase
 
     refute readout["enabled"]
     assert_empty readout["textured"]
+    assert_empty readout["normals"], "low quality pays for a normal map"
   end
 
   # The front wall of the targets house: surface 0, twelve one-metre columns, three rows.
@@ -80,6 +88,43 @@ class LooksTest < ApplicationSystemTestCase
     pair.each { |p| assert_match(/\A#[0-9a-f]{6}\z/, p["tint"]) }
     church = page.evaluate_script("window.__arenaBuildingIds().map(i => window.__arenaBuildingSpec(i)).find(s => s.category === 'church').palette")
     assert_equal "church", church
+  end
+
+  # The one boot that runs the lawn's shader at all.
+  #
+  # `roads_view`'s `onBeforeCompile` is reached only when there is a lawn texture to lay --
+  # `Looks#lawn` answers null with textures off -- so it needs `high`; and the estate is the
+  # only world with lawns, so it needs `geleen`. Every other test in this file boots
+  # `targets`, which has no gardens, or `low`, which paints nothing. Without this one a
+  # broken chunk compiles for nobody until a player opens the estate on a real machine, and
+  # a shader that fails to compile is a SEVERE console message and a black mesh rather than
+  # an exception anything else would notice.
+  #
+  # The doors ride along because this is already the expensive boot: a piece reporting
+  # `door` is a piece drawn from the `door` pool, and a pool nobody sized would have thrown
+  # at boot rather than come back with a material name.
+  test "the estate's lawns are shaded and its doors are drawn at high quality" do
+    boot("geleen", quality: "high", match: "looks-geleen-high", timeout: 120)
+    wait_for(timeout: 120, message: "the world never stepped") { page.evaluate_script("window.__arena.steps").positive? }
+
+    assert_operator page.evaluate_script("window.__arenaLawnVertices()"), :>, 100, "no lawn was draped"
+    door = page.evaluate_script(<<~JS)
+      (() => {
+        for (const id of window.__arenaBuildingIds()) {
+          const spec = window.__arenaBuildingSpec(id)
+          if (!spec || spec.category !== "house") continue
+          for (const s of spec.surfaces) {
+            if (s.storey !== 0) continue
+            for (let i = s.off; i < s.off + s.cols * s.rows; i++) {
+              if (window.__arenaPieceState(i, id).material === "door") return { name: spec.name, piece: i }
+            }
+          }
+        }
+        return null
+      })()
+    JS
+    assert door, "no dwelling on the estate has a door"
+    assert_empty severe_console_errors
   end
 
   # Daylight by default, so brick and tile detail has light to read in; the night the game
