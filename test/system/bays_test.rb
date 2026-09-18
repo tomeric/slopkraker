@@ -3,6 +3,16 @@ require "application_system_test_case"
 # A terrace falls one dwelling at a time. The spike measured the alternative: with the row
 # as the unit, gutting one house left 69% of the row's support and nothing fell.
 class BaysTest < ApplicationSystemTestCase
+  # How long a collapse is given to reach the ground, in SIMULATED seconds -- twice the
+  # `life` backstop, taken from the rules rather than written down, so a slab that lands on
+  # nothing is still retired with the budget half spent. Measured on this world, a nave
+  # comes down in 1.6 of them.
+  #
+  # Simulated, because on geleen a wall second buys a twentieth of one: this used to be
+  # ninety wall seconds, which is 4.5 simulated ones, and the backstop alone is six. See
+  # `wait_for_simulated`.
+  FALL_BUDGET = Game::Spec.default_rules.dig(:collapse, :fall, :life) * 2
+
   def boot(match, spawn: nil)
     visit_world("geleen", vehicle: "buggy", match: match, spawn: spawn)
     wait_for(timeout: 60, message: "geleen never booted") { page.evaluate_script("!!(window.__arena && window.__arena.ready)") }
@@ -64,7 +74,7 @@ class BaysTest < ApplicationSystemTestCase
 
     wait_for(timeout: 30, message: "the server never condemned the bay") { page.evaluate_script("window.__arenaCollapses()").positive? }
     assert_equal({ "1" => 0 }, page.evaluate_script("window.__arenaBays(#{id})"))
-    wait_for(timeout: 60, message: "the bay never finished falling") { page.evaluate_script("window.__arenaFalling()").zero? }
+    wait_for_simulated(FALL_BUDGET, message: "the bay never finished falling") { page.evaluate_script("window.__arenaFalling()").zero? }
     standing_bay2 = page.evaluate_script(<<~JS, id)
       (() => { const spec = window.__arenaBuildingSpec(arguments[0]); let n = 0
         for (const s of spec.surfaces.filter(s => (s.bay ?? 0) === 2 && !s.between && s.kind !== "rubble"))
@@ -106,7 +116,7 @@ class BaysTest < ApplicationSystemTestCase
     wait_for(timeout: 30, message: "the server never condemned the nave") { page.evaluate_script("window.__arenaCollapses()").positive? }
     assert_equal({ nave.to_s => 0 }, page.evaluate_script("window.__arenaBays(#{id})"),
                  "another part of the church was condemned with the nave")
-    wait_for(timeout: 90, message: "the nave never finished falling") { page.evaluate_script("window.__arenaFalling()").zero? }
+    wait_for_simulated(FALL_BUDGET, message: "the nave never finished falling") { page.evaluate_script("window.__arenaFalling()").zero? }
     assert_equal before, page.evaluate_script("window.__standing(#{id}, #{tower})"), "the tower came down with the nave"
   end
 

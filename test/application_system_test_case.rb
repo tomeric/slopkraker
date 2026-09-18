@@ -128,6 +128,56 @@ class ApplicationSystemTestCase < ActionDispatch::SystemTestCase
     end
   end
 
+  # Wall seconds are not simulation seconds, and on the heaviest worlds they are not close.
+  # Measured on `geleen` while the church's nave comes down: the render loop holds two or
+  # three frames a second, the fixed-step accumulator caps at `max_substeps`, and the
+  # simulation advances 0.050 SECONDS for every wall second -- the nave's 1.6 simulated
+  # seconds of falling take 32 on the clock. So a wall-clock timeout on a simulated
+  # milestone measures the machine's load rather than the game, and it does it silently:
+  # ninety wall seconds buy 4.5 simulated ones, which is LESS than the six second `life`
+  # backstop that is what guarantees a falling piece is ever retired at all. A test waiting
+  # that way cannot pass whenever one slab lands on nothing, however healthy everything is,
+  # and fails as "it never finished falling" rather than as "the clock ran out".
+  #
+  # So wait on the clock the thing being waited for runs on. `seconds` is SIMULATED
+  # seconds, counted off `__arena.steps` at the spec's own physics rate.
+  #
+  # The second escape is a STALL detector rather than a deadline, and deliberately: a wall
+  # deadline generous enough for a loaded machine is the same race one notch further out,
+  # while "the step counter has not moved at all for `stall` seconds" is load-independent
+  # -- the slowest world measured still steps two or three times a second, so a counter
+  # that stops has stopped. The two failures are reported apart, because "the simulation
+  # ran and the condition never came true" and "the simulation stopped running" are
+  # different bugs and used to arrive as the same sentence.
+  def wait_for_simulated(seconds, stall: 30, message: "condition never met")
+    budget = (seconds * Game::Spec::PHYSICS_HZ).ceil
+    from = page.evaluate_script("window.__arena.steps")
+    seen = from
+    moved = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+
+    loop do
+      result = yield
+      return result if result
+
+      steps = page.evaluate_script("window.__arena.steps")
+      now = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      if steps > seen
+        seen = steps
+        moved = now
+      end
+
+      advanced = steps - from
+      if advanced >= budget
+        flunk([ "#{message} in #{seconds} simulated seconds (#{advanced} steps)", *severe_console_errors ].join("\n  "))
+      end
+      if now - moved > stall
+        flunk([ "#{message}; the simulation stopped stepping after #{advanced} of #{budget} steps",
+                *severe_console_errors ].join("\n  "))
+      end
+      sleep 0.25
+    end
+  end
+
   # The socket, not the engine. `ready` says the engine booted; the ActionCable
   # subscription connects on its own clock, and a break reported before it is up is
   # dropped by design and never counted. Any test that asserts the server heard
