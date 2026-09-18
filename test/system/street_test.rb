@@ -72,10 +72,22 @@ class StreetTest < ApplicationSystemTestCase
   # claim is a comparison: draws track MATERIALS, never buildings.
   test "twelve houses cost no more draw calls than one house" do
     boot("street-draws", world: "targets")
+    # The debug overlay puts one label plate above every building in range -- a draw call
+    # each, and a diagnostic rather than the render plan this test guards. Hide it before
+    # counting draws in either world.
+    page.driver.browser.action.key_down("g").key_up("g").perform
+    wait_for(message: "debug view never hid") { page.evaluate_script("window.__arenaDebugVisible") == false }
+    sleep 0.3
     one_house = page.evaluate_script("window.__arenaDraws()")
     one_house_pieces = page.evaluate_script("window.__arena.pieces")
 
     boot("street-draws")
+    # Same here: the street has more buildings in range than the targets world, so left on
+    # it would show more plates and cost more draws for a reason that has nothing to do
+    # with piece meshes.
+    page.driver.browser.action.key_down("g").key_up("g").perform
+    wait_for(message: "debug view never hid") { page.evaluate_script("window.__arenaDebugVisible") == false }
+    sleep 0.3
     street = page.evaluate_script("window.__arenaDraws()")
     street_pieces = page.evaluate_script("window.__arena.pieces")
 
