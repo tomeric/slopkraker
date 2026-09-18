@@ -44,7 +44,12 @@ module Game
         gone = Set.new(broken)
         left = health.dup
         felled = []
-        result = collapsed.to_h { |bay, storey| [ bay.to_i, storey.to_i ] }
+        # A bay with no storey is a bay that has not come down, and it is dropped rather
+        # than coerced. `nil.to_i` is 0, and 0 is the one value that means "down from the
+        # ground up": a `{ "0" => nil }` arriving from a JSON column would read as a
+        # building already flat, which reveals all of its wreckage, refuses every hit on it
+        # and can never be raised back -- the one direction this map may not move.
+        result = collapsed.filter_map { |bay, storey| [ bay.to_i, storey.to_i ] unless storey.nil? }.to_h
 
         surfaces.bays.each do |bay|
           run = Run.new(surfaces, rules, bay: bay, gone: gone, health: left, felled: felled)

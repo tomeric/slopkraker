@@ -38,9 +38,18 @@ Currently:
   buildings — an estate of terraces 50 m around RD (186330, 332234), and the church with
   its hall and apartments 60 m around RD (187006, 331447), a kilometre apart with nothing
   in between — on nine 500 m heightfield tiles resampled from the DEM, with 266 roads
-  drawn on the ground as ribbons. `?spawn=1` starts beside the church instead of on the
-  estate. Every building is a `row` rather than a house, and a terrace comes down one
-  dwelling at a time; the three hand-made worlds and `hills` stay as they are, because
+  drawn on the ground as ribbons. Those forty-eight rows are **43,861 pieces in 647 KB of
+  building spec and 38 KB of roads**, against `street`'s twelve houses at 6692 pieces and
+  103 KB: six and a half times the world for six times the bytes, which is the row recipe
+  paying for itself and still the reason the next window wants streaming rather than a
+  third island. `?spawn=1` starts beside the church instead of on the estate. Every
+  building is a `row` rather than a house, and a terrace comes down one dwelling at a
+  time. **A church or a hall is a row of ZERO dwellings and one bay per part**, decided by
+  its category and never by how tall its parts are: Sint-Marcellinus's nave is one main
+  part 36.5 m long, so judged on height it passed for a dwelling and the whole church came
+  out as a single bay under one gable band — and a building with one bay has no bay to
+  lose, so gutting the nave condemned nothing at all. The three hand-made worlds and
+  `hills` stay as they are, because
   their timing assertions are calibrated on worlds with a dozen buildings and this one has
   four times that. The three fixture files are **generated and never edited by hand** —
   `piece_count` in particular is what the generator produced when the file was written,
@@ -536,6 +545,16 @@ transaction rolls it back.
 Caps (`MAX_HITS_PER_BATCH`, `MAX_AMOUNT_PER_HIT`) bound what one bad client can reach. They
 are **not security** — the server cannot recompute damage without simulating, which is the
 accepted price of clients reporting it.
+
+**And the hit cap is never silent.** The client splits its batches at
+`rules.damage.max_hits_per_batch`, which is shipped from `MAX_HITS_PER_BATCH` so the two
+cannot disagree about where to cut; and the server, handed more than the cap in one message,
+applies the first cap's worth as it always did **and** answers the sender
+`error: "batch_truncated"`. Measured before that: knocking a church's ground storey out in
+one frame reached the server as exactly 512 broken pieces — a round number under the
+threshold, with no error and no warning — while the client showed every wall gone. A cap
+that bounds a bad client is a rule; a cap that drops a good client's work without a word is
+a desync wearing a physics bug's clothes.
 
 Any system test that breaks something must pass `visit_world(..., match: "its-own-name")`.
 Damage persists, so two tests sharing the default lobby share their wreckage.

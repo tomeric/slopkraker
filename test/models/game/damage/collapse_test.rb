@@ -278,9 +278,14 @@ class Game::Damage::CollapseTest < ActiveSupport::TestCase
     assert_empty result.broken & indices_of(set.for_bay(0)[:own]), "the neighbour is untouched"
   end
 
+  # The margin here is 1.571 against a safety factor of 1.6, which is thin enough that the
+  # test would go green on a retune of the number rather than on a change to the rule. With
+  # the front gone the bay keeps its back wall and half its party wall -- 31.5 of 49.5 square
+  # metres, 63.6% -- and still carries its whole roof, so load over support is 1/0.636.
+  # Pinned, so that retuning the feel of collapse cannot silently take the assertion with it.
   test "the front alone is not enough" do
     set = pair
-    result = evaluate(set, broken: indices_of(bay_walls(set, 1).first))
+    result = evaluate(set, broken: indices_of(bay_walls(set, 1).first), rules: rules(safety_factor: 1.6))
 
     assert_empty result.collapsed
   end
@@ -293,6 +298,17 @@ class Game::Damage::CollapseTest < ActiveSupport::TestCase
     both = indices_of(party(set)) + indices_of(bay_walls(set, 0).first) + indices_of(bay_walls(set, 1).first)
 
     assert_equal({ 0 => 0, 1 => 0 }, evaluate(set, broken: both).collapsed)
+  end
+
+  # `nil.to_i` is 0 and 0 is the one value that means "down from the ground up", so a bay
+  # carrying no storey -- which is what a JSON column holding `{ "0" => null }` hands back --
+  # used to arrive as a building already flat: all of its wreckage revealed, every hit on it
+  # refused, and no way back, because this map may not be raised.
+  test "a bay with no storey is not read as one already on the ground" do
+    result = evaluate(pair, broken: [], collapsed: { "0" => nil })
+
+    assert_empty result.collapsed
+    assert_empty result.broken
   end
 
   test "a bay that has already fallen is not reported again and never rises" do

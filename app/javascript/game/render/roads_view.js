@@ -18,6 +18,10 @@ export function buildRoadsView(scene, roads, ground, rules = {}) {
   const height = ground || (() => 0)
 
   for (const road of roads) {
+    // Before densify, not after: a road with no points at all makes `densify` push
+    // `undefined` as its last vertex, and `normalAt` then reads [0] off it and takes the
+    // whole ribbon -- every road in the world -- down with it.
+    if (!road.points || road.points.length < 2) continue
     const points = densify(road.points, STEP)
     if (points.length < 2) continue
     colour.set(colours[road.kind] ?? "#2e3236")

@@ -78,6 +78,14 @@ module Game
           raise Invalid, "the ridge cannot sit below the eaves" if ridge < eaves
           raise Invalid, "the band must run front to back" if dwellings.any? && z1 <= z0
           raise Invalid, "storeys must be positive" unless storeys.positive?
+          # A height of nothing is not a small building, it is a surface with no extent:
+          # walls of zero rows, a collider of zero thickness, and a piece the client draws
+          # as a plane and the player drives through. The importer derives all three of
+          # these from survey heights, so a part whose mesh gave it nothing to stand on is
+          # caught here rather than generated.
+          raise Invalid, "eaves must be positive" unless eaves.positive?
+          raise Invalid, "storey height must be positive" unless storey_height.positive?
+          raise Invalid, "a gable needs a ridge above its eaves" if roof == "gable" && ridge <= eaves
           dwellings.each { |d| raise Invalid, "a dwelling must have width" unless d.x1 > d.x0 }
           # Attached means attached, in both directions. Half a metre of slack absorbs the
           # disagreement between two imported party lines that are meant to be the same
@@ -94,6 +102,8 @@ module Game
             raise Invalid, "a box roof must be one of #{BOX_ROOFS.join(", ")}" unless BOX_ROOFS.include?(box.roof)
             raise Invalid, "a box needs a bay" if box.bay.nil?
             raise Invalid, "a box must have storeys" unless box.storeys.positive?
+            raise Invalid, "a box needs eaves" unless box.eaves.positive?
+            raise Invalid, "a gable box needs a ridge above its eaves" if box.roof == "gable" && box.ridge <= box.eaves
           end
         end
     end

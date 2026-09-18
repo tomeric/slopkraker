@@ -47,6 +47,36 @@ class Game::Building::RowTest < ActiveSupport::TestCase
                  set.surfaces.map(&:piece_offset)
   end
 
+  # THE OTHER HALF OF THE CONTRACT: step 6, which the example above has nothing of. A box is
+  # built as its kept walls per storey, then a deck per storey, then its roof -- and that
+  # order decides every index after the dwellings, which for a church is every index it has.
+  #
+  # Worked by hand from the annex: 3 x 6 m, one storey of 2.8 m (so three 1 m rows, rounded),
+  # flat, standing against the row's back wall at z = 9.
+  #   - its four edges run [6,9]->[9,9], [9,9]->[9,15], [9,15]->[6,15], [6,15]->[6,9]. The
+  #     first lies along the row's back wall, which is already walled to 2 x 3 = 6 m, so it
+  #     is dropped. The other three are 6, 3 and 6 m long: 6 x 3 = 18, 3 x 3 = 9, 6 x 3 = 18.
+  #   - one deck per storey over the ring's own 3 x 6 box: 3 x 6 = 18.
+  #   - a flat roof is one more deck of the same 18.
+  # 45 + 18 + 18 = 81 cells in five surfaces, appended after the last gable ends at
+  # 741 + 27 = 768 and before the rubble -- which moves from 768 to 849, taking the count
+  # from 840 to 921. The rubble grid itself does not move: it is laid over the ROW's
+  # footprint, which an annex reaching past it does not grow.
+  test "a box is walls, then decks, then its roof, and it lands between the roof and the rubble" do
+    set = pair("boxes" => [ annex ])
+
+    assert_equal 34, set.surfaces.length
+    assert_equal 921, set.piece_count
+    assert_equal %i[wall] * 14 + %i[floor floor partition partition floor floor partition partition
+                                    roof roof gable roof roof gable wall wall wall floor roof rubble],
+                 set.surfaces.map(&:kind)
+    assert_equal [ 0, 18, 36, 54, 72, 90, 108, 126, 144, 171, 198, 225, 252, 279,
+                   306, 360, 414, 432, 450, 504, 558, 576, 594, 624, 654, 681, 711, 741,
+                   768, 786, 795, 813, 831, 849 ],
+                 set.surfaces.map(&:piece_offset)
+    assert_equal [ 1 ] * 5, set.surfaces[28, 5].map(&:bay), "every surface of the box carries the box's own bay"
+  end
+
   test "every surface knows its bay, and the party wall is shared" do
     set = pair
     walls = set.surfaces.select { |s| s.kind == :wall }
@@ -253,5 +283,12 @@ class Game::Building::RowTest < ActiveSupport::TestCase
     assert_equal 3, terrace("dwellings" => [ { "x0" => 0.0, "x1" => 6.0 }, { "x0" => 6.4, "x1" => 12.0 }, { "x0" => 11.6, "x1" => 18.0 } ]).bays.length
     assert_raises(Game::Building::Row::Invalid) { pair("band" => [ 9.0, 0.0 ]) }
     assert_raises(Game::Building::Row::Invalid) { pair("roof" => "thatch") }
+    # Nothing here is a small building. A zero height is a surface with no extent: no rows
+    # of cells, a collider of no thickness, and a gable end that is a triangle of nothing.
+    assert_raises(Game::Building::Row::Invalid) { pair("eaves" => 0.0, "ridge" => 0.0) }
+    assert_raises(Game::Building::Row::Invalid) { pair("storey_height" => 0.0) }
+    assert_raises(Game::Building::Row::Invalid) { pair("ridge" => 6.0) }
+    assert_raises(Game::Building::Row::Invalid) { pair("boxes" => [ annex("eaves" => 0.0, "ridge" => 0.0) ]) }
+    assert_raises(Game::Building::Row::Invalid) { pair("boxes" => [ annex("roof" => "gable") ]) }
   end
 end

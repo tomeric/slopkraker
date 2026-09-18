@@ -104,29 +104,37 @@ namespace :geleen do
     objects = YAML.unsafe_load_file(GeleenImport.path("world_objects"))
     tiles = YAML.unsafe_load_file(GeleenImport.path("terrain_tiles"))
 
-    row = worlds.fetch("geleen")
-    world = World.find_or_initialize_by(slug: row.fetch("slug"))
-    world.update!(row.except("slug"))
+    # All of it or none of it. Halfway through is a world whose buildings are the new
+    # import and whose tiles are the old one, or one holding a row the fixtures renamed
+    # beside the row that replaced it -- and the failure would not announce itself here,
+    # it would announce itself as a house standing in the air the next time somebody
+    # loaded the world.
+    names, coordinates, stale_objects, stale_tiles = ActiveRecord::Base.transaction do
+      row = worlds.fetch("geleen")
+      world = World.find_or_initialize_by(slug: row.fetch("slug"))
+      world.update!(row.except("slug"))
 
-    names = objects.each_value.map do |object|
-      raise "#{object['name']} belongs to #{object['world']}, not geleen" unless object.fetch("world") == world.slug
+      names = objects.each_value.map do |object|
+        raise "#{object['name']} belongs to #{object['world']}, not geleen" unless object.fetch("world") == world.slug
 
-      record = world.world_objects.find_or_initialize_by(name: object.fetch("name"))
-      record.update!(object.except("world", "name"))
-      record.name
+        record = world.world_objects.find_or_initialize_by(name: object.fetch("name"))
+        record.update!(object.except("world", "name"))
+        record.name
+      end
+      coordinates = tiles.each_value.map do |tile|
+        raise "tile #{tile['tx']},#{tile['tz']} belongs to #{tile['world']}, not geleen" unless tile.fetch("world") == world.slug
+
+        record = world.terrain_tiles.find_or_initialize_by(tx: tile.fetch("tx"), tz: tile.fetch("tz"))
+        record.update!(tile.except("world", "tx", "tz"))
+        [ record.tx, record.tz ]
+      end
+
+      stale_objects = world.world_objects.where.not(name: names).destroy_all.length
+      # Selected without the blob: nine heightfields is half a megabyte to load in order to
+      # find out that none of them is stale.
+      stale_tiles = world.terrain_tiles.select(:id, :tx, :tz).reject { |t| coordinates.include?([ t.tx, t.tz ]) }.each(&:destroy).length
+      [ names, coordinates, stale_objects, stale_tiles ]
     end
-    coordinates = tiles.each_value.map do |tile|
-      raise "tile #{tile['tx']},#{tile['tz']} belongs to #{tile['world']}, not geleen" unless tile.fetch("world") == world.slug
-
-      record = world.terrain_tiles.find_or_initialize_by(tx: tile.fetch("tx"), tz: tile.fetch("tz"))
-      record.update!(tile.except("world", "tx", "tz"))
-      [ record.tx, record.tz ]
-    end
-
-    stale_objects = world.world_objects.where.not(name: names).destroy_all.length
-    # Selected without the blob: nine heightfields is half a megabyte to load in order to
-    # find out that none of them is stale.
-    stale_tiles = world.terrain_tiles.select(:id, :tx, :tz).reject { |t| coordinates.include?([ t.tx, t.tz ]) }.each(&:destroy).length
     puts "geleen: #{names.length} objects, #{coordinates.length} tiles" \
          "#{" (removed #{stale_objects} stale objects, #{stale_tiles} stale tiles)" if stale_objects.positive? || stale_tiles.positive?}"
   end
