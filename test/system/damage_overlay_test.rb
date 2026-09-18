@@ -43,8 +43,14 @@ class DamageOverlayTest < ApplicationSystemTestCase
     drive(throttle: 1)
     sleep 2.5
 
-    blade = entry("BULLDOZER BLADE")
-    chassis = entry("CHASSIS")
+    # ONE snapshot, not two. The readout is live -- DamageGizmos recomputes it from the
+    # vehicle's current speed at 20Hz -- and the throttle from `drive` above is still held,
+    # so the truck is still accelerating. Two separate round trips (`entry` calls
+    # `readout` fresh each time) can straddle a refresh: the blade figure would come from
+    # one instant and the chassis figure from a faster one a tick later, which breaks the
+    # fixed 5x relationship between them without either number being wrong on its own.
+    # Measured: back-to-back reads agree, but the array had visibly moved 0.2s apart.
+    blade, chassis = entries("BULLDOZER BLADE", "CHASSIS")
 
     assert_operator blade["damage"], :>, chassis["damage"], "the blade should hit harder"
     assert_in_delta blade["bonus"], blade["damage"].to_f / chassis["damage"], 0.15
@@ -93,6 +99,13 @@ class DamageOverlayTest < ApplicationSystemTestCase
 
     def entry(label)
       readout.find { |e| e["label"] == label } || flunk("no hitbox labelled #{label}")
+    end
+
+    # Several labels out of the SAME readout, for a test that means to compare them at
+    # one instant rather than across two separate round trips to a live array.
+    def entries(*labels)
+      snapshot = readout
+      labels.map { |label| snapshot.find { |e| e["label"] == label } || flunk("no hitbox labelled #{label}") }
     end
 
     # Up to speed, then hop into a committed right-hand drift and hold it.
