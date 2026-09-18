@@ -20,41 +20,69 @@ module Game
       # carrying them, and a roof is a hat.
       LOAD_BEARING = %i[wall partition].freeze
 
-      Result = Struct.new(:collapsed_from, :broken, :health, keyword_init: true)
+      # What a shared wall is worth to each of the bays leaning on it. Counted in full a
+      # mid-terrace dwelling keeps 70% of its support with its front and back gone and never
+      # falls; at half it comes down, an end dwelling needs its partition as well, and a
+      # party wall taken out condemns both neighbours.
+      SHARED_WEIGHT = 0.5
+
+      Result = Struct.new(:collapsed, :broken, :health, keyword_init: true)
 
       # `broken` is every piece index already gone; `health` is what the pieces that have
       # been hit but not broken have left, defaulting to full. Neither is mutated.
       #
-      # What comes back is `collapsed_from` -- the whole of what goes on the wire -- plus
-      # the piece indices this evaluation broke, and `health` carried forward with the
-      # pancake's dents applied. The caller writes those two back; the client is told only
-      # the storey and works the rest out from the surfaces it already holds.
-      def self.evaluate(surfaces:, broken:, rules:, health: {}, collapsed_from: nil)
-        Run.new(surfaces, rules).evaluate(
-          broken: broken, health: health, collapsed_from: collapsed_from
-        )
+      # `collapsed` is the map of bay => storey it has already come down from. Every bay is
+      # weighed; the bays that fail fell their own surfaces, never a shared one, so no bay's
+      # fall changes a neighbour's support and a row does not domino.
+      #
+      # What comes back is that map with every bay that failed added or lowered -- the whole
+      # of what goes on the wire -- plus the piece indices this evaluation broke, and
+      # `health` carried forward with the pancake's dents applied. The caller writes those
+      # two back; the client is told only the storey and works the rest out from the
+      # surfaces it already holds.
+      def self.evaluate(surfaces:, broken:, rules:, health: {}, collapsed: {})
+        gone = Set.new(broken)
+        left = health.dup
+        felled = []
+        result = collapsed.to_h { |bay, storey| [ bay.to_i, storey.to_i ] }
+
+        surfaces.bays.each do |bay|
+          run = Run.new(surfaces, rules, bay: bay, gone: gone, health: left, felled: felled)
+          storey = run.evaluate(collapsed_from: result[bay])
+          result[bay] = storey unless storey.nil?
+        end
+
+        Result.new(collapsed: result, broken: felled.sort, health: left)
       end
 
       class Run
-        def initialize(surfaces, rules)
-          @surfaces = surfaces
+        def initialize(surfaces, rules, bay:, gone:, health:, felled:)
           @rules = rules
+          @bay = bay
+          parts = surfaces.for_bay(bay)
+          @own = parts[:own]
+          @shared = parts[:shared]
+          @storey_count = surfaces.storey_count
+          @gone = gone
+          @health = health
+          @felled = felled
         end
 
-        def evaluate(broken:, health:, collapsed_from:)
-          @gone = Set.new(broken)
-          @health = health.dup
-          @felled = []
+        # The storey this bay has come down to after this evaluation, or nil if it moved
+        # nowhere. Shares `gone`, `health` and `felled` with every other bay's run, because
+        # a shared wall broken by a hit is gone for both of its neighbours.
+        def evaluate(collapsed_from:)
           @collapsed_from = collapsed_from
+          before = collapsed_from
 
           cascade
-          Result.new(collapsed_from: @collapsed_from, broken: @felled.sort, health: @health)
+          @collapsed_from == before ? nil : @collapsed_from
         end
 
         private
-          attr_reader :surfaces, :rules
+          attr_reader :rules
 
-          # The lowest storey that fails takes the building down to there. Then the mass
+          # The lowest storey that fails takes the bay down to there. Then the mass
           # that just fell lands on the storey below, which may or may not take it --
           # which is what makes a top-floor failure sometimes reach the ground and usually
           # stop one floor down. Bounded by storey_count because each pass moves strictly
@@ -89,7 +117,7 @@ module Game
           # smaller set than "all" by much, and a building this only runs for when
           # something has actually hit it.
           def lowest_failing
-            ceiling = @collapsed_from || surfaces.storey_count
+            ceiling = @collapsed_from || @storey_count
             (0...ceiling).find { |storey| fails?(storey) }
           end
 
@@ -147,12 +175,11 @@ module Game
             @intact_load[storey] ||= mass_above(storey)
           end
 
+          # The bay's own load-bearing area in full, plus half of every wall it shares.
           def structural_area(storey, &standing)
-            surfaces.for_storey(storey).sum do |surface|
-              next 0.0 unless LOAD_BEARING.include?(surface.kind)
-
-              surface.structural_area(&standing)
-            end
+            own = @own.select { |s| s.storey == storey && LOAD_BEARING.include?(s.kind) }.sum { |s| s.structural_area(&standing) }
+            shared = @shared.select { |s| s.storey == storey }.sum { |s| s.structural_area(&standing) }
+            own + shared * SHARED_WEIGHT
           end
 
           # Everything a storey is holding up: every piece of every storey above it, not
@@ -221,8 +248,11 @@ module Game
             end
           end
 
+          # Own surfaces only. A shared wall carries itself, and is never felled from here:
+          # a bay bringing a party wall down would take its neighbour's support with it, and
+          # a terrace would domino from one end to the other on a single hit.
           def each_cell(from: nil, only: nil)
-            surfaces.surfaces.each do |surface|
+            @own.each do |surface|
               # Rubble is the wreckage a collapse LEAVES, so no collapse may sweep it: not
               # to destroy it, not to weigh it as load, not to count it as support. Its
               # storey of -1 already puts it outside every bound here, and this says so out

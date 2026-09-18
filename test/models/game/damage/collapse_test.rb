@@ -47,7 +47,7 @@ class Game::Damage::CollapseTest < ActiveSupport::TestCase
   test "an untouched building stands" do
     result = evaluate(house, broken: [])
 
-    assert_nil result.collapsed_from
+    assert_empty result.collapsed
     assert_empty result.broken
   end
 
@@ -58,14 +58,14 @@ class Game::Damage::CollapseTest < ActiveSupport::TestCase
     set = house
     result = evaluate(set, broken: indices_of(walls_at(set, 0).first(2)))
 
-    assert_equal 0, result.collapsed_from
+    assert_equal 0, result.collapsed[0]
   end
 
   test "one wall gone is not enough" do
     set = house
     result = evaluate(set, broken: indices_of(walls_at(set, 0).first(1)))
 
-    assert_nil result.collapsed_from
+    assert_empty result.collapsed
   end
 
   # The point of weighing support against load rather than counting walls: strip the
@@ -75,9 +75,9 @@ class Game::Damage::CollapseTest < ActiveSupport::TestCase
     set = house
     stripped = indices_of(above(set, 1)) + indices_of(walls_at(set, 0).first(2))
 
-    result = evaluate(set, broken: stripped, collapsed_from: 1)
+    result = evaluate(set, broken: stripped, collapsed: { 0 => 1 })
 
-    assert_equal 1, result.collapsed_from, "the ground floor should not follow the storeys above it"
+    assert_equal 1, result.collapsed[0], "the ground floor should not follow the storeys above it"
   end
 
   # Perforating rather than removing: every wall loses its middle band, which is a real
@@ -91,7 +91,7 @@ class Game::Damage::CollapseTest < ActiveSupport::TestCase
 
     result = evaluate(set, broken: broken)
 
-    assert_nil result.collapsed_from, "a perforated storey should still hold"
+    assert_empty result.collapsed, "a perforated storey should still hold"
   end
 
   # The backstop, and the reason the ratio alone is not enough. A top storey carries
@@ -102,9 +102,9 @@ class Game::Damage::CollapseTest < ActiveSupport::TestCase
     set = house
     gutted = indices_of(walls_at(set, 2)) + indices_of(above(set, 3))
 
-    result = evaluate(set, broken: gutted, collapsed_from: nil)
+    result = evaluate(set, broken: gutted, collapsed: {})
 
-    assert_equal 2, result.collapsed_from, "a gutted top storey cannot hold its own roof"
+    assert_equal 2, result.collapsed[0], "a gutted top storey cannot hold its own roof"
   end
 
   # Everything at or above the failed storey goes, roof and gables included -- they carry
@@ -113,7 +113,7 @@ class Game::Damage::CollapseTest < ActiveSupport::TestCase
     set = house
     result = evaluate(set, broken: indices_of(walls_at(set, 0).first(2)))
 
-    assert_equal 0, result.collapsed_from
+    assert_equal 0, result.collapsed[0]
     building_pieces = indices_of(set.surfaces.reject { |s| s.kind == :rubble })
     assert_equal building_pieces.length,
                  (result.broken + indices_of(walls_at(set, 0).first(2))).uniq.length,
@@ -132,7 +132,7 @@ class Game::Damage::CollapseTest < ActiveSupport::TestCase
     set = house
     result = evaluate(set, broken: indices_of(walls_at(set, 1).first(3)))
 
-    assert_equal 1, result.collapsed_from
+    assert_equal 1, result.collapsed[0]
 
     brick = cells_of(set, walls_at(set, 0)) { |material| material.name == :brick }
     assert_empty result.broken & brick, "brickwork should hold under a storey landing on it"
@@ -153,9 +153,9 @@ class Game::Damage::CollapseTest < ActiveSupport::TestCase
   # collapse that would un-destroy the storey below.
   test "collapsed_from is never raised" do
     set = house
-    result = evaluate(set, broken: indices_of(above(set, 1)), collapsed_from: 1)
+    result = evaluate(set, broken: indices_of(above(set, 1)), collapsed: { 0 => 1 })
 
-    assert_equal 1, result.collapsed_from
+    assert_equal 1, result.collapsed[0]
     assert_empty result.broken, "nothing is left above storey 1 to destroy twice"
   end
 
@@ -171,7 +171,7 @@ class Game::Damage::CollapseTest < ActiveSupport::TestCase
 
     result = evaluate(set, broken: indices_of(walls_at(set, 1).first(3)), health: health)
 
-    assert_equal 0, result.collapsed_from, "the pancake should have finished the ground floor"
+    assert_equal 0, result.collapsed[0], "the pancake should have finished the ground floor"
   end
 
   # The same collapse onto the same storey at full health stops one floor up. The only
@@ -181,14 +181,14 @@ class Game::Damage::CollapseTest < ActiveSupport::TestCase
     set = house
     result = evaluate(set, broken: indices_of(walls_at(set, 1).first(3)))
 
-    assert_equal 1, result.collapsed_from
+    assert_equal 1, result.collapsed[0]
   end
 
   test "a pancake stops at a storey that can take it" do
     set = house
     result = evaluate(set, broken: indices_of(walls_at(set, 2)) + indices_of(above(set, 3)))
 
-    assert_equal 2, result.collapsed_from, "an intact ground floor should not follow"
+    assert_equal 2, result.collapsed[0], "an intact ground floor should not follow"
   end
 
   # Pancake damage that does not break a cell still has to be remembered, or the next
@@ -231,5 +231,75 @@ class Game::Damage::CollapseTest < ActiveSupport::TestCase
     assert_equal :rubble, rubble.kind
     assert_equal 0.0, rubble.structural_area, "rubble counted as support"
     assert_equal(-1, rubble.storey, "rubble must sit below every storey the rule sweeps")
+  end
+
+  # Two dwellings of 6 x 9 m sharing a party wall, one storey of 3 m, 1 m cells, no
+  # openings, built by hand so the arithmetic can be followed: each bay owns a front and a
+  # back wall of 18 cells; the party wall is 27 cells and is half of each bay's support.
+  def pair
+    brick = Game::Materials.fetch(:brick)
+    east, south, up = Game::Vector3.new(1, 0, 0), Game::Vector3.new(0, 0, 1), Game::Vector3.new(0, 1, 0)
+    wall = lambda do |x0, z0, x1, z1, bay: 0, between: nil|
+      along = Game::Vector3.new(x1 - x0, 0, z1 - z0)
+      Game::Building::Surface.new(
+        kind: :wall, storey: 0, material: brick, origin: Game::Vector3.new(x0, 0, z0), u: along.normalised, v: up,
+        width: along.length, height: 3.0, cols: along.length.round, rows: 3, thickness: 0.3, bay: bay, between: between
+      )
+    end
+    roof = lambda do |x0, bay|
+      Game::Building::Surface.new(
+        kind: :roof, storey: 1, material: Game::Materials.fetch(:roof_tile), origin: Game::Vector3.new(x0, 3.0, 0),
+        u: east, v: south, width: 6.0, height: 9.0, cols: 6, rows: 9, thickness: 0.2, bay: bay
+      )
+    end
+    Game::Building::SurfaceSet.new([
+      wall.call(0, 0, 6, 0, bay: 0), wall.call(6, 9, 0, 9, bay: 0),
+      wall.call(6, 0, 12, 0, bay: 1), wall.call(12, 9, 6, 9, bay: 1),
+      wall.call(6, 0, 6, 9, between: [ 0, 1 ]),
+      roof.call(0, 0), roof.call(6, 1)
+    ], storey_count: 1)
+  end
+
+  def bay_walls(set, bay) = set.for_bay(bay)[:own].select { |s| s.kind == :wall }
+  def party(set) = set.surfaces.find(&:shared?)
+
+  test "a pair is two bays sharing one wall" do
+    assert_equal [ 0, 1 ], pair.bays
+    assert_equal [ party(pair).piece_offset ], pair.for_bay(1)[:shared].map(&:piece_offset)
+  end
+
+  test "taking the front and back out of one dwelling drops that dwelling and no other" do
+    set = pair
+    result = evaluate(set, broken: indices_of(bay_walls(set, 1)))
+
+    assert_equal({ 1 => 0 }, result.collapsed)
+    assert_includes result.broken, set.for_bay(1)[:own].find { |s| s.kind == :roof }.piece_offset, "the bay's own roof comes down"
+    assert_not_includes result.broken, party(set).piece_offset, "a shared wall is never felled by a bay"
+    assert_empty result.broken & indices_of(set.for_bay(0)[:own]), "the neighbour is untouched"
+  end
+
+  test "the front alone is not enough" do
+    set = pair
+    result = evaluate(set, broken: indices_of(bay_walls(set, 1).first))
+
+    assert_empty result.collapsed
+  end
+
+  # A party wall is half of each neighbour's support: losing it hurts both, and finishing
+  # either one then takes only its front.
+  test "a party wall gone weakens both neighbours" do
+    set = pair
+    assert_empty evaluate(set, broken: indices_of(party(set))).collapsed
+    both = indices_of(party(set)) + indices_of(bay_walls(set, 0).first) + indices_of(bay_walls(set, 1).first)
+
+    assert_equal({ 0 => 0, 1 => 0 }, evaluate(set, broken: both).collapsed)
+  end
+
+  test "a bay that has already fallen is not reported again and never rises" do
+    set = pair
+    result = evaluate(set, broken: indices_of(bay_walls(set, 1)), collapsed: { 1 => 0 })
+
+    assert_equal({ 1 => 0 }, result.collapsed)
+    assert_empty result.broken
   end
 end

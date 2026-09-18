@@ -62,15 +62,18 @@ module Game
       # nil if nothing changed. Everything the collapse destroyed is folded in here, so the
       # caller only has to broadcast the storey.
       def settle
+        # The rule weighs a bay at a time; this still holds one storey, so it speaks for bay
+        # 0 alone -- which is every building that comes from a recipe. A row of dwellings
+        # needs a collapsed storey per bay all the way to the wire, and that is its own task.
         result = Collapse.evaluate(
           surfaces: @surfaces, broken: @destroyed.to_a, health: @partial,
-          rules: @rules.fetch(:collapse), collapsed_from: @collapsed_from
+          rules: @rules.fetch(:collapse), collapsed: { 0 => @collapsed_from }.compact
         )
-        return nil if result.collapsed_from == @collapsed_from
+        return nil if result.collapsed[0] == @collapsed_from
 
         result.broken.each { |index| destroy!(index) }
         @partial = result.health.except(*result.broken)
-        @collapsed_from = result.collapsed_from
+        @collapsed_from = result.collapsed[0]
         # More of the house came down, so more of its wreckage is on the ground.
         @revealed_rubble = nil
         @dirty = true
