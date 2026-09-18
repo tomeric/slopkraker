@@ -16,6 +16,15 @@ class Game::Building::RowTest < ActiveSupport::TestCase
     }.merge(overrides))
   end
 
+  # The same row with a dwelling in the middle, which is the only place an end-only rule
+  # can be seen to be end-only.
+  def terrace(**overrides)
+    pair(**{
+      "dwellings" => [ { "x0" => 0.0, "x1" => 6.0 }, { "x0" => 6.0, "x1" => 12.0 }, { "x0" => 12.0, "x1" => 18.0 } ],
+      "footprint" => [ [ 0, 0 ], [ 18, 0 ], [ 18, 9 ], [ 0, 9 ] ]
+    }.merge(overrides))
+  end
+
   # THE CONTRACT. Offsets are handed out in this order; change the order and damage
   # recorded against one wall comes back on another.
   test "the worked example generates exactly what it is supposed to" do
@@ -40,6 +49,12 @@ class Game::Building::RowTest < ActiveSupport::TestCase
     assert_equal [ 1, 1, 0, 0 ], walls[8, 4].map(&:bay), "the right end belongs to the last dwelling, the left to the first"
     assert_equal [ [ 0, 1 ], [ 0, 1 ] ], walls[12, 2].map(&:between), "party walls, one per storey"
     assert_equal [ 0, 1 ], set.bays
+    # A dwelling's decks and partitions are built from a Recipe that knows nothing about
+    # the row, so the tag put on them afterwards is the only thing that makes them its
+    # own -- and an untagged floor would be felled by the neighbour's collapse.
+    assert_equal [ 0 ] * 4 + [ 1 ] * 4,
+                 set.surfaces.select { |s| %i[floor partition].include?(s.kind) }.map(&:bay),
+                 "each dwelling's floors and partitions"
     assert_equal [ 0, 0, 0, 1, 1, 1 ], set.surfaces.select { |s| %i[roof gable].include?(s.kind) }.map(&:bay)
   end
 
@@ -65,9 +80,28 @@ class Game::Building::RowTest < ActiveSupport::TestCase
     planes = pair.surfaces.select { |s| s.kind == :roof }
 
     assert_equal 4, planes.length
-    assert_equal [ 6, 6, 6, 6 ], planes.map(&:cols), "each section spans its dwelling plus the end overhang"
+    # Not the column count: Walls.cells rounds, so 6.0 and 6.4 both come out as 6 columns
+    # and an overhang that had gone missing would still pass. The metres are what say it
+    # is there.
+    assert_equal [ 6.4 ] * 4, planes.map(&:width), "each section spans its dwelling plus the end overhang"
+    assert_equal [ -0.4, -0.4, 6.0, 6.0 ], planes.map { |p| p.origin.x },
+                 "the first section starts an overhang back, the second flush against it"
     assert_in_delta planes[0].origin.y, planes[2].origin.y, 1e-9, "the same eaves"
     assert_equal planes[0].v, planes[2].v, "the same pitch"
+  end
+
+  # The other half of the overhang rule, which two dwellings cannot show: with every
+  # dwelling either first or last, a section that wrongly overhung in the middle would
+  # look exactly like one that rightly overhangs at the end.
+  test "only the ends of a row overhang, and only they are closed off" do
+    set = terrace
+    planes = set.surfaces.select { |s| s.kind == :roof }
+
+    assert_equal [ 6.4, 6.4, 6.0, 6.0, 6.4, 6.4 ], planes.map(&:width),
+                 "the middle section spans exactly its dwelling and meets its neighbours flush"
+    assert_equal [ -0.4, -0.4, 6.0, 6.0, 12.0, 12.0 ], planes.map { |p| p.origin.x }
+    assert_equal 2, set.surfaces.count { |s| s.kind == :gable }, "a middle dwelling closes nothing off"
+    assert_equal [ 0, 2 ], set.surfaces.select { |s| s.kind == :gable }.map(&:bay)
   end
 
   test "every cell round trips through its index" do
@@ -115,6 +149,12 @@ class Game::Building::RowTest < ActiveSupport::TestCase
 
   test "a row is validated" do
     assert_raises(Game::Building::Row::Invalid) { pair("dwellings" => [ { "x0" => 6.0, "x1" => 0.0 } ]) }
+    # Overlapping and gaping are the same mistake seen from either side, and only the
+    # first of them used to be caught.
+    assert_raises(Game::Building::Row::Invalid) { pair("dwellings" => [ { "x0" => 0.0, "x1" => 6.0 }, { "x0" => 3.0, "x1" => 9.0 } ]) }
+    assert_raises(Game::Building::Row::Invalid) { pair("dwellings" => [ { "x0" => 0.0, "x1" => 6.0 }, { "x0" => 10.0, "x1" => 16.0 } ]) }
+    # Half a metre either way is an imported party line, not a hole.
+    assert_equal 3, terrace("dwellings" => [ { "x0" => 0.0, "x1" => 6.0 }, { "x0" => 6.4, "x1" => 12.0 }, { "x0" => 11.6, "x1" => 18.0 } ]).bays.length
     assert_raises(Game::Building::Row::Invalid) { pair("band" => [ 9.0, 0.0 ]) }
     assert_raises(Game::Building::Row::Invalid) { pair("roof" => "thatch") }
   end

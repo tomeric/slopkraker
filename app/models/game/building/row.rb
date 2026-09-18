@@ -79,7 +79,16 @@ module Game
           raise Invalid, "the band must run front to back" if dwellings.any? && z1 <= z0
           raise Invalid, "storeys must be positive" unless storeys.positive?
           dwellings.each { |d| raise Invalid, "a dwelling must have width" unless d.x1 > d.x0 }
-          dwellings.each_cons(2) { |a, b| raise Invalid, "dwellings must run left to right" if b.x0 < a.x1 - 0.5 }
+          # Attached means attached, in both directions. Half a metre of slack absorbs the
+          # disagreement between two imported party lines that are meant to be the same
+          # line; past that a gap is not slack but a hole, and nothing downstream would
+          # say so -- the front wall would be built with a length of nothing in it, the
+          # party wall would float clear of both its neighbours, and the roof would come
+          # apart over open air. The importer is the next caller, so it is caught here.
+          dwellings.each_cons(2) do |a, b|
+            raise Invalid, "dwellings must run left to right" if b.x0 < a.x1 - 0.5
+            raise Invalid, "dwellings in a row must be attached" if b.x0 > a.x1 + 0.5
+          end
           boxes.each do |box|
             raise Invalid, "a box needs a ring" if box.ring.length < 3
             raise Invalid, "a box roof must be one of #{BOX_ROOFS.join(", ")}" unless BOX_ROOFS.include?(box.roof)
