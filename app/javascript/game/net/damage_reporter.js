@@ -10,9 +10,10 @@
 // only the cell that was touched would mean porting spread and block tiling to the server,
 // which is exactly the duplication this design exists to avoid.
 export class DamageReporter {
-  constructor({ connection, hz = 20 }) {
+  constructor({ connection, hz = 20, maxHits = 512 }) {
     this.connection = connection
     this.interval = 1 / hz
+    this.maxHits = maxHits
     this.elapsed = 0
     this.queue = []
     this.seq = 0
@@ -35,6 +36,11 @@ export class DamageReporter {
     // client that reconnects asks for it again rather than replaying what it missed.
     const hits = this.queue
     this.queue = []
-    if (this.connection?.sendDamage({ seq: ++this.seq, hits })) this.sent += hits.length
+    // In messages of at most the server's cap, which it shipped: a frame that broke a
+    // thousand cells is three messages rather than one that loses two thirds of itself.
+    for (let start = 0; start < hits.length; start += this.maxHits) {
+      const chunk = hits.slice(start, start + this.maxHits)
+      if (this.connection?.sendDamage({ seq: ++this.seq, hits: chunk })) this.sent += chunk.length
+    }
   }
 }

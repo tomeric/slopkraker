@@ -40,6 +40,7 @@ class ArenaChannel < ApplicationCable::Channel
     result = Game::Damage::Registry.checkout(@record) do |state|
       state.apply_batch(data["hits"])
     end
+    transmit({ type: "error", reason: "batch_truncated", kept: Game::Damage::MatchState::MAX_HITS_PER_BATCH }) if result["truncated"]
     return if result["broken"].empty? && result["collapses"].empty?
 
     # Deliberately NOT stamped with player_id. NetConnection drops its own echo, and the

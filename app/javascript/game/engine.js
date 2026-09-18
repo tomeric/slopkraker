@@ -119,9 +119,15 @@ export class GameEngine {
       onStatus: (up) => this.onNetStatus(up)
     })
     this.reporter = new DamageReporter({
-      connection: this.connection, hz: this.spec.rules.snapshot_hz
+      connection: this.connection, hz: this.spec.rules.snapshot_hz,
+      maxHits: this.spec.rules.damage.max_hits_per_batch
     })
     this.collapsesSeen = 0
+    // Reasons the server has refused something this session, batch truncation among them.
+    // Never expected to gain an entry -- the client is meant to split its own batches to
+    // the cap it was shipped -- so a system test asserts this stays empty rather than
+    // merely that destruction still worked.
+    this.netErrors = []
     // Other players' cars, keyed by the player_id the server stamps. Nothing is ever
     // created for ourselves: our own broadcasts are dropped in NetConnection.
     this.remotes = new Map()
@@ -222,6 +228,10 @@ export class GameEngine {
       this.buildings?.find(buildingId)?.block(piece) ?? []
     window.__arenaDraws = () => this.renderer.info.render.calls
     window.__arenaCollapses = () => this.collapsesSeen ?? 0
+    // The reasons the server has refused this session, batch truncation among them. A test
+    // driving a huge break in one frame asserts this stays empty -- if it is not, the
+    // client failed to split its own batch to the cap it was shipped.
+    window.__arenaNetErrors = () => this.netErrors.slice()
     window.__arenaDebrisSpawned = () => this.buildings?.debrisSpawned ?? 0
     // How many pieces of a condemned building are in the air right now. Zero at rest, so a
     // test can watch a collapse leave the ground and come back to it.
@@ -390,6 +400,7 @@ export class GameEngine {
         // so a process that has lost the match shows up as a named cause rather than as
         // destruction mysteriously doing nothing.
         console.error(`arena: server refused damage (${data.reason})`)
+        this.netErrors.push(data.reason)
         break
     }
   }

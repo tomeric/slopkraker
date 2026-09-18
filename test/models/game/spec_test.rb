@@ -337,6 +337,11 @@ class Game::SpecTest < ActiveSupport::TestCase
       flunk "#{path} serialised as #{node.class}: #{node.inspect}"
     end
 
+  test "the client is told how many hits a batch may carry" do
+    assert_equal Game::Damage::MatchState::MAX_HITS_PER_BATCH,
+                 Game::Spec.default_rules.dig(:damage, :max_hits_per_batch)
+  end
+
   # Only the LOOK ships. The grid, the density and the height of a heap are constants in
   # Building::Rubble because they decide piece_count, and a client that disagreed about
   # those would be addressing different pieces than the server.

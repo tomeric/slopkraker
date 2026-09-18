@@ -27,8 +27,12 @@ module Game
       def apply_batch(hits)
         broken = []
         touched = {}
+        all = Array(hits)
+        # The cap bounds a bad client; it must never be silent. What is dropped is reported
+        # back so the sender knows its view and the server's have parted.
+        truncated = all.length > MAX_HITS_PER_BATCH
 
-        Array(hits).first(MAX_HITS_PER_BATCH).each do |hit|
+        all.first(MAX_HITS_PER_BATCH).each do |hit|
           next unless hit.is_a?(Array) && hit.length >= 3
 
           object_id, piece_index, amount, kind = hit
@@ -49,7 +53,7 @@ module Game
           storey && [ object_id, storey ]
         end
 
-        { "broken" => broken, "collapses" => collapses }
+        { "broken" => broken, "collapses" => collapses, "truncated" => truncated }
       end
 
       # What a joining client needs to catch up. Deliberately only what is GONE: partial

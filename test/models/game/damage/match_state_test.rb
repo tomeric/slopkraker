@@ -58,10 +58,13 @@ class Game::Damage::MatchStateTest < ActiveSupport::TestCase
 
   # Not security -- the server cannot recompute damage without simulating -- but it bounds
   # what one malformed or malicious batch can reach.
-  test "an over-long batch is truncated" do
-    hits = Array.new(Game::Damage::MatchState::MAX_HITS_PER_BATCH + 50) { [ @house.id, 0, 0.1, "impact" ] }
+  test "an over-long batch is truncated, and says so" do
+    hits = Array.new(Game::Damage::MatchState::MAX_HITS_PER_BATCH + 1) { |i| [ @house.id, i, 500.0, "impact" ] }
+    result = @state.apply_batch(hits)
 
-    assert_nothing_raised { @state.apply_batch(hits) }
+    assert_equal Game::Damage::MatchState::MAX_HITS_PER_BATCH, result["broken"].length
+    assert result["truncated"], "a dropped hit has to be reported, never swallowed"
+    assert_equal false, @state.apply_batch([ [ @house.id, 1000, 500.0, "impact" ] ])["truncated"]
   end
 
   test "a single hit cannot exceed the per-hit cap" do

@@ -48,7 +48,11 @@ module Game
           # Lower than it was, because a hit now takes a whole block rather than a cell and
           # the block was already doing most of this work. At the old value one impact
           # cleared five blocks, which is most of a wall.
-          spread: 0.45
+          spread: 0.45,
+          # How many hits one message may carry. The server keeps the first this many and
+          # answers with an error for the rest, so the client splits its batches here and a
+          # frame that breaks a thousand cells still reaches the server whole.
+          max_hits_per_batch: Damage::MatchState::MAX_HITS_PER_BATCH
         },
         # When a storey stops holding itself up. Server-side only -- Damage::Collapse says
         # why at length -- but the numbers live here with every other tuning number, so

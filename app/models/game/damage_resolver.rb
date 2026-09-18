@@ -15,7 +15,12 @@ module Game
     # `spread` is not applied here -- what a hit does to the cells around it is the
     # building's business, not the formula's. It rides along so both sides read it from
     # the same rules block rather than each keeping their own number.
-    def initialize(damage_per_speed:, minimum_speed:, minimum_fraction: 0.0, spread: 0.0)
+    #
+    # Both call sites splat the whole `damage:` rules block in rather than picking fields
+    # out of it, so the trailing `**` absorbs whatever else that block carries -- today
+    # `max_hits_per_batch`, a wire cap with nothing to do with a damage formula -- on the
+    # same reasoning that already lets `spread` ride along unused.
+    def initialize(damage_per_speed:, minimum_speed:, minimum_fraction: 0.0, spread: 0.0, **)
       @damage_per_speed = damage_per_speed.to_f
       @minimum_speed = minimum_speed.to_f
       @minimum_fraction = minimum_fraction.to_f

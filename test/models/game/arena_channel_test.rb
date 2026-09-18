@@ -147,4 +147,16 @@ class ArenaChannelTest < ActionCable::Channel::TestCase
     end
     assert_equal "not_authoritative", transmissions.last["reason"]
   end
+
+  test "a batch over the cap is applied to the cap and answered with an error" do
+    subscribe(match: "capped", world: "targets")
+    hits = Array.new(Game::Damage::MatchState::MAX_HITS_PER_BATCH + 1) { |i| [ house.id, i, 500.0, "impact" ] }
+
+    perform :damage, "seq" => 1, "hits" => hits
+
+    error = transmissions.find { |t| t["type"] == "error" }
+    assert error, "the sender was not told"
+    assert_equal "batch_truncated", error["reason"]
+    assert_equal Game::Damage::MatchState::MAX_HITS_PER_BATCH, error["kept"]
+  end
 end
