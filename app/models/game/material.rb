@@ -13,14 +13,19 @@ module Game
     # blast wave but shatters if anything touches it; concrete is the other way round.
     KINDS = %i[impact blast blade bull_bar slam].freeze
 
+    # What the client knows how to paint. Ruby's list and looks.js's PATTERNS are the same
+    # list, and materials_test holds every material's look to this one.
+    PATTERNS = %w[brick tiles planks plaster concrete glass leaves].freeze
+
     attr_reader :name, :health_per_m2, :density, :hardness, :structural_weight,
                 :multipliers, :fracture, :colour, :friction, :restitution,
-                :opacity, :metalness, :roughness, :chunk, :toll
+                :opacity, :metalness, :roughness, :chunk, :toll, :look, :role
 
     def initialize(name:, health_per_m2:, density:, colour:,
                    hardness: 0.0, structural_weight: 1.0, multipliers: {}, fracture: {},
                    friction: 0.8, restitution: 0.05,
-                   opacity: 1.0, metalness: 0.05, roughness: 0.85, chunk: nil, toll: 1.0)
+                   opacity: 1.0, metalness: 0.05, roughness: 0.85, chunk: nil, toll: 1.0,
+                   look: nil, role: nil)
       @name = name.to_sym
       @health_per_m2 = health_per_m2.to_f
       @density = density.to_f
@@ -47,6 +52,16 @@ module Game
       # not worth; a wall is worth all of its health, because it has to be punched through,
       # while loose wreckage gives way and is worth a fraction. One for everything solid.
       @toll = toll.to_f
+      # How a surface of this is DRAWN: which pattern, the size of its units in metres,
+      # how wide and how dark the joints are, how much one unit differs from the next,
+      # how deep the relief reads, and the albedo's base in value space -- light and nearly
+      # neutral, because the hue is the palette's (Game::Palettes) and is applied per
+      # instance. Nil for anything drawn flat: steel, which is a reflection; dust, which is
+      # a shape; void, which is nothing.
+      @look = look&.transform_keys(&:to_sym)&.freeze
+      # Which palette colour a piece of this takes, or nil for its own colour. A brick wall
+      # is coloured by the building's `brick`, its tiles by `roof_tile`, a door by `door`.
+      @role = role&.to_sym
       freeze
     end
 
@@ -101,7 +116,9 @@ module Game
         metalness: metalness,
         roughness: roughness,
         chunk: chunk,
-        toll: toll
+        toll: toll,
+        look: look,
+        role: role&.to_s
       }
     end
   end

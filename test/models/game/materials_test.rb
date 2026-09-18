@@ -189,12 +189,78 @@ class Game::MaterialsTest < ActiveSupport::TestCase
       assert_operator material.toll, :>=, 0
       assert_operator material.toll, :<=, 1.0
       assert_equal material.toll, material.to_spec[:toll], "#{name} does not ship its toll"
-      next if name == :rubble
+      # Rubble and hedges both give way; everything else is a wall.
+      next if %i[rubble hedge].include?(name)
 
       assert_equal 1.0, material.toll, "#{name} is solid and should cost its whole worth"
     end
 
     assert_operator Game::Materials.fetch(:rubble).toll, :<=, 0.25, "a heap should barely slow the truck"
     assert_operator Game::Materials.fetch(:rubble).toll, :>, 0, "a free heap is a heap that costs nothing to hit"
+  end
+
+  # --- how it is drawn -------------------------------------------------------------
+  #
+  # The look is tuning like everything else here: brick size, joint width, how much one
+  # brick differs from the next. The client paints textures from these numbers at boot and
+  # holds none of its own.
+
+  test "every patterned material says how it is drawn, and ships it" do
+    Game::Materials.names.each do |name|
+      material = Game::Materials.fetch(name)
+      look = material.look
+      if look.nil?
+        assert_nil material.to_spec[:look], "#{name} does not ship its look"
+        next
+      end
+      assert_equal look, material.to_spec[:look], "#{name} does not ship its look"
+
+      assert_includes Game::Material::PATTERNS, look[:pattern], "#{name} draws a pattern nobody paints"
+      assert_match(/\A#[0-9a-f]{6}\z/i, look[:base], "#{name} base is not a colour")
+      assert_operator look[:variation], :>=, 0
+      assert_operator look[:variation], :<, 1.0, "#{name} could vary to black"
+      assert_operator look[:relief], :>=, 0
+      next unless %w[brick tiles planks].include?(look[:pattern])
+
+      look[:unit].each { |metres| assert_operator metres, :>, 0, "#{name} unit" }
+      assert_operator look[:joint], :>, 0
+      assert_operator look[:joint], :<, look[:unit].min, "#{name}'s joints are wider than its units"
+      assert_operator look[:joint_shade], :>, 0
+      assert_operator look[:joint_shade], :<=, 1.0
+    end
+  end
+
+  test "walls are bricks, roofs are tiles, doors are planks, and steel is flat" do
+    assert_equal "brick", Game::Materials.fetch(:brick).look[:pattern]
+    assert_equal "tiles", Game::Materials.fetch(:roof_tile).look[:pattern]
+    assert_equal "planks", Game::Materials.fetch(:door).look[:pattern]
+    assert_equal "glass", Game::Materials.fetch(:glass).look[:pattern]
+    assert_nil Game::Materials.fetch(:steel).look, "steel is flat and reflective, not patterned"
+    assert_nil Game::Materials.fetch(:rubble).look, "a lump of dust is a shape, not a pattern"
+    assert_nil Game::Materials.fetch(:void).look
+  end
+
+  # A door is coloured as a door and a deck as timber, and that is the whole difference.
+  test "a door is timber that is coloured as a door" do
+    door = Game::Materials.fetch(:door)
+    timber = Game::Materials.fetch(:timber)
+
+    assert_equal timber.health_per_m2, door.health_per_m2
+    assert_equal timber.density, door.density
+    assert_equal :door, door.role
+    assert_equal "door", door.to_spec[:role]
+    assert_nil timber.role
+    assert_equal :brick, Game::Materials.fetch(:brick).role
+    assert_equal :roof_tile, Game::Materials.fetch(:roof_tile).role
+  end
+
+  # A hedge you cannot drive through is the one thing this game must not have.
+  test "a hedge is barely there and holds nothing up" do
+    hedge = Game::Materials.fetch(:hedge)
+
+    refute_predicate hedge, :structural?
+    assert_operator hedge.health_per_m2, :<, Game::Materials.fetch(:glass).health_per_m2
+    assert_operator hedge.toll, :<=, 0.1, "leaves should not slow a car"
+    assert_equal "leaves", hedge.look[:pattern]
   end
 end

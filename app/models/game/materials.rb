@@ -33,7 +33,11 @@ module Game
         multipliers: { blade: 1.15, slam: 1.3 },
         fracture: { method: "voronoi", mode: "3D", fragments: 16, approximate: true },
         friction: 0.9,
-        chunk: { size: [ 0.70, 0.32, 0.38 ], vary: 0.45, jitter: 0.30 }
+        chunk: { size: [ 0.70, 0.32, 0.38 ], vary: 0.45, jitter: 0.30 },
+        # Running bond, half a brick offset per course, mortar recessed and darker.
+        look: { pattern: "brick", unit: [ 0.21, 0.065 ], joint: 0.012, joint_shade: 0.55,
+                variation: 0.10, relief: 0.6, base: "#ece6e0" },
+        role: :brick
       ),
 
       # Piers, lintels, anything that wants a rocket rather than a shove. The hardness is
@@ -44,7 +48,8 @@ module Game
         multipliers: { impact: 0.85, blast: 1.25, slam: 1.2 },
         fracture: { method: "voronoi", mode: "3D", fragments: 24, impact_radius: 0.35 },
         friction: 0.95, roughness: 0.95,
-        chunk: { size: [ 1.10, 0.40, 0.70 ], vary: 0.40, jitter: 0.25 }
+        chunk: { size: [ 1.10, 0.40, 0.70 ], vary: 0.40, jitter: 0.25 },
+        look: { pattern: "concrete", variation: 0.06, relief: 0.15, base: "#dcdee0" }
       ),
 
       # Interior partitions. Barely structural, and it should feel that way to drive
@@ -56,7 +61,8 @@ module Game
         multipliers: { impact: 1.3, blast: 1.4 },
         fracture: { method: "voronoi", mode: "2.5D", fragments: 12 },
         friction: 0.7,
-        chunk: { size: [ 0.80, 0.08, 0.55 ], vary: 0.40, jitter: 0.20 }
+        chunk: { size: [ 0.80, 0.08, 0.55 ], vary: 0.40, jitter: 0.20 },
+        look: { pattern: "plaster", variation: 0.04, relief: 0.1, base: "#efece6" }
       ),
 
       # Window frames, door leaves, roof structure. Splinters along the grain rather than
@@ -68,7 +74,9 @@ module Game
         multipliers: { blade: 1.4, bull_bar: 1.3 },
         fracture: { method: "simple", planes: { x: false, y: true, z: false }, fragments: 10 },
         friction: 0.75,
-        chunk: { size: [ 1.60, 0.16, 0.20 ], vary: 0.35, jitter: 0.08 }
+        chunk: { size: [ 1.60, 0.16, 0.20 ], vary: 0.35, jitter: 0.08 },
+        look: { pattern: "planks", unit: [ 0.14 ], joint: 0.008, joint_shade: 0.5,
+                variation: 0.12, relief: 0.4, base: "#e8ddd0" }
       ),
 
       # Goes on anything touching it, holds nothing up, and shatters into shards that are
@@ -81,7 +89,11 @@ module Game
         fracture: { method: "voronoi", mode: "2.5D", fragments: 22, project_along_normal: true },
         friction: 0.35, restitution: 0.1,
         opacity: 0.3, metalness: 0.1, roughness: 0.08,
-        chunk: { size: [ 0.35, 0.03, 0.30 ], vary: 0.50, jitter: 0.50 }
+        chunk: { size: [ 0.35, 0.03, 0.30 ], vary: 0.50, jitter: 0.50 },
+        # A transparent pane inside an opaque frame. The frame's width is in metres of a
+        # one-metre cell; a bigger cell gets a proportionally bigger frame, which is right
+        # for a church window.
+        look: { pattern: "glass", unit: [ 0.06 ], variation: 0.0, relief: 0.4, base: "#f2f2f2" }
       ),
 
       # Shears flat off a roof. 3D voronoi on something this thin would give absurd cubes.
@@ -92,7 +104,11 @@ module Game
         multipliers: { impact: 1.4, blast: 1.3 },
         fracture: { method: "voronoi", mode: "2.5D", fragments: 8 },
         friction: 0.8,
-        chunk: { size: [ 0.50, 0.05, 0.45 ], vary: 0.30, jitter: 0.20 }
+        chunk: { size: [ 0.50, 0.05, 0.45 ], vary: 0.30, jitter: 0.20 },
+        # Overlapping courses: each course's lower edge stands proud with a shadow line.
+        look: { pattern: "tiles", unit: [ 0.30, 0.20 ], joint: 0.01, joint_shade: 0.45,
+                variation: 0.12, relief: 0.8, base: "#e6e2df" },
+        role: :roof_tile
       ),
 
       # Dents rather than fragments. Present so there is something that simply will not
@@ -105,6 +121,37 @@ module Game
         friction: 0.6, restitution: 0.2,
         metalness: 0.85, roughness: 0.35,
         chunk: { size: [ 1.20, 0.15, 0.15 ], vary: 0.30, jitter: 0.05 }
+      ),
+
+      # A door leaf: timber's numbers, its own palette role, so a door is coloured as a
+      # door and a floor deck as timber. Vertical planks.
+      door: Material.new(
+        name: :door, colour: "#3d4a44",
+        health_per_m2: 2.0, density: 600.0,
+        structural_weight: 0.5,
+        multipliers: { blade: 1.4, bull_bar: 1.3 },
+        fracture: { method: "simple", planes: { x: false, y: true, z: false }, fragments: 10 },
+        friction: 0.75,
+        chunk: { size: [ 1.60, 0.16, 0.20 ], vary: 0.35, jitter: 0.08 },
+        look: { pattern: "planks", unit: [ 0.12 ], joint: 0.006, joint_shade: 0.6,
+                variation: 0.08, relief: 0.35, base: "#e4dccf" },
+        role: :door
+      ),
+
+      # A garden hedge. Leaves: barely any health, holds nothing up, costs a car almost
+      # nothing to go through. structural_weight is zero and must stay zero for the same
+      # reason rubble's is -- a hedge stands at storey -1 and is skipped by the collapse
+      # rule, and this is the third defence.
+      hedge: Material.new(
+        name: :hedge, colour: "#3f6b2e",
+        health_per_m2: 0.3, density: 300.0,
+        structural_weight: 0.0,
+        multipliers: { impact: 1.5, blast: 1.5, blade: 1.5, bull_bar: 1.5, slam: 1.5 },
+        fracture: { method: "simple", planes: { x: true, y: false, z: false }, fragments: 4 },
+        friction: 0.5, restitution: 0.0,
+        chunk: { size: [ 0.45, 0.30, 0.30 ], vary: 0.40, jitter: 0.30 },
+        look: { pattern: "leaves", variation: 0.25, relief: 0.5, base: "#dfe6d6" },
+        toll: 0.05
       ),
 
       # What a building becomes once it has finished falling down: the dust and mortar its

@@ -132,11 +132,16 @@ class Game::Building::GeneratorTest < ActiveSupport::TestCase
   end
 
   # The prompt's list: walls, glass windows, wooden frames, doors, floors, roofs.
+  #
+  # door and hedge are excluded on purpose: this is the plain `building` recipe, which
+  # keeps its original timber door and never carries a garden. Only a row's Openings and
+  # gardens ever place those two.
   test "one house carries every material" do
     set = house
     used = set.piece_count.times.map { |i| set.material_at(i).name }.uniq
+    placed_here = Game::Materials.names - %i[door hedge]
 
-    assert_equal Game::Materials.names.sort, used.sort
+    assert_equal placed_here.sort, used.sort
   end
 
   # Wide and tall enough to drive through, which is the whole point of a hollow building,
