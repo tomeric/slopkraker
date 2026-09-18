@@ -33,7 +33,9 @@ module Game
       end
 
       def for_wall(edge:, storey:, cols:, rows:)
-        doorway = door(cols, rows) if edge == DOOR_EDGE && storey == DOOR_STOREY
+        # A face narrower than the door gets none: at one metre cells a two-cell shed front
+        # was all door under a full-width lintel.
+        doorway = door(cols, rows) if edge == DOOR_EDGE && storey == DOOR_STOREY && cols >= DOOR_WIDTH
 
         windows = window_columns(edge, storey, cols)
           .reject { |col| doorway && doorway.first.covers?(0, col) }

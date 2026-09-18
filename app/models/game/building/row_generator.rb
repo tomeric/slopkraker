@@ -110,7 +110,159 @@ module Game
         )
       end
 
-      def self.boxes(row) = []   # Task 6
+      # How close to the row's rectangle an edge has to run before it counts as standing
+      # against it, and how far apart two walls may be and still be the same wall. Both are
+      # imported-geometry slack: a wall built twice in the same place is a wall that reads
+      # as one and breaks as two.
+      TOLERANCE = 0.5
+      COINCIDENT = 0.4
+
+      # 6. Boxes: annexes, sheds, garages, the parts of a church. Each wall is generated
+      # once -- never where a box stands against the row, never inside a bigger box that
+      # came before it, never twice where two boxes meet.
+      def self.boxes(row)
+        kept = []
+        containers = []
+        built = []
+        row.boxes.each_with_index do |box, i|
+          openings = box.solid ? nil : Openings.new(seed: row.seed + 100 + i)
+          edges(box.ring).each_with_index do |(from, to), e|
+            next if row.rect && on_or_inside?(from, row.rect) && on_or_inside?(to, row.rect)
+            next if containers.any? { |ring| inside_ring?(from, ring) && inside_ring?(to, ring) }
+            next if kept.any? { |k| coincident?(k, [ from, to ]) }
+
+            kept << [ from, to ]
+            box.storeys.times do |s|
+              built << wall(row, from, to, storey: s, openings: openings, edge: box.door && e.zero? ? 0 : 1 + e,
+                            bay: box.bay, storeys: box.storeys, storey_height: box.storey_height, seed: row.seed + 100 + i)
+            end
+          end
+          box.storeys.times do |s|
+            built << clipped_deck(box.ring, row.rect, containers, y: s * box.storey_height, cell: row.cell, kind: :floor,
+                                  material: s.zero? ? :concrete : :timber, storey: s, thickness: Interior::DECK_THICKNESS, bay: box.bay)
+          end
+          built.concat box_roof(row, box, containers)
+          containers << box.ring
+        end
+        built
+      end
+
+      def self.box_roof(row, box, containers)
+        case box.roof
+        when "gable"
+          x0, z0, x1, z1 = box.bounds
+          Roof.gable(rectangle(row, x0, x1, z0: z0, z1: z1, storeys: box.storeys, storey_height: box.storey_height,
+                               eaves: box.eaves, ridge: box.ridge, roof: "gable")).map { |s| tagged(s, box.bay) }
+        when "pyramid" then pyramid(box, row.cell)
+        else
+          [ clipped_deck(box.ring, row.rect, containers, y: box.eaves, cell: row.cell, kind: :roof, material: :concrete,
+                         storey: box.storeys, thickness: Roof::THICKNESS, bay: box.bay) ]
+        end
+      end
+
+      # A horizontal grid over the ring's box, void wherever a cell's centre falls outside
+      # the ring or inside the row or an earlier box -- geometry culled, index space kept.
+      # Void cells are merged into runs, one patch per run.
+      def self.clipped_deck(ring, rect, containers, y:, cell:, kind:, material:, storey:, thickness:, bay:)
+        xs = ring.map(&:first)
+        zs = ring.map(&:last)
+        x0, x1, z0, z1 = xs.min, xs.max, zs.min, zs.max
+        cols = Walls.cells(x1 - x0, cell)
+        rows = Walls.cells(z1 - z0, cell)
+        cw = (x1 - x0) / cols
+        ch = (z1 - z0) / rows
+        patches = rows.times.flat_map do |r|
+          void = cols.times.reject do |c|
+            cx = x0 + (c + 0.5) * cw
+            cz = z0 + (r + 0.5) * ch
+            Rubble.contains?(ring, cx, cz) && !(rect && strictly_inside?([ cx, cz ], rect)) &&
+              containers.none? { |other| Rubble.contains?(other, cx, cz) }
+          end
+          void.slice_when { |a, b| b != a + 1 }.map { |run| Surface::Patch.new(col0: run.first, row0: r, col1: run.last, row1: r, material: :void) }
+        end
+        Surface.new(kind: kind, storey: storey, material: Materials.fetch(material), origin: Vector3.new(x0, y, z0), u: EAST, v: SOUTH,
+                    width: x1 - x0, height: z1 - z0, cols: cols, rows: rows, thickness: thickness, patches: patches, bay: bay)
+      end
+
+      # Four triangular planes from the eaves of the ring's box to one apex. Each is a
+      # rectangle clipped to its triangle with void, exactly as a gable end is: Roof.clip
+      # already draws that triangle.
+      def self.pyramid(box, cell)
+        x0, z0, x1, z1 = box.bounds
+        cx = (x0 + x1) / 2.0
+        cz = (z0 + z1) / 2.0
+        rise = [ box.ridge - box.eaves, 0.5 ].max
+        corners = [ [ x0, z0 ], [ x1, z0 ], [ x1, z1 ], [ x0, z1 ] ]
+        corners.each_with_index.map do |from, i|
+          to = corners[(i + 1) % 4]
+          along = Vector3.new(to[0] - from[0], 0.0, to[1] - from[1])
+          mid = [ (from[0] + to[0]) / 2.0, (from[1] + to[1]) / 2.0 ]
+          inward = Vector3.new(cx - mid[0], rise, cz - mid[1])
+          # ODD, ALWAYS. Roof.clip judges a cell by its top edge, so the only cell of the
+          # top row it keeps is one whose middle is exactly the apex -- and an even column
+          # count puts the apex on a seam between two columns instead, which clips the whole
+          # top row of all four planes away and leaves a square hole where the point should
+          # be. A gable never showed it: its own last step is hidden under the overhang.
+          cols = Walls.cells(along.length, cell)
+          cols += 1 if cols.even?
+          rows = [ Walls.cells(inward.length, cell), 1 ].max
+          Surface.new(kind: :roof, storey: box.storeys, material: Materials.fetch(:roof_tile),
+                      origin: Vector3.new(from[0], box.eaves, from[1]), u: along.normalised, v: inward.normalised,
+                      width: along.length, height: inward.length, cols: cols, rows: rows, thickness: Roof::THICKNESS,
+                      patches: Roof.clip(cols, rows), bay: box.bay)
+        end
+      end
+
+      def self.edges(ring) = ring.each_with_index.map { |p, i| [ p, ring[(i + 1) % ring.length] ] }
+
+      def self.on_or_inside?(p, rect, tol = TOLERANCE)
+        x0, z0, x1, z1 = rect
+        p[0] >= x0 - tol && p[0] <= x1 + tol && p[1] >= z0 - tol && p[1] <= z1 + tol
+      end
+
+      def self.strictly_inside?(p, rect, tol = 0.05)
+        x0, z0, x1, z1 = rect
+        p[0] > x0 + tol && p[0] < x1 - tol && p[1] > z0 + tol && p[1] < z1 - tol
+      end
+
+      def self.inside_ring?(p, ring, tol = TOLERANCE)
+        Rubble.contains?(ring, p[0], p[1]) || Rubble.distance_to_ring(ring, p[0], p[1]) <= tol
+      end
+
+      # Two segments along one line, overlapping: the second is a wall that already exists.
+      def self.coincident?(a, b, tol = COINCIDENT)
+        (a0, a1), (b0, b1) = a, b
+        dx, dz = a1[0] - a0[0], a1[1] - a0[1]
+        length = Math.hypot(dx, dz)
+        return false if length < 1e-6
+
+        dir = [ dx / length, dz / length ]
+        [ b0, b1 ].each do |p|
+          off = (p[0] - a0[0]) * -dir[1] + (p[1] - a0[1]) * dir[0]
+          return false if off.abs > tol
+        end
+        t0 = (b0[0] - a0[0]) * dir[0] + (b0[1] - a0[1]) * dir[1]
+        t1 = (b1[0] - a0[0]) * dir[0] + (b1[1] - a0[1]) * dir[1]
+        [ t0, t1 ].max > tol && [ t0, t1 ].min < length - tol
+      end
+
+      # Sutherland-Hodgman against one half-plane: the part of `ring` where coordinate
+      # `axis` (0 for x, 1 for z) is >= `at` (side +1) or <= `at` (side -1). The importer
+      # uses it to split a dwelling that reaches past the band.
+      def self.clip(ring, axis, at, side)
+        out = []
+        ring.each_with_index do |p, i|
+          q = ring[(i + 1) % ring.length]
+          pin = (p[axis] - at) * side >= 0
+          qin = (q[axis] - at) * side >= 0
+          out << p if pin
+          next unless pin != qin
+
+          t = (at - p[axis]) / (q[axis] - p[axis])
+          out << [ p[0] + t * (q[0] - p[0]), p[1] + t * (q[1] - p[1]) ]
+        end
+        out
+      end
 
       # LAST. Over the union footprint, and each heap tagged with the dwelling whose
       # x-interval its centre falls in -- or, in a row of boxes, the nearest box's bay.

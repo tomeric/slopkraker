@@ -158,6 +158,11 @@ class Game::Building::GeneratorTest < ActiveSupport::TestCase
     end
   end
 
+  test "a wall too narrow for a door gets none rather than being all door" do
+    narrow = Game::Building::Openings.new(seed: 1).for_wall(edge: 0, storey: 0, cols: 2, rows: 3)
+    assert narrow.none? { |p| p.material == :timber }
+  end
+
   # A window on the floor is what a two-row storey forces. Three rows is what buys it a
   # sill to stand on, and is the reason the grid got finer.
   test "windows sit a course above the floor" do

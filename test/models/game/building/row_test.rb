@@ -25,6 +25,12 @@ class Game::Building::RowTest < ActiveSupport::TestCase
     }.merge(overrides))
   end
 
+  # A rear extension against the second dwelling: 3 x 6 m, one storey of 2.8 m, flat.
+  def annex(**overrides)
+    { "ring" => [ [ 6.0, 9.0 ], [ 9.0, 9.0 ], [ 9.0, 15.0 ], [ 6.0, 15.0 ] ], "eaves" => 2.8, "ridge" => 2.8,
+      "storeys" => 1, "roof" => "flat", "door" => false, "solid" => false, "bay" => 1, "name" => "annex" }.merge(overrides)
+  end
+
   # THE CONTRACT. Offsets are handed out in this order; change the order and damage
   # recorded against one wall comes back on another.
   test "the worked example generates exactly what it is supposed to" do
@@ -137,6 +143,71 @@ class Game::Building::RowTest < ActiveSupport::TestCase
 
     assert_equal 2, set.surfaces.count { |s| s.kind == :roof }
     assert_empty set.surfaces.select { |s| s.kind == :gable }
+  end
+
+  test "a box against the row generates no wall where it stands against it" do
+    set = pair("boxes" => [ annex ])
+    box_walls = set.surfaces.select { |s| s.kind == :wall && s.height == 2.8 }
+
+    assert_equal 3, box_walls.length, "four edges, one of them along the row's back wall"
+    assert box_walls.none? { |w| w.origin.z == 9.0 && w.u.z.zero? }, "the junction edge was generated"
+    assert_equal [ 1 ] * 3, box_walls.map(&:bay)
+  end
+
+  test "a box's decks are void where they would lie inside the row" do
+    set = pair("boxes" => [ annex("ring" => [ [ 6.0, 7.0 ], [ 9.0, 7.0 ], [ 9.0, 15.0 ], [ 6.0, 15.0 ] ]) ])
+    deck = set.surfaces.select { |s| s.kind == :floor && s.bay == 1 }.last
+
+    assert_equal :void, deck.material_at(0, 0).name, "the two metres inside the row"
+    assert_equal :concrete, deck.material_at(deck.rows - 1, 0).name
+  end
+
+  test "two boxes that meet share one wall" do
+    twin = annex("ring" => [ [ 9.0, 9.0 ], [ 12.0, 9.0 ], [ 12.0, 15.0 ], [ 9.0, 15.0 ] ], "name" => "twin")
+    set = pair("boxes" => [ annex, twin ])
+    box_walls = set.surfaces.select { |s| s.kind == :wall && s.height == 2.8 }
+
+    assert_equal 5, box_walls.length, "3 + 3 minus the wall they share"
+  end
+
+  test "a row of boxes only is legal, and every box is its own bay" do
+    shed = { "ring" => [ [ 0, 0 ], [ 2.2, 0 ], [ 2.2, 3.2 ], [ 0, 3.2 ] ], "eaves" => 2.5, "ridge" => 2.5, "storeys" => 1, "roof" => "flat", "solid" => true, "bay" => 0 }
+    twin = shed.merge("ring" => [ [ 2.2, 0 ], [ 4.4, 0 ], [ 4.4, 3.2 ], [ 2.2, 3.2 ] ], "bay" => 1)
+    set = pair("dwellings" => [], "boxes" => [ shed, twin ], "footprint" => [ [ 0, 0 ], [ 4.4, 0 ], [ 4.4, 3.2 ], [ 0, 3.2 ] ], "storeys" => 1)
+
+    assert_equal [ 0, 1 ], set.bays
+    assert set.surfaces.select { |s| s.kind == :wall }.all? { |w| w.patches.empty? }, "a solid box has no openings"
+    assert_equal :rubble, set.surfaces.last.kind
+  end
+
+  test "a pyramid roof is four triangles meeting at one apex" do
+    tower = { "ring" => [ [ 0, 0 ], [ 8, 0 ], [ 8, 8 ], [ 0, 8 ] ], "eaves" => 24.0, "ridge" => 30.0, "storeys" => 6, "roof" => "pyramid", "bay" => 0 }
+    set = pair("dwellings" => [], "boxes" => [ tower ], "footprint" => tower["ring"], "storeys" => 6)
+    planes = set.surfaces.select { |s| s.kind == :roof }
+
+    assert_equal 4, planes.length
+    planes.each do |plane|
+      assert_in_delta 24.0, plane.origin.y, 1e-9
+      assert plane.patches.any? { |p| p.material == :void }, "the corners above the pitch should be void"
+      assert_equal :roof_tile, plane.material_at(plane.rows - 1, plane.cols / 2).name, "the apex column stays"
+    end
+  end
+
+  test "a gable box roofs over its own box" do
+    chapel = { "ring" => [ [ 0, 0 ], [ 6, 0 ], [ 6, 10 ], [ 0, 10 ] ], "eaves" => 4.0, "ridge" => 7.0, "storeys" => 1, "roof" => "gable", "bay" => 0 }
+    set = pair("dwellings" => [], "boxes" => [ chapel ], "footprint" => chapel["ring"], "storeys" => 1)
+
+    assert_equal 2, set.surfaces.count { |s| s.kind == :roof }
+    assert_equal 2, set.surfaces.count { |s| s.kind == :gable }
+  end
+
+  test "a door face under three columns gets no door" do
+    shed = { "ring" => [ [ 0, 0 ], [ 2.2, 0 ], [ 2.2, 3.2 ], [ 0, 3.2 ] ], "eaves" => 2.5, "ridge" => 2.5, "storeys" => 1, "roof" => "flat", "door" => true, "bay" => 0 }
+    set = pair("dwellings" => [], "boxes" => [ shed ], "footprint" => shed["ring"], "storeys" => 1)
+    front = set.surfaces.find { |s| s.kind == :wall }
+
+    assert_equal 2, front.cols
+    assert front.patches.none? { |p| %i[timber steel].include?(p.material) }, "a two-cell face was all door and lintel"
   end
 
   test "the building kind still goes the old way" do
