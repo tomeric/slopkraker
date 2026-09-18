@@ -107,6 +107,11 @@ class LooksTest < ApplicationSystemTestCase
     boot("geleen", quality: "high", match: "looks-geleen-high", timeout: 120)
     wait_for(timeout: 120, message: "the world never stepped") { page.evaluate_script("window.__arena.steps").positive? }
 
+    # Both halves, or this passes without compiling anything: lawn vertices alone are drawn
+    # at `low` too, and a boot that quietly fell back to `low` would lay them flat and
+    # never reach the chunk this test exists for.
+    assert_equal "high", page.evaluate_script("window.__arenaQuality")
+    assert looks["enabled"], "the boot fell back to flat materials, so no lawn texture was painted"
     assert_operator page.evaluate_script("window.__arenaLawnVertices()"), :>, 100, "no lawn was draped"
     door = page.evaluate_script(<<~JS)
       (() => {
