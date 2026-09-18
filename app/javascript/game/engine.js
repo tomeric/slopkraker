@@ -48,7 +48,7 @@ const SWEEP = {
 // specifies regardless of display refresh; meshes are interpolated between the last two
 // physics states so a 60Hz display still looks smooth at 120Hz physics.
 export class GameEngine {
-  constructor({ canvas, root, spec, vehicleKey, spawnIndex, playerId, match, world, quality, onStatus, onMuteChange }) {
+  constructor({ canvas, root, spec, vehicleKey, spawnIndex, playerId, match, world, quality, time, onStatus, onMuteChange }) {
     this.canvas = canvas
     this.root = root || canvas.parentElement
     this.spec = spec
@@ -64,6 +64,10 @@ export class GameEngine {
     this.spawnIndex = spawnIndex || 0
     this.qualityName = quality || "high"
     this.quality = qualityFor(quality)
+    // Day unless the URL says night. Physics does not care; this is only what it looks like.
+    this.timeName = spec.rules.sky?.[time] ? time : "day"
+    this.sky = spec.rules.sky?.[this.timeName]
+    this.sunOffset = this.sky?.sun_direction ?? [ 48, 72, 36 ]
     this.onStatus = onStatus || (() => {})
     this.onMuteChange = onMuteChange || (() => {})
     this.running = false
@@ -104,7 +108,7 @@ export class GameEngine {
     // After the renderer, because it asks it what anisotropy it can filter at; before the
     // buildings, because their materials are dressed as they are made.
     this.looks = new Looks(this.spec.materials, this.quality, this.renderer)
-    const { scene, sun } = createScene(this.quality)
+    const { scene, sun } = createScene(this.quality, this.sky, this.renderer)
     this.scene = scene
     this.sun = sun
     this.camera = createCamera(this.aspect())
@@ -914,7 +918,9 @@ export class GameEngine {
 
       // Keep the shadow frustum centred on the action.
       this.sun.target.position.copy(entity.renderPos)
-      this.sun.position.set(entity.renderPos.x + 48, entity.renderPos.y + 72, entity.renderPos.z + 36)
+      this.sun.position.set(
+        entity.renderPos.x + this.sunOffset[0], entity.renderPos.y + this.sunOffset[1], entity.renderPos.z + this.sunOffset[2]
+      )
       this.sun.target.updateMatrixWorld()
 
       this.hud.update(frameTime, this.vehicle)

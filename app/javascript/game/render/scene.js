@@ -1,7 +1,5 @@
 import * as THREE from "three"
 
-const SKY = "#0e1116"
-
 // How much the renderer is asked to do. Not game tuning -- the simulation is identical
 // either way -- so it rides on the URL rather than in the spec.
 //
@@ -33,16 +31,30 @@ export function createRenderer(canvas, quality = QUALITY.high) {
   return renderer
 }
 
-export function createScene(quality = QUALITY.high) {
+// The world is lit by `sky` -- one of rules.sky's entries, day or night, chosen by the URL.
+// At high quality the sky is a gradient texture drawn behind everything and filtered into
+// an environment map, so steel reflects a horizon and glass gets a highlight; at low it
+// is the horizon colour and nothing more, so the suite's fragment cost is what it was.
+export function createScene(quality, sky, renderer = null) {
   const scene = new THREE.Scene()
-  scene.background = new THREE.Color(SKY)
-  scene.fog = new THREE.Fog(SKY, 110, 280)
+  const horizon = new THREE.Color(sky.horizon)
+  scene.fog = new THREE.Fog(horizon, sky.fog[0], sky.fog[1])
 
-  const hemisphere = new THREE.HemisphereLight("#9fb8d0", "#2a2f36", 1.1)
-  scene.add(hemisphere)
+  if (quality.textures && renderer) {
+    const gradient = skyTexture(sky)
+    scene.background = gradient
+    const pmrem = new THREE.PMREMGenerator(renderer)
+    scene.environment = pmrem.fromEquirectangular(gradient).texture
+    pmrem.dispose()
+  } else {
+    scene.background = horizon
+  }
 
-  const sun = new THREE.DirectionalLight("#fff4e0", 2.2)
-  sun.position.set(48, 72, 36)
+  const [ skyColour, groundColour, intensity ] = sky.hemisphere
+  scene.add(new THREE.HemisphereLight(skyColour, groundColour, intensity))
+
+  const sun = new THREE.DirectionalLight(sky.sun, sky.sun_intensity)
+  sun.position.set(...sky.sun_direction)
   sun.castShadow = quality.shadows
   sun.shadow.mapSize.set(quality.shadowMap, quality.shadowMap)
   sun.shadow.camera.near = 1
@@ -64,6 +76,43 @@ export function createScene(quality = QUALITY.high) {
   return { scene, sun }
 }
 
+// The sky as a tiny equirectangular gradient: zenith at the top, horizon across the
+// middle, ground below. Sixteen by sixty-four texels is plenty for a gradient, and it is
+// the one texture the environment map is filtered from.
+export function skyTexture(sky) {
+  const width = 16
+  const height = 64
+  const data = new Uint8Array(width * height * 4)
+  const zenith = new THREE.Color(sky.zenith)
+  const horizon = new THREE.Color(sky.horizon)
+  const ground = new THREE.Color(sky.ground)
+  const colour = new THREE.Color()
+  for (let y = 0; y < height; y += 1) {
+    // Row 0 is the bottom of the image (DataTexture, flipY false): ground up to horizon
+    // in the lower half, horizon up to zenith in the upper.
+    const t = y / (height - 1)
+    if (t < 0.5) colour.copy(ground).lerp(horizon, Math.pow(t * 2, 0.6))
+    else colour.copy(horizon).lerp(zenith, Math.pow((t - 0.5) * 2, 0.8))
+    // The texture is sRGB and Color's channels are linear, so write the sRGB bytes that
+    // getHex encodes rather than the linear channels scaled by 255.
+    const hex = colour.getHex()
+    for (let x = 0; x < width; x += 1) {
+      const i = (y * width + x) * 4
+      data[i] = (hex >> 16) & 255
+      data[i + 1] = (hex >> 8) & 255
+      data[i + 2] = hex & 255
+      data[i + 3] = 255
+    }
+  }
+  const texture = new THREE.DataTexture(data, width, height)
+  texture.mapping = THREE.EquirectangularReflectionMapping
+  texture.colorSpace = THREE.SRGBColorSpace
+  texture.magFilter = THREE.LinearFilter
+  texture.minFilter = THREE.LinearFilter
+  texture.needsUpdate = true
+  return texture
+}
+
 export function createCamera(aspect) {
   const camera = new THREE.PerspectiveCamera(70, aspect, 0.1, 600)
   camera.position.set(0, 8, -16)
@@ -75,6 +124,8 @@ export function createCamera(aspect) {
 // and browsers cap live WebGL contexts (~16 in Chrome) before silently killing the
 // oldest -- which shows up much later as "the game stopped rendering".
 export function disposeScene(scene) {
+  if (scene.background?.isTexture) scene.background.dispose()
+  if (scene.environment?.isTexture) scene.environment.dispose()
   scene.traverse((object) => {
     if (object.geometry) object.geometry.dispose()
     const material = object.material

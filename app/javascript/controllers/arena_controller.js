@@ -24,6 +24,8 @@ export default class extends Controller {
       // Which of the world's spawns to start from. A town has several and driving to the
       // far one takes a minute; NaN and the empty string both fall back to the first.
       spawnIndex: Number(new URLSearchParams(window.location.search).get("spawn") || 0),
+      // Day or night. Only how the world is lit; the URL keeps it beside vehicle and spawn.
+      time: new URLSearchParams(window.location.search).get("time") || "day",
       onStatus: (message) => this.showStatus(message),
       onMuteChange: (muted) => this.showMuted(muted)
     })

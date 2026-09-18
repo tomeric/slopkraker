@@ -4,8 +4,8 @@ require "application_system_test_case"
 # from the numbers in the spec, the texture coordinates run in metres along a surface, and
 # the colours are a palette applied per instance -- each of which has a readout.
 class LooksTest < ApplicationSystemTestCase
-  def boot(world, quality:, match:, spawn: nil)
-    visit_world(world, quality: quality, match: match, spawn: spawn)
+  def boot(world, quality:, match:, spawn: nil, time: nil)
+    visit_world(world, quality: quality, match: match, spawn: spawn, time: time)
     wait_for(timeout: 90, message: "#{world} never booted") { page.evaluate_script("!!(window.__arena && window.__arena.ready)") }
   end
 
@@ -80,5 +80,20 @@ class LooksTest < ApplicationSystemTestCase
     pair.each { |p| assert_match(/\A#[0-9a-f]{6}\z/, p["tint"]) }
     church = page.evaluate_script("window.__arenaBuildingIds().map(i => window.__arenaBuildingSpec(i)).find(s => s.category === 'church').palette")
     assert_equal "church", church
+  end
+
+  # Daylight by default, so brick and tile detail has light to read in; the night the game
+  # was lit for is one URL parameter away, because it was a deliberate look.
+  test "the day is lit by default and the night is a parameter away" do
+    boot("targets", quality: "high", match: "looks-day")
+    assert_equal "day", looks["sky"]
+    assert looks["environment"], "steel has nothing to reflect"
+
+    boot("targets", quality: "high", match: "looks-night", time: "night")
+    assert_equal "night", looks["sky"]
+
+    boot("targets", quality: "low", match: "looks-low-sky")
+    assert_equal "day", looks["sky"]
+    refute looks["environment"], "low quality computes no environment map"
   end
 end

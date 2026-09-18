@@ -107,9 +107,9 @@ class ApplicationSystemTestCase < ActionDispatch::SystemTestCase
   # to a match and now genuinely persists, so two tests sharing the default lobby share
   # their wreckage -- the second one boots into whatever the first knocked down, which
   # reads as a mysterious order dependency rather than as the feature working.
-  def visit_world(slug, vehicle: nil, quality: "low", match: nil, spawn: nil)
+  def visit_world(slug, vehicle: nil, quality: "low", match: nil, spawn: nil, time: nil)
     visit root_path(params: {
-      world: slug, vehicle: vehicle, quality: quality, match: match, spawn: spawn
+      world: slug, vehicle: vehicle, quality: quality, match: match, spawn: spawn, time: time
     }.compact)
   end
 
