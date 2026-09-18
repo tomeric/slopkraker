@@ -116,6 +116,11 @@ module Game
       # as one and breaks as two.
       TOLERANCE = 0.5
       COINCIDENT = 0.4
+      # A storey is only excused by something at least as tall as it. The slack is imported
+      # geometry: eaves and storey heights that disagree by centimetres would otherwise put
+      # up a second wall three centimetres proud of the first, which reads as one wall and
+      # breaks as two.
+      STOREY_SLACK = 0.3
 
       # 6. Boxes: annexes, sheds, garages, the parts of a church. Each wall is generated
       # once -- never where a box stands against the row, never inside a bigger box that
@@ -127,24 +132,43 @@ module Game
         row.boxes.each_with_index do |box, i|
           openings = box.solid ? nil : Openings.new(seed: row.seed + 100 + i)
           edges(box.ring).each_with_index do |(from, to), e|
-            next if row.rect && on_or_inside?(from, row.rect) && on_or_inside?(to, row.rect)
-            next if containers.any? { |ring| inside_ring?(from, ring) && inside_ring?(to, ring) }
-            next if kept.any? { |k| coincident?(k, [ from, to ]) }
+            # The three rules say whether a wall stands HERE. How much of it they excuse is a
+            # HEIGHT, and taking that decision once for the box leaves a six-storey tower
+            # open above the two-storey nave it stands against: every one of its storeys is
+            # dropped by an edge only the bottom two are behind.
+            covered = covered_to(row, from, to, kept, containers)
+            storeys = box.storeys.times.reject { |s| (s + 1) * box.storey_height <= covered + STOREY_SLACK }
+            next if storeys.empty?
 
-            kept << [ from, to ]
-            box.storeys.times do |s|
+            kept << [ from, to, box.storeys * box.storey_height ]
+            storeys.each do |s|
               built << wall(row, from, to, storey: s, openings: openings, edge: box.door && e.zero? ? 0 : 1 + e,
                             bay: box.bay, storeys: box.storeys, storey_height: box.storey_height, seed: row.seed + 100 + i)
             end
           end
+          # Per box rather than per edge, so these are unchanged: a deck is void where it
+          # would lie inside the row or inside a box that came before it, whatever heights
+          # the two stand at.
           box.storeys.times do |s|
             built << clipped_deck(box.ring, row.rect, containers, y: s * box.storey_height, cell: row.cell, kind: :floor,
                                   material: s.zero? ? :concrete : :timber, storey: s, thickness: Interior::DECK_THICKNESS, bay: box.bay)
           end
           built.concat box_roof(row, box, containers)
-          containers << box.ring
+          containers << [ box.ring, box.eaves ]
         end
         built
+      end
+
+      # How high this edge is already walled by something else: the top of the row's own
+      # walls where it runs along the row, an earlier box's eaves where it lies inside that
+      # box, and the top of any wall already standing along the same line. Zero when nothing
+      # stands against it, which builds every storey.
+      def self.covered_to(row, from, to, kept, containers)
+        heights = []
+        heights << row.storeys * row.storey_height if row.rect && on_or_inside?(from, row.rect) && on_or_inside?(to, row.rect)
+        containers.each { |ring, eaves| heights << eaves if inside_ring?(from, ring) && inside_ring?(to, ring) }
+        kept.each { |a0, a1, top| heights << top if coincident?([ a0, a1 ], [ from, to ]) }
+        heights.max || 0.0
       end
 
       def self.box_roof(row, box, containers)
@@ -176,7 +200,7 @@ module Game
             cx = x0 + (c + 0.5) * cw
             cz = z0 + (r + 0.5) * ch
             Rubble.contains?(ring, cx, cz) && !(rect && strictly_inside?([ cx, cz ], rect)) &&
-              containers.none? { |other| Rubble.contains?(other, cx, cz) }
+              containers.none? { |other, _eaves| Rubble.contains?(other, cx, cz) }
           end
           void.slice_when { |a, b| b != a + 1 }.map { |run| Surface::Patch.new(col0: run.first, row0: r, col1: run.last, row1: r, material: :void) }
         end

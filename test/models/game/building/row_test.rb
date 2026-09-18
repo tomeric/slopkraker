@@ -170,6 +170,31 @@ class Game::Building::RowTest < ActiveSupport::TestCase
     assert_equal 5, box_walls.length, "3 + 3 minus the wall they share"
   end
 
+  # The other half of the sharing rule, and the one the church needs: what stands against a
+  # wall excuses the storeys BEHIND it and no more. Taking the decision once for the box
+  # leaves a six-storey tower open above the two-storey nave it is attached to.
+  test "a taller box keeps the storeys of a shared wall that stand above its neighbour" do
+    low = { "ring" => [ [ 0, 0 ], [ 4, 0 ], [ 4, 6 ], [ 0, 6 ] ], "eaves" => 2.8, "ridge" => 2.8, "storeys" => 1, "roof" => "flat", "solid" => true, "bay" => 0 }
+    tall = low.merge("ring" => [ [ 4, 0 ], [ 8, 0 ], [ 8, 6 ], [ 4, 6 ] ], "eaves" => 5.6, "ridge" => 5.6, "storeys" => 2, "bay" => 1)
+    set = pair("dwellings" => [], "boxes" => [ low, tall ], "footprint" => [ [ 0, 0 ], [ 8, 0 ], [ 8, 6 ], [ 0, 6 ] ], "storeys" => 2)
+    walls = set.surfaces.select { |s| s.kind == :wall }
+    shared = walls.select { |w| w.origin.x == 4.0 && w.u.x.zero? }
+
+    assert_equal 2, shared.length, "the low box walls the ground floor and the tall one the storey above it"
+    assert_equal [ [ 0, 0.0, 0 ], [ 1, 2.8, 1 ] ], shared.map { |w| [ w.storey, w.origin.y, w.bay ] }
+    assert_equal [ 2.8 ] * 2, shared.map(&:height), "neither of them is a wall and a half"
+    assert_equal 4, walls.count { |w| w.bay.zero? }, "the low box: four edges of one storey"
+    assert_equal 7, walls.count { |w| w.bay == 1 }, "the tall box: three free edges of two storeys, plus the storey above its neighbour"
+  end
+
+  test "a box against a lower row keeps the storeys that stand above it" do
+    set = pair("storeys" => 1, "eaves" => 3.0, "ridge" => 5.5, "boxes" => [ annex("eaves" => 5.6, "ridge" => 5.6, "storeys" => 2) ])
+    junction = set.surfaces.select { |s| s.kind == :wall && s.height == 2.8 && s.origin.z == 9.0 && s.u.z.zero? }
+
+    assert_equal 1, junction.length, "only the storey behind the row's own wall is dropped"
+    assert_equal [ 1, 2.8 ], [ junction.first.storey, junction.first.origin.y ]
+  end
+
   test "a row of boxes only is legal, and every box is its own bay" do
     shed = { "ring" => [ [ 0, 0 ], [ 2.2, 0 ], [ 2.2, 3.2 ], [ 0, 3.2 ] ], "eaves" => 2.5, "ridge" => 2.5, "storeys" => 1, "roof" => "flat", "solid" => true, "bay" => 0 }
     twin = shed.merge("ring" => [ [ 2.2, 0 ], [ 4.4, 0 ], [ 4.4, 3.2 ], [ 2.2, 3.2 ] ], "bay" => 1)
