@@ -3,8 +3,8 @@ require "application_system_test_case"
 # A terrace falls one dwelling at a time. The spike measured the alternative: with the row
 # as the unit, gutting one house left 69% of the row's support and nothing fell.
 class BaysTest < ApplicationSystemTestCase
-  def boot(match)
-    visit_world("geleen", vehicle: "buggy", match: match)
+  def boot(match, spawn: nil)
+    visit_world("geleen", vehicle: "buggy", match: match, spawn: spawn)
     wait_for(timeout: 60, message: "geleen never booted") { page.evaluate_script("!!(window.__arena && window.__arena.ready)") }
     # `ready` is the engine having booted, not the world having run. Same milestone
     # geleen_test waits on, and for the same reason: nothing physical -- a raycast, a
@@ -27,6 +27,31 @@ class BaysTest < ApplicationSystemTestCase
         const walls = spec.surfaces.filter(s => s.kind === "wall" && s.storey === 0 && !s.between && (s.bay ?? 0) === bay)
         for (const s of walls) for (let i = s.off; i < s.off + s.cols * s.rows; i++) window.__arenaDamagePiece(i, 5000, id)
         return walls.length
+      }
+      window.__church = () => window.__arenaBuildingIds().find(i => window.__arenaBuildingSpec(i).category === "church")
+      // Which bay is the nave and which the tower is WORKED OUT, not assumed. The importer
+      // sorts a church's parts by area, so "the nave is bay 0" happens to hold and is not
+      // what this test is about: the nave is the bay with the most ground-storey wall in
+      // it, and the tower the bay that reaches highest.
+      window.__part = (id, which) => {
+        const per = new Map()
+        for (const s of window.__arenaBuildingSpec(id).surfaces) {
+          if (s.kind === "rubble" || s.between) continue
+          const bay = s.bay ?? 0
+          const at = per.get(bay) || { ground: 0, top: -1 }
+          if (s.kind === "wall" && s.storey === 0) at.ground += s.cols * s.rows
+          at.top = Math.max(at.top, s.storey)
+          per.set(bay, at)
+        }
+        const by = which === "nave" ? (a, b) => b[1].ground - a[1].ground : (a, b) => b[1].top - a[1].top
+        return [ ...per.entries() ].sort(by)[0][0]
+      }
+      window.__standing = (id, bay) => {
+        let n = 0
+        for (const s of window.__arenaBuildingSpec(id).surfaces)
+          if ((s.bay ?? 0) === bay && !s.between && s.kind !== "rubble")
+            for (let i = s.off; i < s.off + s.cols * s.rows; i++) if (window.__arenaPieceState(i, id).standing) n++
+        return n
       }
     JS
   end
@@ -59,6 +84,30 @@ class BaysTest < ApplicationSystemTestCase
     # leaves all of its heaps and none of anybody else's.
     assert_equal page.evaluate_script("window.__arenaPileOrder(#{id}, 1).length"), rubble["standing"],
                  "the wreckage standing is not exactly the felled bay's"
+  end
+
+  # The scenario the whole church path exists for, measured on the spike as the reason a
+  # church cannot be one unit: taking the whole ground storey out of the Sint-Marcellinus
+  # nave left 65% of the church's support standing, because the tower and the chapels hold
+  # their own ground up and share its "storey 0". A church is a row of no dwellings and one
+  # bay per part, so the nave is weighed on its own -- and imported as a dwelling row it was
+  # ONE bay, which has nothing to lose and nothing to leave standing.
+  test "gutting the church's nave condemns the nave and leaves the tower up" do
+    boot("bays-church", spawn: 1)
+    id = page.evaluate_script("window.__church()")
+    assert id, "no church in the world"
+    nave = page.evaluate_script("window.__part(#{id}, 'nave')")
+    tower = page.evaluate_script("window.__part(#{id}, 'tower')")
+    refute_equal nave, tower, "the church came out as a single bay"
+    before = page.evaluate_script("window.__standing(#{id}, #{tower})")
+    assert_operator before, :>, 0, "the tower has nothing standing to begin with"
+    assert_operator page.evaluate_script("window.__gut(#{id}, #{nave})"), :>, 0, "the nave has no ground-storey walls"
+
+    wait_for(timeout: 30, message: "the server never condemned the nave") { page.evaluate_script("window.__arenaCollapses()").positive? }
+    assert_equal({ nave.to_s => 0 }, page.evaluate_script("window.__arenaBays(#{id})"),
+                 "another part of the church was condemned with the nave")
+    wait_for(timeout: 90, message: "the nave never finished falling") { page.evaluate_script("window.__arenaFalling()").zero? }
+    assert_equal before, page.evaluate_script("window.__standing(#{id}, #{tower})"), "the tower came down with the nave"
   end
 
   test "the client and the server reveal a bay's heaps in the same order" do
