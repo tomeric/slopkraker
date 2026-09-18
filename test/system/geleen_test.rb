@@ -93,8 +93,14 @@ class GeleenTest < ApplicationSystemTestCase
     assert_operator page.evaluate_script("window.__arenaLawnVertices()"), :>, 100, "no lawn was draped"
     with_gardens = page.evaluate_script("window.__arenaBuildingIds().map(i => window.__arenaBuildingSpec(i)).filter(s => s.lawns && s.lawns.length > 0).length")
     assert_operator with_gardens, :>, 5, "fewer than six rows ship lawns"
-    draws_before = page.evaluate_script("window.__arenaDraws()")
-    assert_operator draws_before, :>, 0
+    # And they cost no draw of their own, which is the point of draping them with the
+    # ribbons. `__arenaRoadVertices` counts the ROADS mesh's whole position attribute and
+    # `__arenaLawnVertices` counts the part of it that is grass, so the lawn vertices being
+    # a strict subset of the road vertices is the same statement as "one mesh". A lawn made
+    # into its own mesh would leave the road count untouched and fail here, while passing
+    # anything that only asked whether the world drew something.
+    assert page.evaluate_script("window.__arenaLawnVertices() > 0 && window.__arenaRoadVertices() > window.__arenaLawnVertices()"),
+           "the lawns are a mesh of their own rather than vertices in the roads'"
   end
 
   private
