@@ -10,7 +10,11 @@ module Game
 
       class Invalid < StandardError; end
 
-      Dwelling = Struct.new(:x0, :x1, keyword_init: true) do
+      # A dwelling is a span of the row and the details the importer decided for it: a
+      # garage door in its front, glass from floor to ceiling at its back, a dakkapel on
+      # its roof. Decided from the seed by the importer and written here, never guessed by
+      # the generator, so two players and the server see the same house.
+      Dwelling = Struct.new(:x0, :x1, :garage, :glazing, :dormer, keyword_init: true) do
         def width = x1 - x0
       end
 
@@ -42,7 +46,11 @@ module Game
           storeys: a.fetch("storeys", 1).to_i, storey_height: a.fetch("storey_height", 2.8).to_f,
           eaves: a.fetch("eaves", 2.8).to_f, ridge: a.fetch("ridge", a.fetch("eaves", 2.8)).to_f,
           roof: a.fetch("roof", "flat").to_s,
-          dwellings: Array(a["dwellings"]).map { |d| d = d.transform_keys(&:to_s); Dwelling.new(x0: d.fetch("x0").to_f, x1: d.fetch("x1").to_f) },
+          dwellings: Array(a["dwellings"]).map do |d|
+            d = d.transform_keys(&:to_s)
+            Dwelling.new(x0: d.fetch("x0").to_f, x1: d.fetch("x1").to_f,
+                         garage: d.fetch("garage", false), glazing: d.fetch("glazing", false), dormer: d.fetch("dormer", false))
+          end,
           boxes: Array(a["boxes"]).map.with_index { |b, i| box_from(b, i) },
           footprint: Array(a.fetch("footprint")).map { |x, z| [ x.to_f, z.to_f ] },
           category: a.fetch("category", "building").to_s, pands: Array(a["pands"]).map(&:to_s),
@@ -96,7 +104,12 @@ module Game
           raise Invalid, "eaves must be positive" unless eaves.positive?
           raise Invalid, "storey height must be positive" unless storey_height.positive?
           raise Invalid, "a gable needs a ridge above its eaves" if roof == "gable" && ridge <= eaves
-          dwellings.each { |d| raise Invalid, "a dwelling must have width" unless d.x1 > d.x0 }
+          dwellings.each do |d|
+            raise Invalid, "a dwelling must have width" unless d.x1 > d.x0
+            [ d.garage, d.glazing, d.dormer ].each do |flag|
+              raise Invalid, "a dwelling's garage, glazing and dormer are true or false" unless [ true, false ].include?(flag)
+            end
+          end
           # Attached means attached, in both directions. Half a metre of slack absorbs the
           # disagreement between two imported party lines that are meant to be the same
           # line; past that a gap is not slack but a hole, and nothing downstream would

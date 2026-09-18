@@ -39,7 +39,7 @@ module Game
         n = row.dwellings.length
         built = []
         row.dwellings.each_with_index do |d, i|
-          openings = Openings.new(seed: row.seed + i, style: :house)
+          openings = Openings.new(seed: row.seed + i, style: :house, garage: d.garage, glazing: d.glazing)
           row.storeys.times { |s| built << wall(row, [ d.x0, row.z0 ], [ d.x1, row.z0 ], storey: s, openings: openings, edge: 0, bay: i) }
           row.storeys.times { |s| built << wall(row, [ d.x1, row.z1 ], [ d.x0, row.z1 ], storey: s, openings: openings, edge: 2, bay: i) }
         end

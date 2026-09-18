@@ -131,7 +131,7 @@ class Game::Building::RowTest < ActiveSupport::TestCase
       assert front.patches.none? { |p| p.material == :timber }, "the door is a door, not timber"
     end
     upstairs = walls[1]
-    assert upstairs.patches.all? { |p| p.material == :glass && p.col0 == p.col1 }, "upstairs windows are one cell"
+    assert upstairs.patches.all? { |p| p.material == :glass && (p.col1 - p.col0).between?(0, 1) }, "upstairs windows are glass, one or two cells"
     assert_empty walls[12].patches, "the party wall gets nothing"
   end
 
@@ -489,5 +489,95 @@ class Game::Building::RowTest < ActiveSupport::TestCase
   test "a garden must front a dwelling and reach the road" do
     assert_raises(Game::Building::Row::Invalid) { pair("gardens" => [ { "bay" => 2, "depth" => 5.0 } ]) }
     assert_raises(Game::Building::Row::Invalid) { pair("gardens" => [ { "bay" => 0, "depth" => 0.0 } ]) }
+  end
+
+  # A wall of identical one-cell windows every other column reads as wallpaper. Upstairs
+  # and at the back the windows now come in runs of one or two cells, one pier between,
+  # never touching the last column.
+  test "upstairs windows come in runs of one or two cells with one pier between" do
+    set = pair
+    walls = set.surfaces.select { |s| s.kind == :wall }
+    [ walls[1], walls[3], walls[5], walls[7] ].each do |wall|
+      runs = wall.patches.select { |p| p.material == :glass }.sort_by(&:col0)
+      assert_operator runs.length, :>=, 1, "no windows on a #{wall.cols}-column face"
+      runs.each do |run|
+        assert_includes [ 1, 2 ], run.col1 - run.col0 + 1, "a window is one or two cells"
+        assert_equal 1, run.row0, "a window sits on a course"
+        assert_operator run.col0, :>=, 1, "a window never touches the first column"
+        assert_operator run.col1, :<=, wall.cols - 2, "a window never touches the last column"
+      end
+      runs.each_cons(2) { |a, b| assert_equal 2, b.col0 - a.col1, "exactly one pier between windows" }
+    end
+    # Six metres of front at one-metre cells has room for a two and a one, and the seed
+    # gives this one both.
+    widths = walls[1].patches.map { |p| p.col1 - p.col0 + 1 }
+    assert_equal 2, widths.uniq.length, "a run of only one width is the old rhythm in disguise: #{widths}"
+  end
+
+  # The estate builds its garage INTO the house, under the first floor, with the door in
+  # the front wall. A flagged dwelling's front is: the door near one end, one pier, a
+  # garage door three cells wide and two rows tall, and no front window.
+  test "a dwelling with a garage has its door in the front wall and no front window" do
+    set = pair("dwellings" => [ { "x0" => 0.0, "x1" => 6.0, "garage" => true }, { "x0" => 6.0, "x1" => 12.0 } ])
+    front = set.surfaces.first
+    doors = front.patches.select { |p| p.material == :door }.sort_by(&:col0)
+
+    assert_equal 2, doors.length, "a front door and a garage door"
+    assert_empty front.patches.select { |p| p.material == :glass }, "a garage takes the front window's place"
+    garage, door = doors.first.col1 - doors.first.col0 == 2 ? [ doors.first, doors.last ] : [ doors.last, doors.first ]
+    assert_equal 3, garage.col1 - garage.col0 + 1, "a garage door is three cells wide"
+    assert_equal [ 0, 1 ], [ garage.row0, garage.row1 ], "two rows tall, on the ground"
+    assert_equal door.col0, door.col1, "the front door is still one cell"
+    assert_equal 2, [ (garage.col0 - door.col1).abs, (door.col0 - garage.col1).abs ].min, "one pier between them"
+    # The second dwelling is unflagged and keeps its two-cell window.
+    second = set.surfaces.select { |s| s.kind == :wall }[4]
+    assert_equal 1, second.patches.count { |p| p.material == :glass }
+  end
+
+  test "a garage needs six columns" do
+    set = pair("dwellings" => [ { "x0" => 0.0, "x1" => 5.0, "garage" => true }, { "x0" => 5.0, "x1" => 12.0 } ])
+    front = set.surfaces.first
+    assert_equal 5, front.cols
+    assert_equal 1, front.patches.count { |p| p.material == :door }, "a five-cell front has no room for a garage"
+    assert_equal 1, front.patches.count { |p| p.material == :glass }, "so it keeps its window"
+  end
+
+  # Glass from floor to ceiling on the ground floor of the back, and nothing else there.
+  test "a glazed dwelling has one glass wall at the back, floor to ceiling" do
+    set = pair("dwellings" => [ { "x0" => 0.0, "x1" => 6.0 }, { "x0" => 6.0, "x1" => 12.0, "glazing" => true } ])
+    walls = set.surfaces.select { |s| s.kind == :wall }
+    # The back of dwelling 1: walls are fronts then backs per dwelling, two storeys each,
+    # so dwelling 1's ground-floor back is the seventh wall. It runs west from x = 12.
+    back = walls[6]
+    assert_in_delta 12.0, back.origin.x, 1e-9
+    glass = back.patches.select { |p| p.material == :glass }
+
+    assert_equal 1, glass.length, "one glass patch"
+    assert_equal 3, glass.first.col1 - glass.first.col0 + 1, "three cells wide on a six-column face"
+    assert_equal [ 0, back.rows - 1 ], [ glass.first.row0, glass.first.row1 ], "floor to ceiling"
+    assert_operator glass.first.col0, :>=, 1
+    assert_operator glass.first.col1, :<=, back.cols - 2
+    assert_equal glass, back.patches, "nothing else on that face"
+    # Upstairs at the back is unchanged: runs.
+    assert_operator walls[7].patches.count { |p| p.material == :glass }, :>=, 1
+    # The unflagged neighbour's back keeps its runs.
+    assert_operator walls[2].patches.count { |p| p.material == :glass }, :>=, 1
+  end
+
+  # The one style the hand-made worlds are built from does not move.
+  test "the classic rhythm is what it always was" do
+    patches = Game::Building::Openings.new(seed: 7).for_wall(edge: 0, storey: 1, cols: 12, rows: 3)
+    assert_equal [ 1, 3, 5, 7, 9, 11 ], patches.map(&:col0)
+    assert patches.all? { |p| p.col0 == p.col1 && p.row0 == 1 && p.material == :glass }
+  end
+
+  test "the flags parse and are booleans" do
+    row = Game::Building::Row.from(pair_recipe("dwellings" => [ { "x0" => 0.0, "x1" => 6.0, "garage" => true, "dormer" => true }, { "x0" => 6.0, "x1" => 12.0, "glazing" => true } ]))
+    assert row.dwellings[0].garage
+    assert row.dwellings[0].dormer
+    refute row.dwellings[0].glazing
+    assert row.dwellings[1].glazing
+    refute row.dwellings[1].garage
+    assert_raises(Game::Building::Row::Invalid) { pair("dwellings" => [ { "x0" => 0.0, "x1" => 6.0, "garage" => "yes" }, { "x0" => 6.0, "x1" => 12.0 } ]) }
   end
 end
