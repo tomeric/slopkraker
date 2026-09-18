@@ -12,6 +12,12 @@ module Game
     # previous generation.
     module Generator
       def self.call(recipe)
+        # Two kinds of recipe now. A row is a terrace of attached dwellings built in its
+        # own frame and turned by its yaw; everything below is the single free-standing
+        # building, untouched. Asked of the argument rather than of a normalised hash,
+        # because this is also called with a Recipe, which has no keys to ask.
+        return RowGenerator.call(recipe) if row?(recipe)
+
         recipe = Recipe.from(recipe) unless recipe.is_a?(Recipe)
         openings = Openings.new(seed: recipe.seed)
 
@@ -29,6 +35,12 @@ module Game
             Rubble.build(recipe, built),
           storey_count: recipe.storeys
         )
+      end
+
+      def self.row?(recipe)
+        return true if recipe.is_a?(Row)
+
+        recipe.is_a?(Hash) && recipe.transform_keys(&:to_s)["kind"] == "row"
       end
     end
   end
