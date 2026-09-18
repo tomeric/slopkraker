@@ -6,10 +6,15 @@
 # that name collides with Active Record's own `destroyed?` and the collision is fatal --
 # the model cannot even be instantiated.
 #
+# `collapsed` is a map of bay to the storey that bay has come down from: a single house is
+# one bay, a terrace one per dwelling, a church one per part. A map rather than a column
+# because a row's dwellings stand or fall on their own, and a bay missing from the map is
+# one still standing.
+#
 # Destruction is monotone in both directions it can move: a piece goes standing to broken
-# and never back, and a collapse goes nowhere or downward. That is what lets a client
-# predict a break and never have to undo one, and what makes every server message
-# idempotent.
+# and never back, and a bay's collapsed storey appears or lowers and is never raised. That
+# is what lets a client predict a break and never have to undo one, and what makes every
+# server message idempotent.
 class ObjectDamage < ApplicationRecord
   belongs_to :match
   belongs_to :world_object

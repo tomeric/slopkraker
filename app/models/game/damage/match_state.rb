@@ -47,10 +47,11 @@ module Game
         end
 
         # Once per object rather than once per hit: a collapse is a property of the
-        # building after the whole batch has landed, not of any one panel in it.
-        collapses = touched.filter_map do |object_id, state|
-          storey = state.settle
-          storey && [ object_id, storey ]
+        # building after the whole batch has landed, not of any one panel in it. One entry
+        # per BAY that moved, though -- a terrace is several dwellings that stand or fall
+        # on their own, and one batch can bring down more than one of them.
+        collapses = touched.flat_map do |object_id, state|
+          state.settle.map { |bay, storey| [ object_id, storey, bay ] }
         end
 
         { "broken" => broken, "collapses" => collapses, "truncated" => truncated }
@@ -68,7 +69,9 @@ module Game
             "id" => object_id.to_i,
             "broken" => Base64.strict_encode64(state.destroyed_blob),
             "broken_count" => state.destroyed_count,
-            "collapsed_from" => state.collapsed_from
+            # Bay => the storey it came down from, keyed as it is stored and as JSON will
+            # hand it over anyway. An empty map is a building still standing.
+            "collapsed" => state.collapsed.transform_keys(&:to_s)
           }
         end
       end
@@ -103,7 +106,7 @@ module Game
           {
             match_id: @match.id, world_object_id: object_id,
             broken_pieces: state.destroyed_blob, partial: state.partial,
-            collapsed_from: state.collapsed_from, broken_count: state.destroyed_count,
+            collapsed: state.collapsed.transform_keys(&:to_s), broken_count: state.destroyed_count,
             updated_at: now
           }
         end
@@ -133,7 +136,7 @@ module Game
           ObjectState.new(
             surfaces: object.surface_set, piece_count: object.piece_count, rules: @rules,
             destroyed: row&.broken_pieces, partial: row&.partial || {},
-            collapsed_from: row&.collapsed_from
+            collapsed: row&.collapsed || {}
           )
         end
 

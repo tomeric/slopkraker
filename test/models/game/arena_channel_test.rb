@@ -101,7 +101,7 @@ class ArenaChannelTest < ActionCable::Channel::TestCase
       perform :damage, "seq" => 1, "hits" => hits
     end
 
-    assert_equal [ [ target.id, 0 ] ], broadcast["collapses"]
+    assert_equal [ [ target.id, 0, 0 ] ], broadcast["collapses"]
   end
 
   test "a batch that changes nothing broadcasts nothing" do

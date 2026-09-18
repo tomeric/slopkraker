@@ -95,25 +95,50 @@ class Game::Damage::ObjectStateTest < ActiveSupport::TestCase
     walls = set.for_storey(0).select { |s| s.kind == :wall }.first(2)
     indices_of(walls).each { |index| object.apply(index, 500.0, "impact") }
 
-    assert_equal 0, object.settle
-    assert_equal 0, object.collapsed_from
+    assert_equal [ [ 0, 0 ] ], object.settle
+    assert_equal({ 0 => 0 }, object.collapsed)
     roof = set.surfaces.find { |surface| surface.kind == :roof }
     refute object.standing?(roof.piece_offset), "the roof should have come down too"
   end
 
-  test "settle reports nothing when the building still stands" do
-    assert_nil state.settle
+  # A single house is one bay, and what comes back is the bays that moved rather than one
+  # storey -- a terrace has a storey per dwelling and the same call has to speak for all of
+  # them. Reported once: settling again is how every batch ends, and a bay that has already
+  # fallen has not moved.
+  test "settle reports the bays that moved and keeps them" do
+    set = house
+    object = state(set)
+    walls = set.for_storey(0).select { |s| s.kind == :wall }.first(2)
+    indices_of(walls).each { |index| object.apply(index, 5_000.0, "impact") }
+
+    assert_equal [ [ 0, 0 ] ], object.settle
+    assert_equal({ 0 => 0 }, object.collapsed)
+    assert_empty object.settle, "a bay that has already fallen is not reported twice"
   end
 
-  test "collapsed_from is never raised" do
+  test "settle reports nothing when the building still stands" do
+    assert_empty state.settle
+  end
+
+  test "a collapsed storey is never raised" do
     set = house
-    object = state(set, collapsed_from: 0)
+    object = state(set, collapsed: { 0 => 0 })
     indices_of(set.surfaces.select { |s| s.storey >= 1 }).each do |index|
       object.apply(index, 500.0, "impact")
     end
 
     object.settle
-    assert_equal 0, object.collapsed_from
+    assert_equal({ 0 => 0 }, object.collapsed)
+  end
+
+  # The column is JSON, so a restored map comes back with string keys and string-ish values.
+  # Looked up by Integer they would every one of them miss -- which would put a collapsed
+  # house back up on every reload, and with it every heap of its wreckage.
+  test "it restores a collapse map stored with string keys" do
+    set = house
+    object = state(set, collapsed: { "0" => "1" })
+
+    assert_equal({ 0 => 1 }, object.collapsed)
   end
 
   test "it restores from the columns it was stored in" do
@@ -124,7 +149,7 @@ class Game::Damage::ObjectStateTest < ActiveSupport::TestCase
 
     restored = Game::Damage::ObjectState.new(
       surfaces: set, piece_count: set.piece_count, rules: Game::Spec.default_rules,
-      destroyed: stored.destroyed_blob, partial: stored.partial, collapsed_from: nil
+      destroyed: stored.destroyed_blob, partial: stored.partial, collapsed: {}
     )
 
     assert_equal stored.broken, restored.broken
@@ -177,9 +202,41 @@ class Game::Damage::ObjectStateTest < ActiveSupport::TestCase
     object = state(set)
     flatten!(set, object)
 
-    assert_equal 0, object.collapsed_from, "the house did not collapse, so there is no rubble"
+    assert_equal({ 0 => 0 }, object.collapsed, "the house did not collapse, so there is no rubble")
     assert_equal [ first_pile(set) ], object.apply(first_pile(set), 5_000.0, "impact")
     refute object.standing?(first_pile(set)), "the pile did not clear"
+  end
+
+  # The whole point of a map rather than a column. A terrace is several dwellings that
+  # stand or fall on their own, so one of them coming down leaves ITS wreckage on the
+  # ground and none of its neighbour's -- and a client reporting damage to the heaps of a
+  # house that is still up is refused, exactly as it is refused for a dormant pile under a
+  # house of one bay.
+  def row_of_two
+    Game::Building::Generator.call(
+      "kind" => "row", "yaw" => 0.0, "cell" => 1.0, "seed" => 1, "band" => [ 0.0, 9.0 ], "storeys" => 2,
+      "storey_height" => 3.0, "eaves" => 6.0, "ridge" => 8.5, "roof" => "gable",
+      "dwellings" => [ { "x0" => 0.0, "x1" => 6.0 }, { "x0" => 6.0, "x1" => 12.0 } ], "boxes" => [],
+      "footprint" => [ [ 0, 0 ], [ 12, 0 ], [ 12, 9 ], [ 0, 9 ] ]
+    )
+  end
+
+  test "one dwelling of a row comes down and leaves only its own wreckage" do
+    set = row_of_two
+    object = state(set)
+    indices_of(set.for_bay(0)[:own].select { |s| s.storey.zero? && s.kind == :wall }).each do |index|
+      object.apply(index, 5_000.0, "impact")
+    end
+
+    assert_equal [ [ 0, 0 ] ], object.settle, "the left dwelling should have come down on its own"
+    assert_equal({ 0 => 0 }, object.collapsed, "the right dwelling was never touched")
+
+    rubble = rubble_surface(set)
+    mine = Game::Building::Rubble.pile_indices(rubble, bay: 0).first
+    theirs = Game::Building::Rubble.pile_indices(rubble, bay: 1).first
+
+    assert_equal [ mine ], object.apply(mine, 5_000.0, "impact"), "the fallen dwelling left no wreckage"
+    assert_empty object.apply(theirs, 5_000.0, "impact"), "the standing dwelling's heaps are not there to clear"
   end
 
   # Monotone, like everything else here: a cleared pile stays cleared, and settling again

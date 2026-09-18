@@ -44,10 +44,13 @@ class Game::Damage::MatchStateTest < ActiveSupport::TestCase
     assert_empty @state.apply_batch([ [ crate.id, 0, 500.0, "impact" ] ])["broken"]
   end
 
+  # A collapse names the bay it happened in as well as the storey it came down from. A
+  # single house is one bay, so bay 0 is what every hand-made world reports; a terrace
+  # reports one entry per dwelling that fell, and the entries are independent.
   test "taking out two walls reports the collapse" do
     result = @state.apply_batch(wall_hits(2))
 
-    assert_equal [ [ @house.id, 0 ] ], result["collapses"]
+    assert_equal [ [ @house.id, 0, 0 ] ], result["collapses"]
   end
 
   test "the collapse is reported once, not once per hit" do
@@ -119,7 +122,24 @@ class Game::Damage::MatchStateTest < ActiveSupport::TestCase
 
     assert_equal @house.id, entry["id"]
     assert_equal 1, entry["broken_count"]
-    assert_nil entry["collapsed_from"]
+    assert_equal({}, entry["collapsed"], "nothing has come down, so no bay has a storey")
+
+    @state.apply_batch(wall_hits(2))
+
+    assert_equal({ "0" => 0 }, @state.state_for([ @house.id ]).first["collapsed"])
+  end
+
+  # The map is what survives a restart, and it survives as JSON -- so what comes back has
+  # string keys and the client is handed them as it stored them.
+  test "a collapse survives a restart as a map per bay" do
+    @state.apply_batch(wall_hits(2))
+    @state.flush!
+    row = ObjectDamage.find_by!(match: @match, world_object_id: @house.id)
+    assert_equal({ "0" => 0 }, row.collapsed)
+
+    fresh = Game::Damage::MatchState.new(@match, rules: Game::Spec.default_rules)
+    fresh.rehydrate!
+    assert_equal({ "0" => 0 }, fresh.state_for([ @house.id ]).first["collapsed"])
   end
 
   # Partial health is never broadcast: darkening a damaged piece is cosmetic and local.

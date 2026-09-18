@@ -311,4 +311,46 @@ class Game::Building::RubbleTest < ActiveSupport::TestCase
     assert_operator surface.thickness, :<, recipe.storey_height,
                     "#{surface.thickness.round(2)}m of wreckage wall to wall is a hill"
   end
+
+  # Two dwellings' worth of heaps tagged by bay. Each bay's order runs outward from the
+  # middle of ITS heaps, quantised and index-tied as before.
+  def two_bay_rubble
+    Game::Building::Generator.call(
+      "kind" => "row", "yaw" => 0.0, "cell" => 1.0, "seed" => 1, "band" => [ 0.0, 9.0 ], "storeys" => 2,
+      "storey_height" => 3.0, "eaves" => 6.0, "ridge" => 8.5, "roof" => "gable",
+      "dwellings" => [ { "x0" => 0.0, "x1" => 6.0 }, { "x0" => 6.0, "x1" => 12.0 } ], "boxes" => [],
+      "footprint" => [ [ 0, 0 ], [ 12, 0 ], [ 12, 9 ], [ 0, 9 ] ]
+    ).surfaces.last
+  end
+
+  test "pile indices can be asked for one bay, and the bays partition the heaps" do
+    surface = two_bay_rubble
+    all = Game::Building::Rubble.pile_indices(surface)
+    left = Game::Building::Rubble.pile_indices(surface, bay: 0)
+    right = Game::Building::Rubble.pile_indices(surface, bay: 1)
+
+    assert_equal all.sort, (left + right).sort
+    assert_empty left & right
+    assert left.all? { |i| surface.bays[surface.local_index(i)].zero? }
+  end
+
+  test "a bay's first heap is the one nearest the middle of that bay" do
+    surface = two_bay_rubble
+    first = Game::Building::Rubble.pile_indices(surface, bay: 0).first
+    col = surface.local_index(first) % surface.cols
+
+    assert_operator col, :<, surface.cols / 2, "the first heap of the left bay is on the left"
+  end
+
+  test "revealed_count for a bay counts that bay's heaps only" do
+    surface = two_bay_rubble
+    count = Game::Building::Rubble.revealed_count(surface, storey_count: 2, collapsed_from: 0, bay: 1)
+
+    assert_equal Game::Building::Rubble.pile_indices(surface, bay: 1).length, count
+  end
+
+  test "without bays the order is what it always was" do
+    surface = surface()
+    assert_equal Game::Building::Rubble.pile_indices(surface), Game::Building::Rubble.pile_indices(surface, bay: nil)
+  end
 end

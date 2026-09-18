@@ -2,7 +2,7 @@ module Game
   module Damage
     # What one match has done to one object, in memory. Mirrors an object_damages row
     # exactly: the bitset of what is gone, the pieces that are part way there, and how far
-    # down the building has collapsed.
+    # down each of the building's bays has collapsed.
     #
     # The server does not simulate, so it cannot work out for itself what a car did. It
     # takes the client's word for the raw damage and applies the material's own arithmetic
@@ -10,9 +10,9 @@ module Game
     # multipliers are enforced here even though the impact was not. That is the accepted
     # price of clients reporting damage; MatchState's caps are what bound it.
     class ObjectState
-      attr_reader :collapsed_from, :partial
+      attr_reader :collapsed, :partial
 
-      def initialize(surfaces:, piece_count:, rules:, destroyed: nil, partial: {}, collapsed_from: nil)
+      def initialize(surfaces:, piece_count:, rules:, destroyed: nil, partial: {}, collapsed: {})
         @surfaces = surfaces
         @piece_count = piece_count.to_i
         @rules = rules
@@ -21,7 +21,11 @@ module Game
         # keys, and looking a piece up by Integer would miss every one of them -- silently
         # restoring damaged pieces to full health on every reload.
         @partial = (partial || {}).to_h { |index, left| [ index.to_i, left.to_f ] }
-        @collapsed_from = collapsed_from
+        # Bay => the storey it has come down from, and cast for the same reason: the column
+        # is JSON, so the bays come back as strings, and a map keyed by strings would put
+        # every collapsed dwelling back up on reload -- and with it every heap of wreckage
+        # it had left, which is what gates damage to the piles.
+        @collapsed = (collapsed || {}).to_h { |bay, storey| [ bay.to_i, storey.to_i ] }
         @dirty = false
       end
 
@@ -38,7 +42,7 @@ module Game
         # Nor is there anything to break in a heap of rubble that does not exist yet. A
         # pile is DORMANT until the building falls on top of it -- reserved index space,
         # like a doorway, but reserved for something that arrives later rather than never.
-        # The transition is not stored: it is implied by collapsed_from, which is monotone
+        # The transition is not stored: it is implied by the collapse map, which is monotone
         # and already persisted, so this answer is the same on every client and after every
         # reload without a byte of it going on the wire.
         return [] if material.name == :rubble && !revealed?(piece_index)
@@ -58,26 +62,28 @@ module Game
         end
       end
 
-      # Runs the collapse rule over what is left. Returns the storey it came down from, or
-      # nil if nothing changed. Everything the collapse destroyed is folded in here, so the
-      # caller only has to broadcast the storey.
+      # Runs the collapse rule over what is left, bay by bay. Returns the bays that came
+      # down (further) as [bay, storey] pairs, or [] if nothing changed. Everything the
+      # collapse destroyed is folded in here, so the caller only broadcasts the pairs.
+      #
+      # The bays that did NOT move are left out rather than repeated: every message is
+      # idempotent and every storey monotone, so a client only ever has to be told what
+      # has changed, and a bay already on the ground has not.
       def settle
-        # The rule weighs a bay at a time; this still holds one storey, so it speaks for bay
-        # 0 alone -- which is every building that comes from a recipe. A row of dwellings
-        # needs a collapsed storey per bay all the way to the wire, and that is its own task.
         result = Collapse.evaluate(
           surfaces: @surfaces, broken: @destroyed.to_a, health: @partial,
-          rules: @rules.fetch(:collapse), collapsed: { 0 => @collapsed_from }.compact
+          rules: @rules.fetch(:collapse), collapsed: @collapsed
         )
-        return nil if result.collapsed[0] == @collapsed_from
+        moved = result.collapsed.reject { |bay, storey| @collapsed[bay] == storey }
+        return [] if moved.empty?
 
         result.broken.each { |index| destroy!(index) }
         @partial = result.health.except(*result.broken)
-        @collapsed_from = result.collapsed[0]
+        @collapsed = result.collapsed
         # More of the house came down, so more of its wreckage is on the ground.
         @revealed_rubble = nil
         @dirty = true
-        @collapsed_from
+        moved.to_a
       end
 
       def standing?(piece_index) = in_range?(piece_index) && !@destroyed.include?(piece_index)
@@ -92,22 +98,30 @@ module Game
 
         def revealed?(piece_index) = revealed_rubble.include?(piece_index)
 
-        # Which heaps are actually on the ground. Recomputed whenever the collapse moves
-        # and cached in between, because apply is on the hot path and this walks the grid.
+        # Which heaps are actually on the ground. Recomputed whenever a collapse moves and
+        # cached in between, because apply is on the hot path and this walks the grid.
+        #
+        # A bay at a time where the grid says which bay each heap belongs to, so the half
+        # of a terrace that is still standing has left no wreckage to clear. A surface
+        # without `bays` is one building's, and is asked for the whole of it.
         def revealed_rubble
           @revealed_rubble ||= begin
             surface = @surfaces.surfaces.find { |s| s.kind == :rubble }
 
-            if surface.nil? || @collapsed_from.nil?
+            if surface.nil? || @collapsed.empty?
               []
             else
-              Building::Rubble.pile_indices(surface).first(
-                Building::Rubble.revealed_count(
-                  surface,
-                  storey_count: @surfaces.storey_count,
-                  collapsed_from: @collapsed_from
+              @collapsed.flat_map do |bay, from|
+                bay_key = surface.bays ? bay : nil
+                Building::Rubble.pile_indices(surface, bay: bay_key).first(
+                  Building::Rubble.revealed_count(
+                    surface,
+                    storey_count: @surfaces.storey_count,
+                    collapsed_from: from,
+                    bay: bay_key
+                  )
                 )
-              )
+              end
             end
           end
         end
