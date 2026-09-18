@@ -107,6 +107,7 @@ module Game
             raise Invalid, "a box must have storeys" unless box.storeys.positive?
             raise Invalid, "a box needs eaves" unless box.eaves.positive?
             raise Invalid, "a gable box needs a ridge above its eaves" if box.roof == "gable" && box.ridge <= box.eaves
+            raise Invalid, "a box door is true, false or \"garage\"" unless [ true, false, "garage" ].include?(box.door)
           end
         end
     end

@@ -108,12 +108,111 @@ class Game::Building::RowTest < ActiveSupport::TestCase
     assert_equal 1, rubble.bays[rubble.cols - 1 - rubble.cols / 4], "and one on the right to the second"
   end
 
-  test "every dwelling gets a front door at ground level and the party wall gets nothing" do
+  # A three-metre door is a garage. A dwelling's front is a one-cell door with a two-cell
+  # window beside it, a pier between; upstairs the windows go every other column as before.
+  test "a dwelling's front is a one-cell door with a two-cell window beside it, and no lintel" do
     set = pair
     walls = set.surfaces.select { |s| s.kind == :wall }
     fronts = [ walls[0], walls[4] ]
-    fronts.each { |front| assert front.patches.any? { |p| p.material == :timber }, "no door" }
-    assert_empty walls[12].patches
+
+    fronts.each do |front|
+      doors = front.patches.select { |p| p.material == :door }
+      windows = front.patches.select { |p| p.material == :glass }
+      assert_equal 1, doors.length, "one door"
+      door = doors.first
+      assert_equal door.col0, door.col1, "a door is one cell wide"
+      assert_equal [ 0, 1 ], [ door.row0, door.row1 ], "a door is two rows tall and stands on the ground"
+      assert_equal 1, windows.length, "one window on the ground floor of the front"
+      window = windows.first
+      assert_equal 2, window.col1 - window.col0 + 1, "the front window is two cells wide"
+      assert_equal 1, window.row0, "a window sits on a course, not on the floor"
+      assert_includes [ window.col0 - door.col1, door.col0 - window.col1 ], 2, "one pier stands between the door and the window"
+      assert front.patches.none? { |p| p.material == :steel }, "no lintel over a one-cell door"
+      assert front.patches.none? { |p| p.material == :timber }, "the door is a door, not timber"
+    end
+    upstairs = walls[1]
+    assert upstairs.patches.all? { |p| p.material == :glass && p.col0 == p.col1 }, "upstairs windows are one cell"
+    assert_empty walls[12].patches, "the party wall gets nothing"
+  end
+
+  test "the path columns are the door's" do
+    openings = Game::Building::Openings.new(seed: 1, style: :house)
+    door = openings.for_wall(edge: 0, storey: 0, cols: 6, rows: 3).find { |p| p.material == :door }
+
+    assert_equal [ door.col0 ], openings.door_columns(6)
+    assert_equal [], openings.door_columns(2), "a face too narrow for a door has no path either"
+    assert_equal [], Game::Building::Openings.new(seed: 1, style: :annex).door_columns(6)
+  end
+
+  # Two rows tall across the face, half a metre in from either side -- or the whole face
+  # when the face is under five cells, because a one-cell door on a three-metre garage is
+  # a letterbox.
+  test "a garage box gets a garage door on its first edge" do
+    garage = { "ring" => [ [ 13.0, 0.0 ], [ 19.0, 0.0 ], [ 19.0, 6.0 ], [ 13.0, 6.0 ] ], "eaves" => 2.6, "ridge" => 2.6,
+               "storeys" => 1, "roof" => "flat", "door" => "garage", "solid" => false, "bay" => 1, "name" => "garage" }
+    set = pair("boxes" => [ garage ], "footprint" => [ [ 0, 0 ], [ 19, 0 ], [ 19, 9 ], [ 0, 9 ] ])
+    front = set.surfaces.select { |s| s.kind == :wall }.find { |s| s.origin.x == 13.0 && s.origin.z == 0.0 }
+
+    assert front, "the garage's front wall was not built"
+    assert_equal 6, front.cols
+    door = front.patches.find { |p| p.material == :door }
+    assert door, "no garage door"
+    assert_equal [ 1, 4 ], [ door.col0, door.col1 ], "a metre in from either side"
+    assert_equal [ 0, 1 ], [ door.row0, door.row1 ], "two rows tall"
+    assert front.patches.none? { |p| p.material == :glass }, "a garage front has no windows"
+
+    narrow = pair("boxes" => [ garage.merge("ring" => [ [ 13.0, 0.0 ], [ 16.0, 0.0 ], [ 16.0, 6.0 ], [ 13.0, 6.0 ] ]) ],
+                  "footprint" => [ [ 0, 0 ], [ 16, 0 ], [ 16, 9 ], [ 0, 9 ] ])
+    small = narrow.surfaces.select { |s| s.kind == :wall }.find { |s| s.origin.x == 13.0 && s.origin.z == 0.0 }
+    assert_equal [ 0, 2 ], [ small.patches.find { |p| p.material == :door }.col0, small.patches.find { |p| p.material == :door }.col1 ],
+                 "a three-metre garage is all door"
+  end
+
+  # A church in miniature: a nave with a two-cell door and tall windows every third column,
+  # a tower with one small window per storey, a chapel with windows every other column.
+  def church(**overrides)
+    nave = { "ring" => [ [ 0, 0 ], [ 24, 0 ], [ 24, 12 ], [ 0, 12 ] ], "eaves" => 10.0, "ridge" => 14.0, "storeys" => 2,
+             "roof" => "gable", "door" => true, "solid" => false, "bay" => 0, "name" => "nave" }
+    tower = { "ring" => [ [ 30, 2 ], [ 36, 2 ], [ 36, 8 ], [ 30, 8 ] ], "eaves" => 20.0, "ridge" => 27.0, "storeys" => 5,
+              "roof" => "pyramid", "door" => false, "solid" => false, "bay" => 1, "name" => "tower" }
+    chapel = { "ring" => [ [ 0, 14 ], [ 12, 14 ], [ 12, 20 ], [ 0, 20 ] ], "eaves" => 5.0, "ridge" => 7.0, "storeys" => 1,
+               "roof" => "gable", "door" => false, "solid" => false, "bay" => 2, "name" => "chapel" }
+    Game::Building::Generator.call(pair_recipe(**{
+      "category" => "church", "cell" => 2.0, "dwellings" => [], "boxes" => [ nave, tower, chapel ],
+      "band" => [ 0.0, 0.0 ], "storeys" => 5, "storey_height" => 4.0, "eaves" => 20.0, "ridge" => 20.0, "roof" => "flat",
+      "footprint" => [ [ 0, 0 ], [ 36, 0 ], [ 36, 20 ], [ 0, 20 ] ]
+    }.merge(overrides)))
+  end
+
+  test "a church's parts are punctured by what they are" do
+    set = church
+    walls = set.surfaces.select { |s| s.kind == :wall }
+    nave_front = walls.find { |w| w.storey.zero? && w.origin.x == 0.0 && w.origin.z == 0.0 && w.u.x > 0 }
+    tower_walls = walls.select { |w| w.origin.x >= 30.0 && w.origin.z >= 2.0 && w.origin.x <= 36.0 && w.origin.z <= 8.0 }
+    chapel_walls = walls.select { |w| w.origin.z >= 14.0 }
+
+    assert nave_front, "no nave front"
+    door = nave_front.patches.find { |p| p.material == :door }
+    assert door, "the nave has no door"
+    assert_equal 2, door.col1 - door.col0 + 1, "a church door is two cells wide"
+    nave_windows = nave_front.patches.select { |p| p.material == :glass }
+    assert_operator nave_windows.length, :>=, 2
+    # Every third column, less the one the door displaced: the columns all lie on one
+    # rhythm of three, even where a window is missing from it.
+    assert nave_windows.all? { |w| (w.col0 - nave_windows.first.col0) % 3 == 0 }, "nave windows every third column: #{nave_windows.map(&:col0)}"
+
+    per_storey = tower_walls.group_by(&:storey).transform_values { |ws| ws.sum { |w| w.patches.count { |p| p.material == :glass } } }
+    assert per_storey.values.all? { |n| n.between?(1, 4) }, "a tower has a window or so per storey per face, not a wall of them: #{per_storey}"
+    assert tower_walls.none? { |w| w.patches.any? { |p| p.material == :door } }, "no door on the tower"
+
+    chapel_front = chapel_walls.find { |w| w.storey.zero? }
+    chapel_windows = chapel_front.patches.select { |p| p.material == :glass }
+    assert chapel_windows.each_cons(2).all? { |a, b| b.col0 - a.col0 == 2 }, "chapel windows every other column"
+  end
+
+  test "a box door is true, false or a garage" do
+    assert_raises(Game::Building::Row::Invalid) { pair("boxes" => [ annex("door" => "hatch") ]) }
+    assert_equal "garage", Game::Building::Row.from(pair_recipe("boxes" => [ annex("door" => "garage") ])).boxes.first.door
   end
 
   test "the roof is one continuous ridge cut at the party line" do

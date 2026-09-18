@@ -28,12 +28,12 @@ module Game
         n = row.dwellings.length
         built = []
         row.dwellings.each_with_index do |d, i|
-          openings = Openings.new(seed: row.seed + i)
+          openings = Openings.new(seed: row.seed + i, style: :house)
           row.storeys.times { |s| built << wall(row, [ d.x0, row.z0 ], [ d.x1, row.z0 ], storey: s, openings: openings, edge: 0, bay: i) }
           row.storeys.times { |s| built << wall(row, [ d.x1, row.z1 ], [ d.x0, row.z1 ], storey: s, openings: openings, edge: 2, bay: i) }
         end
-        row.storeys.times { |s| built << wall(row, [ row.x1, row.z0 ], [ row.x1, row.z1 ], storey: s, openings: Openings.new(seed: row.seed + 7), edge: 1, bay: n - 1) }
-        row.storeys.times { |s| built << wall(row, [ row.x0, row.z1 ], [ row.x0, row.z0 ], storey: s, openings: Openings.new(seed: row.seed + 11), edge: 3, bay: 0) }
+        row.storeys.times { |s| built << wall(row, [ row.x1, row.z0 ], [ row.x1, row.z1 ], storey: s, openings: Openings.new(seed: row.seed + 7, style: :annex), edge: 1, bay: n - 1) }
+        row.storeys.times { |s| built << wall(row, [ row.x0, row.z1 ], [ row.x0, row.z0 ], storey: s, openings: Openings.new(seed: row.seed + 11, style: :annex), edge: 3, bay: 0) }
         row.party_lines.each_with_index do |x, i|
           row.storeys.times { |s| built << wall(row, [ x, row.z0 ], [ x, row.z1 ], storey: s, openings: nil, edge: 5, between: [ i, i + 1 ]) }
         end
@@ -130,7 +130,8 @@ module Game
         containers = []
         built = []
         row.boxes.each_with_index do |box, i|
-          openings = box.solid ? nil : Openings.new(seed: row.seed + 100 + i)
+          style = style_for(row, box)
+          openings = style ? Openings.new(seed: row.seed + 100 + i, style: style) : nil
           edges(box.ring).each_with_index do |(from, to), e|
             # The three rules say whether a wall stands HERE. How much of it they excuse is a
             # HEIGHT, and taking that decision once for the box leaves a six-storey tower
@@ -169,6 +170,21 @@ module Game
         containers.each { |ring, eaves| heights << eaves if inside_ring?(from, ring) && inside_ring?(to, ring) }
         kept.each { |a0, a1, top| heights << top if coincident?([ a0, a1 ], [ from, to ]) }
         heights.max || 0.0
+      end
+
+      # How a box is punctured, by what it is. A solid box -- a shed -- gets nothing; a
+      # garage its door; a church's parts theirs, told apart by the roof the importer gave
+      # them (a pyramid is a tower) and by which part carries the door (the nave); anything
+      # else with a door is a house of its own, and anything without one an annex.
+      def self.style_for(row, box)
+        return nil if box.solid
+        return :garage if box.door == "garage"
+
+        if row.category == "church" || row.category == "hall"
+          return :tower if box.roof == "pyramid"
+          return box.door ? :nave : :chapel
+        end
+        box.door ? :house : :annex
       end
 
       def self.box_roof(row, box, containers)
