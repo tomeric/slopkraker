@@ -369,10 +369,15 @@ module Game
         sky: {
           day: { zenith: "#4f86c6", horizon: "#d3dde6", ground: "#4d5a45",
                  hemisphere: [ "#bfd4ec", "#4d5a45", 0.9 ], sun: "#fff1dc", sun_intensity: 2.6,
-                 # Negative z: the sun stands BEHIND the camera on a row of fronts, so the
-                 # faces the driver sees are the lit ones. At +z every front on the estate
-                 # was in its own shade.
-                 sun_direction: [ 30, 80, -24 ], fog: [ 150, 420 ] },
+                 # Where the sun stands, so that the fronts a driver sees are the lit ones.
+                 # The estate's rows sit at their survey bearings rather than on an axis, so
+                 # this is not a matter of the z sign alone: measured off the kerb shot of
+                 # estate-row-12 (bearing -0.77 rad), the front wall's mean brightness was
+                 # 19.6/255 at [30, 80, 24], 19.7 with only z flipped -- the sun swings round
+                 # the front without ever reaching it -- and 45.4 here, which is where the
+                 # bond becomes visible at all. Over all 48 rows it is also the offset that
+                 # leaves the fewest fronts in deep shade: 6, against 15 either way in z.
+                 sun_direction: [ -30, 80, -24 ], fog: [ 150, 420 ] },
           night: { zenith: "#0e1116", horizon: "#0e1116", ground: "#2a2f36",
                    hemisphere: [ "#9fb8d0", "#2a2f36", 1.1 ], sun: "#fff4e0", sun_intensity: 2.2,
                    sun_direction: [ 48, 72, 36 ], fog: [ 110, 280 ] }
