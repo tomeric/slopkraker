@@ -27,7 +27,7 @@ module Game
       end
 
       attr_reader :yaw, :cell, :seed, :band, :storeys, :storey_height, :eaves, :ridge, :roof,
-                  :dwellings, :boxes, :footprint, :category, :pands
+                  :dwellings, :boxes, :footprint, :category, :pands, :palette
 
       def self.from(attributes)
         a = attributes.to_h.transform_keys(&:to_s)
@@ -40,7 +40,8 @@ module Game
           dwellings: Array(a["dwellings"]).map { |d| d = d.transform_keys(&:to_s); Dwelling.new(x0: d.fetch("x0").to_f, x1: d.fetch("x1").to_f) },
           boxes: Array(a["boxes"]).map.with_index { |b, i| box_from(b, i) },
           footprint: Array(a.fetch("footprint")).map { |x, z| [ x.to_f, z.to_f ] },
-          category: a.fetch("category", "building").to_s, pands: Array(a["pands"]).map(&:to_s)
+          category: a.fetch("category", "building").to_s, pands: Array(a["pands"]).map(&:to_s),
+          palette: a.fetch("palette", Palettes::DEFAULT.to_s).to_s
         )
       end
 
@@ -54,9 +55,10 @@ module Game
         )
       end
 
-      def initialize(yaw:, cell:, seed:, band:, storeys:, storey_height:, eaves:, ridge:, roof:, dwellings:, boxes:, footprint:, category:, pands:)
+      def initialize(yaw:, cell:, seed:, band:, storeys:, storey_height:, eaves:, ridge:, roof:, dwellings:, boxes:, footprint:, category:, pands:, palette:)
         @yaw, @cell, @seed, @band, @storeys, @storey_height = yaw, cell, seed, band, storeys, storey_height
         @eaves, @ridge, @roof, @dwellings, @boxes, @footprint, @category, @pands = eaves, ridge, roof, dwellings, boxes, footprint, category, pands
+        @palette = palette
         validate!
       end
 
@@ -75,6 +77,7 @@ module Game
           raise Invalid, "a footprint needs at least three points" if footprint.length < 3
           raise Invalid, "cell size must be positive" unless cell.positive?
           raise Invalid, "roof must be one of #{ROOFS.join(", ")}" unless ROOFS.include?(roof)
+          raise Invalid, "palette #{palette} is not in the table" unless Palettes.key?(palette)
           raise Invalid, "the ridge cannot sit below the eaves" if ridge < eaves
           raise Invalid, "the band must run front to back" if dwellings.any? && z1 <= z0
           raise Invalid, "storeys must be positive" unless storeys.positive?

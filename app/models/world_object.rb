@@ -37,7 +37,10 @@ class WorldObject < ApplicationRecord
       # category and the source records it was built from; a hand-made one has only its
       # kind, and the overlay falls back to the object's own id.
       category: recipe["category"] || role,
-      pands: recipe["pands"]
+      pands: recipe["pands"],
+      # Which colours it is drawn in. A hand-made recipe names none and gets the default,
+      # which is tuned to today's colours so the four worlds look like themselves.
+      palette: recipe["palette"] || Game::Palettes::DEFAULT.to_s
     }.compact.merge(surface_set.to_spec)
   end
 

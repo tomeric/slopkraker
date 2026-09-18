@@ -358,7 +358,30 @@ module Game
           lift: 0.03,
           colours: { residential: "#2e3236", living_street: "#33373b", tertiary: "#2a2e32",
                      secondary: "#282c30", service: "#3a3e42", cycleway: "#5a3a2e" }
-        }
+        },
+        # The light the world is seen in. Daylight is the default -- brick and tile detail
+        # needs light to read -- and the night the game was lit for until now is one URL
+        # parameter away (?time=night), because it was a deliberate look and the two should
+        # be comparable. Each entry is a whole sky: the gradient the background and the
+        # environment map are built from (zenith, horizon, ground), the fog to the horizon
+        # colour, the hemisphere light and the sun. Physics does not care, so the suite's
+        # timing assertions are unaffected.
+        sky: {
+          day: { zenith: "#4f86c6", horizon: "#d3dde6", ground: "#4d5a45",
+                 hemisphere: [ "#bfd4ec", "#4d5a45", 0.9 ], sun: "#fff1dc", sun_intensity: 2.6,
+                 sun_direction: [ 30, 80, 24 ], fog: [ 150, 420 ] },
+          night: { zenith: "#0e1116", horizon: "#0e1116", ground: "#2a2f36",
+                   hemisphere: [ "#9fb8d0", "#2a2f36", 1.1 ], sun: "#fff4e0", sun_intensity: 2.2,
+                   sun_direction: [ 48, 72, 36 ], fog: [ 110, 280 ] }
+        },
+        # Front gardens are lawns draped beside the road ribbons: their colour, and how far
+        # above the ground they float -- under the roads' lift, so a lawn meeting a road
+        # sits beneath it.
+        gardens: { grass: "#4f7a36", lift: 0.02 },
+        # How much one cell's colour may differ from the next, as a share of lightness. A
+        # wall of one flat value reads as paint; a few percent, seeded per cell, reads as
+        # brick that was fired in a kiln.
+        looks: { jitter: 0.03 }
       }
     end
 
@@ -384,6 +407,8 @@ module Game
         # The whole table, inline. Every surface references a material by name, and the
         # first one can arrive before any other fetch resolves.
         materials: Materials.to_spec,
+        # The colour tables, whole: a recipe names one and the client looks it up.
+        palettes: Palettes.to_spec,
         rules: rules,
         input: input.to_spec
       }

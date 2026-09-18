@@ -60,4 +60,15 @@ class WorldObjectTest < ActiveSupport::TestCase
 
     assert_equal [ "here" ], world.world_objects.in_chunk(1, 2).pluck(:name)
   end
+
+  test "a hand-made building is drawn in the default palette" do
+    assert_equal "brown_brick", world_objects(:targets_house).to_building[:palette]
+  end
+
+  test "a recipe's palette ships with its building" do
+    house = world_objects(:targets_house)
+    house.recipe = house.recipe.merge("palette" => "red_brick")
+
+    assert_equal "red_brick", house.to_building[:palette]
+  end
 end

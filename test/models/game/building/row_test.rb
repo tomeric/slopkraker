@@ -5,15 +5,19 @@ class Game::Building::RowTest < ActiveSupport::TestCase
   # every count can be worked by hand: a 6 m wall is 6 x 3 = 18 cells, a 9 m one 27, a deck
   # 54, a partition across the 6 m width 18, a roof section 6.4 x 5.15 -> 6 x 5 = 30, a
   # gable end 9 x 3 = 27, and the rubble grid ceil(18/2) x ceil(15/2) = 9 x 8 = 72.
-  def pair(**overrides)
-    Game::Building::Generator.call({
+  def pair_recipe(**overrides)
+    {
       "kind" => "row", "category" => "house", "pands" => %w[000001 000002],
       "yaw" => 0.0, "cell" => 1.0, "seed" => 1,
       "band" => [ 0.0, 9.0 ], "storeys" => 2, "storey_height" => 3.0, "eaves" => 6.0, "ridge" => 8.5, "roof" => "gable",
       "dwellings" => [ { "x0" => 0.0, "x1" => 6.0 }, { "x0" => 6.0, "x1" => 12.0 } ],
       "boxes" => [],
       "footprint" => [ [ 0, 0 ], [ 12, 0 ], [ 12, 9 ], [ 0, 9 ] ]
-    }.merge(overrides))
+    }.merge(overrides)
+  end
+
+  def pair(**overrides)
+    Game::Building::Generator.call(pair_recipe(**overrides))
   end
 
   # The same row with a dwelling in the middle, which is the only place an end-only rule
@@ -271,6 +275,12 @@ class Game::Building::RowTest < ActiveSupport::TestCase
       storeys: 3, storey_height: 3.0, eaves: 9.0, ridge: 12.75, roof: "gable", cell: 1.0, seed: 7
     )
     assert_equal 1553, house.piece_count
+  end
+
+  test "a row carries a palette the table knows" do
+    assert_equal "brown_brick", Game::Building::Row.from(pair_recipe).palette
+    assert_equal "red_brick", Game::Building::Row.from(pair_recipe("palette" => "red_brick")).palette
+    assert_raises(Game::Building::Row::Invalid) { Game::Building::Row.from(pair_recipe("palette" => "tartan")) }
   end
 
   test "a row is validated" do

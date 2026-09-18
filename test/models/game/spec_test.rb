@@ -6,7 +6,7 @@ class Game::SpecTest < ActiveSupport::TestCase
   end
 
   test "exposes the top level contract the client compiles against" do
-    assert_equal %i[version arena vehicles materials rules input].sort, spec.keys.sort
+    assert_equal %i[version arena vehicles materials palettes rules input].sort, spec.keys.sort
   end
 
   # The client reads this blob and nothing else. A Vector3 or a Symbol surviving into
@@ -491,5 +491,36 @@ class Game::SpecTest < ActiveSupport::TestCase
     spec[:vehicles].each_value do |vehicle|
       assert_operator vehicle[:camera][:ground_clearance], :>, 0, "#{vehicle[:key]} camera"
     end
+  end
+
+  test "the palette table ships with the spec" do
+    assert_equal Game::Palettes.names.map(&:to_s).sort, spec[:palettes].keys.map(&:to_s).sort
+  end
+
+  # Both skies whole, so the client can build either from the same numbers and the night
+  # the game was lit for stays one URL parameter away.
+  test "the client is told what the sky looks like, by day and by night" do
+    sky = Game::Spec.default_rules.fetch(:sky)
+
+    %i[day night].each do |time|
+      entry = sky.fetch(time)
+      %i[zenith horizon ground sun].each { |key| assert_match(/\A#[0-9a-f]{6}\z/i, entry.fetch(key), "#{time} #{key}") }
+      assert_equal 3, entry.fetch(:hemisphere).length, "#{time} hemisphere is sky colour, ground colour, intensity"
+      assert_operator entry.fetch(:sun_intensity), :>, 0
+      assert_equal 3, entry.fetch(:sun_direction).length
+      assert_operator entry.fetch(:sun_direction)[1], :>, 0, "#{time}'s sun is below the horizon"
+      near, far = entry.fetch(:fog)
+      assert_operator near, :<, far
+    end
+    assert_equal "#0e1116", sky.dig(:night, :horizon), "night is the sky the game was lit for until now"
+  end
+
+  test "the client is told how to draw a lawn and how much a wall may vary" do
+    assert_match(/\A#[0-9a-f]{6}\z/i, Game::Spec.default_rules.dig(:gardens, :grass))
+    assert_operator Game::Spec.default_rules.dig(:gardens, :lift), :<, Game::Spec.default_rules.dig(:roads, :lift),
+                    "a lawn meeting a road must sit beneath it"
+    jitter = Game::Spec.default_rules.dig(:looks, :jitter)
+    assert_operator jitter, :>, 0
+    assert_operator jitter, :<, 0.2, "a wall should not vary into a patchwork"
   end
 end
