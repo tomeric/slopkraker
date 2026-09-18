@@ -66,8 +66,10 @@ export class GameEngine {
     this.quality = qualityFor(quality)
     // Day unless the URL says night. Physics does not care; this is only what it looks like.
     this.timeName = spec.rules.sky?.[time] ? time : "day"
-    this.sky = spec.rules.sky?.[this.timeName]
-    this.sunOffset = this.sky?.sun_direction ?? [ 48, 72, 36 ]
+    // default_rules always ships both day and night, so this is never undefined -- a missing
+    // sky fails loudly one line into createScene rather than silently here.
+    this.sky = spec.rules.sky[this.timeName]
+    this.sunOffset = this.sky.sun_direction
     this.onStatus = onStatus || (() => {})
     this.onMuteChange = onMuteChange || (() => {})
     this.running = false

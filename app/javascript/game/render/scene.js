@@ -44,7 +44,13 @@ export function createScene(quality, sky, renderer = null) {
     const gradient = skyTexture(sky)
     scene.background = gradient
     const pmrem = new THREE.PMREMGenerator(renderer)
-    scene.environment = pmrem.fromEquirectangular(gradient).texture
+    // fromEquirectangular returns the WebGLRenderTarget, not just its texture. Three only
+    // frees the target's framebuffer when the TARGET is disposed -- disposing the texture
+    // alone deletes the GL texture but leaks the framebuffer -- so the target is kept here
+    // and disposed alongside it in disposeScene.
+    const target = pmrem.fromEquirectangular(gradient)
+    scene.environment = target.texture
+    scene.userData.environmentTarget = target
     pmrem.dispose()
   } else {
     scene.background = horizon
@@ -125,7 +131,10 @@ export function createCamera(aspect) {
 // oldest -- which shows up much later as "the game stopped rendering".
 export function disposeScene(scene) {
   if (scene.background?.isTexture) scene.background.dispose()
-  if (scene.environment?.isTexture) scene.environment.dispose()
+  // Disposing the render target also deletes the GL texture it owns (WebGLRenderTargets
+  // deletes every texture in `renderTarget.textures` when the target itself is disposed),
+  // so this alone reclaims what fromEquirectangular allocated -- the framebuffer included.
+  scene.userData.environmentTarget?.dispose()
   scene.traverse((object) => {
     if (object.geometry) object.geometry.dispose()
     const material = object.material
