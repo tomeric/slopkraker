@@ -3,6 +3,7 @@ import { loadRapier } from "game/rapier"
 import { loadTerrain, renderHeightAt } from "game/world/terrain"
 import { castTerrain } from "game/physics/terrain"
 import { buildTerrainView } from "game/render/terrain_view"
+import { buildRoadsView } from "game/render/roads_view"
 import { installParityHooks } from "game/parity"
 import { createRenderer, createScene, createCamera, disposeScene, qualityFor } from "game/render/scene"
 import { buildArenaView } from "game/render/arena_view"
@@ -45,7 +46,7 @@ const SWEEP = {
 // specifies regardless of display refresh; meshes are interpolated between the last two
 // physics states so a 60Hz display still looks smooth at 120Hz physics.
 export class GameEngine {
-  constructor({ canvas, root, spec, vehicleKey, playerId, match, world, quality, onStatus, onMuteChange }) {
+  constructor({ canvas, root, spec, vehicleKey, spawnIndex, playerId, match, world, quality, onStatus, onMuteChange }) {
     this.canvas = canvas
     this.root = root || canvas.parentElement
     this.spec = spec
@@ -55,6 +56,10 @@ export class GameEngine {
     // would be silent -- physics would win, since it is assigned later.
     this.worldSlug = world
     this.vehicleKey = vehicleKey || "monster_truck"
+    // Which of the world's spawns to start from. Kept on the engine rather than passed to
+    // spawnVehicle, so a respawn or a vehicle swap comes back to the same corner of a town
+    // rather than to the middle of it.
+    this.spawnIndex = spawnIndex || 0
     this.qualityName = quality || "high"
     this.quality = qualityFor(quality)
     this.onStatus = onStatus || (() => {})
@@ -106,6 +111,10 @@ export class GameEngine {
 
     this.arenaGroup = buildArenaView(this.scene, this.spec.arena)
     if (terrain) this.terrainGroup = buildTerrainView(this.scene, terrain, this.spec.rules.terrain)
+    // After the terrain, because every vertex of the ribbon is laid on the ground it
+    // crosses. Null on a world without roads, and no collider either way -- the car drives
+    // on the heightfield, never on the road.
+    this.roadsView = buildRoadsView(this.scene, this.spec.arena.roads, this.ground, this.spec.rules.roads)
     this.propGrid = new SpatialGrid({ cellSize: 5 })
     this.trackProps()
 
@@ -227,6 +236,9 @@ export class GameEngine {
     window.__arenaPieceBlock = (piece, buildingId) =>
       this.buildings?.find(buildingId)?.block(piece) ?? []
     window.__arenaDraws = () => this.renderer.info.render.calls
+    // How much ribbon there is. Zero on a world without roads, and one mesh however many
+    // roads there are -- which is the whole of what drawing them as a ribbon buys.
+    window.__arenaRoadVertices = () => this.roadsView?.geometry.attributes.position.count ?? 0
     window.__arenaCollapses = () => this.collapsesSeen ?? 0
     // The reasons the server has refused this session, batch truncation among them. A test
     // driving a huge break in one frame asserts this stays empty -- if it is not, the
@@ -446,7 +458,9 @@ export class GameEngine {
     this.teardownVehicle()
 
     const spec = this.spec.vehicles[key]
-    const spawn = this.spec.arena.spawns[0]
+    // The first spawn unless one was asked for. An index past the end falls back rather
+    // than spawning nowhere, because ?spawn= is a URL a person types.
+    const spawn = this.spec.arena.spawns[this.spawnIndex] ?? this.spec.arena.spawns[0]
 
     this.vehicleKey = key
     this.vehicle = buildVehicle(key, {
@@ -945,6 +959,8 @@ export class GameEngine {
     for (const remote of this.remotes?.values() ?? []) remote.dispose()
     this.remotes?.clear()
     this.buildings?.dispose(this.colliderIndex)
+    this.roadsView?.geometry.dispose()
+    this.roadsView?.material.dispose()
     this.eventQueue?.free()
     this.world?.free()
 

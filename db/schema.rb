@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_18_120000) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_18_130000) do
   create_table "matches", force: :cascade do |t|
     t.string "authority"
     t.datetime "authority_claimed_at"
@@ -84,6 +84,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_18_120000) do
     t.float "origin_x", default: 0.0, null: false
     t.float "origin_y", default: 0.0, null: false
     t.float "origin_z", default: 0.0, null: false
+    t.json "roads", default: [], null: false
     t.integer "seed", default: 0, null: false
     t.string "slug", null: false
     t.json "spawns", null: false

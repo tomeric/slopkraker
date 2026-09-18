@@ -96,4 +96,20 @@ class WorldTest < ActiveSupport::TestCase
     assert_equal 41, manifest.to_spec[:height_n]
     assert_equal 4, manifest.to_spec[:tiles].length
   end
+
+  # Roads are drawn and never simulated, so they travel as the polylines they were
+  # imported as rather than as rows of geometry. The client drapes them on the ground.
+  test "a world's roads ride into its scene as polylines" do
+    world = worlds(:flat)
+    world.update!(roads: [ { "kind" => "residential", "width" => 5.5, "points" => [ [ 0, 0 ], [ 40, 0 ], [ 40, 30 ] ] } ])
+
+    roads = world.scene.to_spec[:roads]
+    assert_equal 1, roads.length
+    assert_equal 3, roads.first["points"].length
+  end
+
+  # An empty list, never nil: the client iterates it, and every hand-made world has one.
+  test "a world without roads has none, rather than nil" do
+    assert_equal [], worlds(:flat).scene.to_spec[:roads]
+  end
 end

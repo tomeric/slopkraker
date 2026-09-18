@@ -21,6 +21,9 @@ export default class extends Controller {
       world: this.worldValue,
       quality: this.qualityValue,
       vehicleKey: new URLSearchParams(window.location.search).get("vehicle") || "monster_truck",
+      // Which of the world's spawns to start from. A town has several and driving to the
+      // far one takes a minute; NaN and the empty string both fall back to the first.
+      spawnIndex: Number(new URLSearchParams(window.location.search).get("spawn") || 0),
       onStatus: (message) => this.showStatus(message),
       onMuteChange: (muted) => this.showMuted(muted)
     })

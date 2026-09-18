@@ -477,6 +477,14 @@ class Game::SpecTest < ActiveSupport::TestCase
     assert_operator from, :<, to
   end
 
+  # A road is a ribbon lying on the terrain, so the only numbers it needs are how far
+  # above the ground it floats and what colour each kind of road is.
+  test "roads ship how high they float and what colour each kind is" do
+    roads = Game::Spec.default_rules.fetch(:roads)
+    assert_operator roads[:lift], :>, 0
+    %i[residential living_street tertiary secondary service cycleway].each { |kind| assert roads[:colours][kind], kind }
+  end
+
   # On a downhill slope the camera behind the car goes under the ground and looks up
   # through a single-sided world. How far above the ground it is kept is a feel number.
   test "every camera keeps clear of the ground" do

@@ -59,7 +59,11 @@ class World < ApplicationRecord
       props: world_objects.where(kind: "prop").order(:id).map(&:to_prop),
       buildings: world_objects.where(kind: "building").order(:id).map(&:to_building),
       spawns: spawn_points,
-      terrain: terrain
+      terrain: terrain,
+      # Polylines, not geometry. A world of real streets is a thousand segments, which as
+      # static bodies would be a thousand meshes and, on a slope, a thousand lips; the
+      # client drapes the lot on the terrain as one ribbon with no colliders at all.
+      roads: roads || []
     )
   end
 

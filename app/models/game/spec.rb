@@ -351,6 +351,13 @@ module Game
           roughness: 0.95,
           colours: { low: "#4d6b3c", high: "#8b8a6a", steep: "#6b655c" },
           steep: [ 0.15, 0.35 ]
+        },
+        # Roads are ribbons draped on the terrain and nothing else: how far above the
+        # ground they float so the two never fight, and what colour each OSM kind is.
+        roads: {
+          lift: 0.03,
+          colours: { residential: "#2e3236", living_street: "#33373b", tertiary: "#2a2e32",
+                     secondary: "#282c30", service: "#3a3e42", cycleway: "#5a3a2e" }
         }
       }
     end
