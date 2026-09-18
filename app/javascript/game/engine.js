@@ -66,8 +66,10 @@ export class GameEngine {
     this.quality = qualityFor(quality)
     // Day unless the URL says night. Physics does not care; this is only what it looks like.
     this.timeName = spec.rules.sky?.[time] ? time : "day"
-    // default_rules always ships both day and night, so this is never undefined -- a missing
-    // sky fails loudly one line into createScene rather than silently here.
+    // default_rules always ships both day and night, so this is never undefined -- and if a
+    // spec ever arrived without one, the line below throws on `sun_direction` rather than
+    // carrying an undefined sky as far as createScene. No `??`: a sky defaulted here is a
+    // copy of Ruby's colours that nothing can reach and nobody can retune.
     this.sky = spec.rules.sky[this.timeName]
     this.sunOffset = this.sky.sun_direction
     this.onStatus = onStatus || (() => {})
