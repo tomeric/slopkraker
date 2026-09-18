@@ -119,13 +119,6 @@ module Game
           Math.atan2(long[1], long[0])
         end
 
-        def segment_distance(px, pz, x1, z1, x2, z2)
-          dx, dz = x2 - x1, z2 - z1
-          l2 = dx * dx + dz * dz
-          t = l2.zero? ? 0.0 : (((px - x1) * dx + (pz - z1) * dz) / l2).clamp(0.0, 1.0)
-          Math.hypot(px - (x1 + t * dx), pz - (z1 + t * dz))
-        end
-
         def nearest_on_segment(px, pz, x1, z1, x2, z2)
           dx, dz = x2 - x1, z2 - z1
           length2 = dx * dx + dz * dz

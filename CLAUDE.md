@@ -38,11 +38,15 @@ Currently:
   buildings — an estate of terraces 50 m around RD (186330, 332234), and the church with
   its hall and apartments 60 m around RD (187006, 331447), a kilometre apart with nothing
   in between — on nine 500 m heightfield tiles resampled from the DEM, with 266 roads
-  drawn on the ground as ribbons. Those forty-eight rows are **43,861 pieces in 647 KB of
+  drawn on the ground as ribbons. Those forty-eight rows are **44,052 pieces in 659 KB of
   building spec and 38 KB of roads**, against `street`'s twelve houses at 6692 pieces and
   103 KB: six and a half times the world for six times the bytes, which is the row recipe
   paying for itself and still the reason the next window wants streaming rather than a
-  third island. `?spawn=1` starts beside the church instead of on the estate. Every
+  third island. The importer also gives each row a palette, a garage where one of its
+  boxes faces the street at a car's width, and a front garden where a road runs across a
+  dwelling's own front — measured on this town: three garages, and thirty-one gardens,
+  twenty-nine of them on the estate's thirty-one dwellings and two more on the church
+  island. `?spawn=1` starts beside the church instead of on the estate. Every
   building is a `row` rather than a house, and a terrace comes down one dwelling at a
   time. **A church or a hall is a row of ZERO dwellings and one bay per part**, decided by
   its category and never by how tall its parts are: Sint-Marcellinus's nave is one main
@@ -76,7 +80,8 @@ by hand after touching anything in `app/javascript/game/`.
 Useful URLs while the server is up: `/?world=<slug>` picks the world (`flat`, `targets`, `street`,
 `hills`, `geleen`), `/?vehicle=buggy` picks the vehicle, `/?spawn=1` picks which of the world's
 spawns to start from (a town has several and driving between them takes a minute), `/?quality=low`
-drops shadows and pixel ratio, `/?match=<name>` picks the ActionCable match. In-game: `G` toggles
+drops shadows and pixel ratio, `/?time=night` picks the night sky rather than the default day,
+`/?match=<name>` picks the ActionCable match. In-game: `G` toggles
 the debug overlay, `V` switches vehicle, `R` respawns, `H` hides the controls panel, `M` mutes.
 
 `bin/dev` resolves its own port: an explicit `PORT`/`-p` wins, else the port recorded in
@@ -394,6 +399,42 @@ positions derive from the recipe seed, clearing goes through `damage`/`breaks` a
   margin and 1534 → 1553 when the margin grew and went ragged; the street's twelve moved
   with it each time.
 
+### How buildings look (`render/looks.js`, `piece_meshes.js`, `Game::Palettes`)
+
+Every piece is still a box in an instanced pool, one pool per material. What changed is
+how the pool's ONE material is dressed and how each instance is coloured.
+
+- **The look lives in Ruby.** `Game::Material#look` — pattern, unit sizes in metres,
+  joint width and shade, per-unit variation, relief, a value-space base — ships in
+  `materials[*].look`. The client paints three textures per patterned material at boot
+  (albedo, normal, roughness, 2 m × 2 m, seamless) from those numbers and holds none of
+  its own; `TILE` and `SIZE` in `looks.js` are the drawing's shape, not tuning.
+- **Texture coordinates are metres along the surface.** Each instance carries `cellUV`,
+  its cell's offset along its surface, and a vertex chunk (`onBeforeCompile` replacing
+  `uv_vertex`) maps the cube's faces from that plus the instance matrix's scale, so a
+  bond runs across a wall and a hole shows brick ends. Glass is the exception: it maps
+  per cell, so its frame goes round each pane.
+- **Colour is `palette[role] × jitter × damage shade`, in the instance colour.** Pool
+  materials are white. `Game::Palettes` is a frozen table like `Materials`; a recipe
+  names one (`palette`, default `brown_brick`, tuned to the colours the hand-made worlds
+  always had); a material names a `role`. Palettes carry `brick`, `roof_tile` and `door`
+  only — one instance colour cannot colour a joint differently from its face. `low`
+  quality paints nothing and keeps flat materials; palettes still apply.
+- **Openings are styles** (`Openings::STYLES`): `classic` is byte for byte what the
+  `building` recipe always had; a dwelling's front is a one-cell `door` with a two-cell
+  window beside it; a box with `door: "garage"` gets a two-row door across its first
+  edge; a church's nave, tower and chapel have rhythms of their own. Styles change
+  patches, never grids, so nothing renumbers.
+- **A hedge is pieces, a lawn is a picture.** A `row` with `gardens` appends one
+  `kind: :hedge` surface per garden (storey −1, one row of cells, the path void) after
+  the boxes and before the rubble; it is skipped by the collapse rule by storey, by name
+  and by weight, and left out of the rubble mix. Lawns are rings the client drapes into
+  the roads' mesh. The importer finds garages (a one-storey annex whose street edge is a
+  car wide) and gardens (the strip to the nearest road across the front).
+- **Daylight is the default.** `rules.sky.{day,night}`; `?time=night` is the sky the game
+  was lit for until now. At high quality the sky is a gradient texture filtered once
+  into an environment map so steel reflects something; at low it is the horizon colour.
+
 ### Terrain (`game/world/terrain.js`, `physics/terrain.js`, `render/terrain_view.js`)
 
 The ground of a world with `terrain_tiles` is a heightfield. Ruby's half —
@@ -600,6 +641,8 @@ The engine exposes debug/test hooks on `window`:
 | `__arenaDamagePiece` | `(piece, amount, buildingId)` — damage without driving into anything |
 | `__arenaPieceState`, `__arenaPieceBlock` | What a piece is made of, how hurt it is, which block it breaks with |
 | `__arenaPieceMatrix` | A piece's world transform, so a test can prove two clients agree on where it is |
+| `__arenaCellUV` | `(piece, buildingId)` — where that piece's texture starts along its surface, in metres: half of "the bond runs across the wall in the building's own palette" |
+| `__arenaTint` | `(piece, buildingId)` — what a piece was coloured before damage, the palette's colour for its role times jitter: the other half of that claim |
 | `__arenaRubble` | `{ dormant, standing, cleared }` heaps — an intact house has only the first |
 | `__arenaHeapFragments` | `(piece, buildingId)` — the materials of one heap's chunks, one entry per chunk. "The wreckage is made of what the house was made of" is an assertion about this |
 | `__arenaRemnants` | Chunks left lying by cleared heaps and still visible — positive the moment a heap clears, zero once they have faded |
@@ -611,11 +654,13 @@ The engine exposes debug/test hooks on `window`:
 | `__arenaBays` | `(buildingId)` — the `{bay: storey}` map this client holds. A bay missing from it is a dwelling still standing, and a single-bay house has at most the one entry under `0`, so "the house next door is untouched" is a reading rather than an inference |
 | `__arenaPileOrder` | `(buildingId, bay)` — the order this client will reveal that bay's heaps in. Held against `Rubble.pile_indices` in `bays_test`: the server gates damage on the revealed PREFIX, so a client revealing a different order has heaps it can see and cannot clear |
 | `__arenaRoadVertices` | How many vertices the road ribbon has. Zero on a world with no roads, and the only way to tell "the roads are drawn" from "the roads are data nobody built a mesh out of" |
+| `__arenaLawnVertices` | How much of the roads mesh is lawn rather than asphalt. Zero with no roads view at all, and the only way to tell "the gardens are drawn" from "the rings are data nobody draped" |
 | `__arenaNetUp` | Whether the ActionCable subscription is up. A break made before it is up is dropped by design, so tests that need the server to have heard one wait on it first |
 | `__arenaNetErrors` | Every reason the server has refused this session — `not_authoritative`, a batch over the cap. Empty is the assertion: a test that breaks a houseful in one frame while the server quietly refuses every report otherwise passes |
 | `__arenaDraws` | `renderer.info.render.calls` — turns "did the render plan regress" into an assertion |
 | `__arenaBuildingLabels` | The debug overlay's plate for every building — `{ id, name, category, ids, shown }` — so "which building is that" is a name rather than a pointer, and a test can assert on the words |
 | `__arenaQuality` | Which tier the engine actually settled on |
+| `__arenaLooks` | What the client painted at boot — which materials got a texture, the tile size, whether the environment map and which sky are live — so the surface detail is an assertion, not a screenshot |
 | `__arenaDebugVisible`, `__arenaMasterGain` | Overlay / audio assertions |
 | `__arenaTerrainProbe` | `(x, z)` — `{ physics, render, sampled, other, delta }`: a downward raycast against the heightfield, barycentric interpolation over the drawn triangles, the client sampler, and what the *opposite* diagonal would say |
 | `__arenaTerrainHeight` | `(x, z)` — `Terrain#heightAt`, the ported sampler; `null` on a flat world |

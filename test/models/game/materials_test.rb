@@ -210,6 +210,8 @@ class Game::MaterialsTest < ActiveSupport::TestCase
       material = Game::Materials.fetch(name)
       look = material.look
       if look.nil?
+        # A branch rather than one assert_equal(look, ...): Minitest refuses assert_equal
+        # with a nil expected value.
         assert_nil material.to_spec[:look], "#{name} does not ship its look"
         next
       end

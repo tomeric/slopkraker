@@ -153,6 +153,25 @@ class ShotsTest < ApplicationSystemTestCase
     park_in_front_of(church, back: 25)
     shot "21-geleen-church"
 
+    # Close, which is where brick reads as brick or does not: three metres off a front.
+    park_in_front_of(row, back: 3)
+    shot "22-geleen-wall-at-three-metres"
+
+    # A garage, if the import found one on the estate.
+    garage = page.evaluate_script("window.__arenaBuildingIds().find(i => window.__arenaBuildingSpec(i).lawns && window.__arenaBuildingSpec(i).lawns.length > 0 && window.__arenaBuildingSpec(i).name.startsWith('estate-'))")
+    park_in_front_of(garage, back: 10) if garage
+    shot "23-geleen-garden-and-hedge" if garage
+
+    # The same kerb, at night, for the comparison the default was chosen against.
+    visit_world("geleen", vehicle: "buggy", quality: "high", match: "shots-geleen-night", time: "night")
+    wait_for(timeout: 120, message: "geleen never booted at night") { page.evaluate_script("!!(window.__arena && window.__arena.ready)") }
+    wait_for(timeout: 120, message: "the world never stepped") { page.evaluate_script("window.__arena.steps").positive? }
+    sleep 2.0
+    press("g")
+    press("h")
+    park_in_front_of(row, back: 8)
+    shot "24-geleen-row-at-night"
+
     puts "\n--- shots in #{SHOTS}"
     Dir.children(SHOTS).sort.each { |f| puts "      #{f}" }
   end
