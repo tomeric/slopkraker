@@ -110,7 +110,7 @@ to the same answers; `game/parity.js` is the JS end of that and is used by nothi
 because the temptation to port it will recur. An individual break is monotone and self-caused, so
 a client can predict it and never have to undo one. A collapse is neither: it follows from the sum
 of what every player has done to a building, and it is the one event that cannot be walked back.
-The server decides and says so in `[object_id, from_storey]`; the client expands that against
+The server decides and says so in `[object_id, from_storey, bay]`; the client expands that against
 surfaces it already holds.
 
 ### Buildings: recipe → surfaces → pieces
@@ -440,7 +440,7 @@ the sum of what every player has done to a building and no client can see that s
 ```
 client  damage {seq, hits: [[object_id, piece_index, raw, kind], …]}   batched at snapshot_hz
         request_state {ids}                                            on every connect
-server  breaks {broken, collapses, authority}                          broadcast
+server  breaks {broken, collapses: [[object_id, from_storey, bay], …], authority}  broadcast
         state  {objects, authority}                                    to the asker alone
         error  {reason}                                                to the asker alone
 ```

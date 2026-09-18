@@ -3,7 +3,7 @@ import { PieceMeshes } from "game/render/piece_meshes"
 import { Patterns } from "game/fracture/patterns"
 import { Debris } from "game/render/debris"
 import { FallingPieces } from "game/world/falling_pieces"
-import { lumpGeometry, chunkGeometry, isFragmentPool, SHAPES } from "game/world/rubble"
+import { lumpGeometry, chunkGeometry, isFragmentPool, pileOrder, SHAPES } from "game/world/rubble"
 import { Remnants } from "game/render/remnants"
 import { baseMaterial } from "game/render/piece_meshes"
 
@@ -129,27 +129,32 @@ export class Buildings {
     }
   }
 
-  applyCollapse(objectId, fromStorey) {
+  // One bay of one building. A terrace comes down a dwelling at a time, and a world of
+  // single-bay houses says 0 for ever.
+  applyCollapse(objectId, fromStorey, bay = 0) {
     const building = this.byId.get(objectId)
     if (!building) return 0
 
-    const count = building.collapse(fromStorey)
+    const count = building.collapse(bay, fromStorey)
     // Owed, not given. The heaps appear as the slabs carrying them land -- which is what
     // stops a wall section falling through the rubble it is about to become.
-    building.expectRubble(this.revealedRubble(building, fromStorey))
+    building.expectRubble(bay, this.revealedRubble(building, fromStorey, bay))
     return count
   }
 
-  // The same arithmetic the server runs in Building::Rubble.revealed_count. A house gutted
-  // to the ground leaves all of its wreckage; one that lost only its top floor leaves a
-  // proportional share. Both sides work it out from collapsed_from and the storey count,
-  // which they already hold, so it never goes on the wire.
-  revealedRubble(building, fromStorey) {
+  // The same arithmetic the server runs in Building::Rubble.revealed_count, over the bay's
+  // own heaps: a bay gutted to the ground leaves all of its wreckage, one that lost only
+  // its top floor a proportional share, and the dwelling still standing next door leaves
+  // none at all. Both sides work it out from the storey it came down from and the storey
+  // count, which they already hold, so it never goes on the wire.
+  revealedRubble(building, fromStorey, bay = 0) {
     const storeys = building.spec.storeys
     if (!storeys || fromStorey === null || fromStorey === undefined) return 0
 
-    const piles = building.rubbleCounts
-    const total = piles.dormant + piles.standing + piles.cleared
+    const surface = building.spec.surfaces.find((s) => s.kind === "rubble")
+    if (!surface) return 0
+
+    const total = pileOrder(surface, surface.bays ? bay : null).length
     return Math.round(total * (storeys - fromStorey) / storeys)
   }
 
@@ -163,12 +168,14 @@ export class Buildings {
       if (!building) continue
 
       building.applyBroken(entry.broken, true)
-      if (entry.collapsed_from !== null && entry.collapsed_from !== undefined) {
-        building.collapse(entry.collapsed_from, true)
+      // A map of bay to the storey that bay came down from, keyed as JSON hands it over.
+      // An empty map -- or none at all -- is a building still standing.
+      for (const [ bay, storey ] of Object.entries(entry.collapsed || {})) {
+        building.collapse(Number(bay), storey, true)
         // AFTER applyBroken, and harmlessly so. Revealing only moves DORMANT -> INTACT, so
         // a heap cleared in some earlier session stays cleared -- which is what makes the
         // order of these two irrelevant rather than load-bearing.
-        building.revealRubble(this.revealedRubble(building, entry.collapsed_from))
+        building.revealRubble(Number(bay), this.revealedRubble(building, storey, Number(bay)))
       }
     }
   }

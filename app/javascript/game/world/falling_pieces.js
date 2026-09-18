@@ -130,6 +130,9 @@ export class FallingPieces {
     // decided -- otherwise the wall sections fall through rubble that is already lying
     // where they are about to land.
     entry.owner = shape.owner ?? null
+    // And which of its bays. A terrace reveals a dwelling's wreckage as that dwelling's own
+    // slabs land, so the bay has to travel with the slab and come back with the landing.
+    entry.bay = shape.bay ?? 0
     this.cells += shape.cells
     entry.mesh.scale.copy(SCALE)
     entry.mesh.position.copy(POSITION)
@@ -152,7 +155,7 @@ export class FallingPieces {
     this.scene.add(mesh)
     return {
       mesh, body: null, collider: null, name, age: 0, touched: false,
-      rows: 1, cols: 1, cells: 1, owner: null
+      rows: 1, cols: 1, cells: 1, owner: null, bay: 0
     }
   }
 
@@ -222,7 +225,7 @@ export class FallingPieces {
     }
 
     this.cells -= entry.cells
-    entry.owner?.slabLanded()
+    entry.owner?.slabLanded(entry.bay)
     entry.owner = null
     this.colliderIndex.delete(entry.collider.handle)
     this.world.removeRigidBody(entry.body)

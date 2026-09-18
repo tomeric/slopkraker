@@ -51,10 +51,15 @@ export class Building {
     // "The ground here", for laying heaps on. Null on a flat world, where the rubble
     // surface's own plane says where the ground is.
     this.ground = ground
-    // How much wreckage is owed, and how many falling slabs are still to deliver it.
-    this.pendingRubble = 0
-    this.expectedSlabs = 0
-    this.landedSlabs = 0
+    // How much wreckage is owed, and how many falling slabs are still to deliver it --
+    // PER BAY, keyed by it. A terrace comes down a dwelling at a time and each dwelling
+    // owes its own wreckage, so a single counter would pay one bay's heaps out against
+    // another bay's slabs. A building of one bay has one entry, under 0.
+    this.pendingRubble = {}
+    this.expectedSlabs = {}
+    this.landedSlabs = {}
+    // Which bay has come down, and from which storey. Empty is a building still standing.
+    this.collapsed = {}
     this.onDamage = onDamage
     this.origin = new THREE.Vector3().fromArray(spec.o)
     // Bound once: the tiling asks this per cell, and it is asked a few thousand times.
@@ -487,14 +492,21 @@ export class Building {
     return true
   }
 
-  // A collapse arrives as twenty bytes -- [object_id, from_storey] -- and becomes a
+  // A collapse arrives as twenty bytes -- [object_id, from_storey, bay] -- and becomes a
   // hundred and fifty pieces here. The client already holds the surfaces, so expanding it
   // is a filter rather than a message. Roof and gable surfaces carry storey_count, which
   // is above every real storey, so "storey >= from" reaches them without a special case.
-  collapse(fromStorey, silent = false) {
+  collapse(bay, fromStorey, silent = false) {
+    // THIS BAY's own surfaces, and never a shared one. A party wall holds up the dwelling
+    // on both sides of it, so the dwelling coming down cannot take it -- the one still
+    // standing next door is leaning on it. The server fells bays by exactly this rule.
+    //
     // Roof and gable surfaces carry storey_count, which is above every real storey, so
-    // "storey >= from" reaches them without a special case.
-    const coming = this.spec.surfaces.filter((surface) => surface.storey >= fromStorey)
+    // "storey >= from" reaches them without a special case; rubble carries -1, which is
+    // below every storey, so a collapse can never sweep the wreckage it is making.
+    const coming = this.spec.surfaces.filter(
+      (surface) => !surface.between && (surface.bay ?? 0) === bay && surface.storey >= fromStorey
+    )
 
     // What is still standing, covered in slabs. Done before anything breaks, because the
     // tiling can only see what is standing and everything here is about to not be.
@@ -540,6 +552,9 @@ export class Building {
         slab.surface, slab.row, slab.col, slab.rows, slab.cols, SLAB_MATRIX, this.origin
       )
       slab.owner = this
+      // Whose wreckage this slab is carrying down. It comes back on landing, so the heaps
+      // it pays for are this bay's rather than the building's.
+      slab.bay = bay
       if (!this.falling.drop(matrix, slab.material, slab)) continue
       dropped += 1
 
@@ -558,31 +573,43 @@ export class Building {
       }
     }
 
-    this.expectedSlabs = dropped
-    this.landedSlabs = 0
+    this.expectedSlabs[bay] = dropped
+    this.landedSlabs[bay] = 0
+    this.collapsed[bay] = fromStorey
     return count
   }
 
-  // How much wreckage this collapse will eventually leave. Held rather than revealed,
+  // How much wreckage THIS BAY's collapse will eventually leave. Held rather than revealed,
   // because the heaps arrive as the pieces carrying them hit the ground.
   //
-  // A restore has no slabs to wait for -- the house came down in some earlier session and
+  // A restore has no slabs to wait for -- the bay came down in some earlier session and
   // the wreckage simply IS there -- so with nothing in the air it all appears at once.
-  expectRubble(total) {
-    this.pendingRubble = total
-    if (!this.expectedSlabs) return this.revealRubble(total)
+  expectRubble(bay, total) {
+    this.pendingRubble[bay] = total
+    if (!this.expectedSlabs[bay]) return this.revealRubble(bay, total)
 
     return 0
   }
 
-  // One falling slab has landed. Reveal wreckage in proportion, so the site fills in as
-  // the house comes apart and is complete the moment the last piece is down.
-  slabLanded() {
-    this.landedSlabs = (this.landedSlabs ?? 0) + 1
-    if (!this.pendingRubble || !this.expectedSlabs) return 0
+  // One of that bay's falling slabs has landed. Reveal wreckage in proportion, so the site
+  // fills in as the dwelling comes apart and is complete the moment the last piece is down.
+  slabLanded(bay = 0) {
+    this.landedSlabs[bay] = (this.landedSlabs[bay] ?? 0) + 1
+    if (!this.pendingRubble[bay] || !this.expectedSlabs[bay]) return 0
 
-    const share = Math.min(1, this.landedSlabs / this.expectedSlabs)
-    return this.revealRubble(Math.round(this.pendingRubble * share))
+    const share = Math.min(1, this.landedSlabs[bay] / this.expectedSlabs[bay])
+    return this.revealRubble(bay, Math.round(this.pendingRubble[bay] * share))
+  }
+
+  // Which bays have come down and from where. A readout, for tests and the overlay: the
+  // server owns this answer and says so in every `breaks` and every `state`.
+  get bays() {
+    return { ...this.collapsed }
+  }
+
+  // Every slab this building has put in the air on its own behalf, across all its bays.
+  get slabsDropped() {
+    return Object.values(this.expectedSlabs).reduce((total, dropped) => total + dropped, 0)
   }
 
   // Monotone, and that is the whole of the reconciliation design. This only ever breaks.
@@ -626,9 +653,10 @@ export class Building {
     return true
   }
 
-  // The first `count` heaps in index order -- the same order and the same count the server
-  // works out from collapsed_from, so the two never disagree about which heaps exist.
-  revealRubble(count) {
+  // The first `count` heaps of this bay, in the bay's own order -- the same order and the
+  // same count the server works out from the storey it came down from, so the two never
+  // disagree about which heaps exist.
+  revealRubble(bay, count) {
     const surface = this.spec.surfaces.find((s) => s.kind === "rubble")
     if (!surface) return 0
 
@@ -636,7 +664,10 @@ export class Building {
     // returns -- the server gates damage on the revealed prefix, so revealing a different
     // subset would show heaps that cannot be cleared and hide heaps the server thinks are
     // there. For a partial collapse it would do so permanently.
-    const order = pileOrder(surface)
+    //
+    // The whole grid where the grid says nothing about bays, which is what one building's
+    // wreckage is: the server asks for the same thing the same way.
+    const order = pileOrder(surface, surface.bays ? bay : null)
     let revealed = 0
 
     for (let n = 0; n < order.length && n < count; n += 1) {

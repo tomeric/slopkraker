@@ -269,10 +269,14 @@ export class GameEngine {
     // is exactly why the falling budget could be over-subscribed across a street without
     // anything looking wrong: a building that is told it may drop six hundred slabs will
     // report having dropped six hundred whether or not the world could still hold them.
-    window.__arenaSlabsDropped = (id) => this.buildings?.find(id)?.expectedSlabs ?? 0
+    window.__arenaSlabsDropped = (id) => this.buildings?.find(id)?.slabsDropped ?? 0
     // Per building, so "collapsing one house left its neighbour untouched" is one read
     // rather than a thousand round trips through __arenaPieceState.
     window.__arenaBuildingStanding = (id) => this.buildings?.find(id)?.standingCount ?? 0
+    // Which of a building's bays have come down, and from which storey. Empty is a building
+    // still standing, and a single-bay house has at most the one entry, under 0 -- so "the
+    // dwelling next door is untouched" is a reading rather than an inference.
+    window.__arenaBays = (id) => this.buildings?.find(id)?.bays ?? {}
     // What the overlay says about every building -- category, name, source ids -- and
     // whether its plate is showing, so a test can assert on the words rather than pixels.
     window.__arenaBuildingLabels = () => this.buildingLabels?.readout() ?? []
@@ -381,8 +385,11 @@ export class GameEngine {
       case "breaks":
         if (!this.buildings) return
         this.buildings.applyBreaks(data.broken)
-        for (const [ objectId, storey ] of data.collapses || []) {
-          this.buildings.applyCollapse(objectId, storey)
+        // Three and not two: a terrace stands or falls a dwelling at a time, so the server
+        // names the bay it condemned along with the storey it came down from. A world of
+        // single-bay houses says 0 every time.
+        for (const [ objectId, storey, bay ] of data.collapses || []) {
+          this.buildings.applyCollapse(objectId, storey, bay ?? 0)
           this.collapsesSeen++
         }
         break

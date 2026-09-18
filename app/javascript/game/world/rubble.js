@@ -310,28 +310,50 @@ function domeMean(surface, rules) {
   return mean
 }
 
-// The heaps outward from the middle, which is the order they are revealed in -- and which
-// MUST match Building::Rubble.pile_indices, because the server gates damage on the revealed
-// prefix. Quantised and index-tied for the same reason it is in Ruby: two languages
-// agreeing on a float comparison is not something to rest a shared order on.
-export function pileOrder(surface) {
-  let cached = ORDERS.get(surface)
+// The heaps outward from the middle -- of the whole grid, or of one bay's own heaps when a
+// bay is asked for -- in exactly the order Building::Rubble.pile_indices returns, because
+// the server gates damage on the revealed prefix. A row's rubble covers the whole terrace,
+// so the grid's centre is out in the middle of somebody else's dwelling, which is why a bay
+// is measured from its own. Quantised and index-tied for the same reason it is in Ruby: two
+// languages agreeing on a float comparison is not something to rest a shared order on.
+//
+// NEVER a truthiness test on `bay`. Bay 0 is a real bay -- the whole of a single-bay
+// building -- and it is the one every world in the game is made of, so `bay || ...` would
+// hand it the whole grid and nobody would see anything wrong until a terrace existed.
+export function pileOrder(surface, bay = null) {
+  const key = bay === null || bay === undefined || !surface.bays ? "all" : String(bay)
+  let cached = ORDERS.get(surface)?.[key]
   if (cached) return cached
 
-  const piles = []
+  const cells = []
   for (let row = 0; row < surface.rows; row += 1) {
     for (let col = 0; col < surface.cols; col += 1) {
       if (materialAt(surface, row, col) === "void") continue
+      if (key !== "all" && surface.bays[row * surface.cols + col] !== bay) continue
 
-      const dx = (col + 0.5) / surface.cols - 0.5
-      const dy = (row + 0.5) / surface.rows - 0.5
-      piles.push([ Math.round(Math.hypot(dx, dy) * 1000000), surface.off + row * surface.cols + col ])
+      cells.push([ row, col ])
     }
   }
 
+  let centreRow = surface.rows / 2
+  let centreCol = surface.cols / 2
+  if (key !== "all" && cells.length > 0) {
+    centreRow = cells.reduce((sum, [ row ]) => sum + row + 0.5, 0) / cells.length
+    centreCol = cells.reduce((sum, [ , col ]) => sum + col + 0.5, 0) / cells.length
+  }
+
+  // Term for term as Rubble.radius_from writes it, and not an algebraically equal
+  // rearrangement: the two languages have to round the same way as well as mean the same
+  // thing, or a heap on the boundary between two quantised radii sorts differently here.
+  const piles = cells.map(([ row, col ]) => [
+    Math.round(Math.hypot((col + 0.5 - centreCol) / surface.cols, (row + 0.5 - centreRow) / surface.rows) * 1000000),
+    surface.off + row * surface.cols + col
+  ])
+
   piles.sort((a, b) => a[0] - b[0] || a[1] - b[1])
   cached = piles.map((pile) => pile[1])
-  ORDERS.set(surface, cached)
+  if (!ORDERS.has(surface)) ORDERS.set(surface, {})
+  ORDERS.get(surface)[key] = cached
   return cached
 }
 
