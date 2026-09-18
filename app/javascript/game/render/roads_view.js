@@ -17,7 +17,7 @@ const LAWN_STEP = 2
 export function buildRoadsView(scene, roads, ground, rules = {}, { lawns = [], gardens = {}, looks = null } = {}) {
   if ((!roads || roads.length === 0) && lawns.length === 0) return null
 
-  const lift = rules.lift ?? 0.03
+  const lift = rules.lift
   const colours = rules.colours ?? {}
   const positions = []
   const colors = []
@@ -56,8 +56,14 @@ export function buildRoadsView(scene, roads, ground, rules = {}, { lawns = [], g
   // Front gardens: a ring per lawn, subdivided and draped on the ground under the roads'
   // own lift, coloured grass and flagged so the shader below lays the lawn texture only
   // where this flag is set.
-  const lawnLift = gardens.lift ?? 0.02
-  const grassColour = new THREE.Color(gardens.grass ?? "#4f7a36")
+  //
+  // The lift and the colour come from the spec ALONE. `default_rules` always ships both,
+  // so a `??` here would be a second copy of a Ruby number that no code path can reach --
+  // and the day someone retunes the grass, the copy is what a reader believes. `jitter`
+  // keeps its default because zero is OFF rather than a duplicated value: a caller that
+  // ships no gardens rules gets a flat lawn, not a Ruby colour spelled twice.
+  const lawnLift = gardens.lift
+  const grassColour = new THREE.Color(gardens.grass)
   const jitter = gardens.jitter ?? 0
   let lawnVertices = 0
   for (const ring of lawns) {
