@@ -431,6 +431,16 @@ how the pool's ONE material is dressed and how each instance is coloured.
   and by weight, and left out of the rubble mix. Lawns are rings the client drapes into
   the roads' mesh. The importer finds garages (a one-storey annex whose street edge is a
   car wide) and gardens (the strip to the nearest road across the front).
+- **A hedge is driven THROUGH, and that is measured rather than assumed.** A hedge is on
+  `LAYER.PROP`, so unlike a heap of rubble the wheel rays can see it — and the rubble rule
+  says a raycast landing on a thing makes it ground to stand on. `hedges_test` drives the
+  buggy at a hedged front and measures: in at 9.67 m/s, never below 10.29 through it (it
+  is still accelerating), three of three cells cleared, and the clearance coming out the
+  same to the centimetre as the clearance going in. So there is no `LAYER.HEDGE`, because
+  nothing lifts. The reason is the shape: a hedge stands a metre tall and the chassis box
+  hangs below that, so the chassis reaches a cell before a wheel is over it and 0.42 hp
+  goes on the first touch. A pile of rubble is low enough for the rays to reach it first,
+  which is the difference.
 - **Appending hedges renumbered every gardened row's rubble.** Hedges come after the boxes
   and before the rubble grid, so every heap index in a row with gardens moved up by the
   hedges' cells. Damage recorded against `geleen` before this change therefore addresses
