@@ -3,6 +3,7 @@ import { PROP_GROUPS, RUBBLE_GROUPS } from "game/physics/groups"
 import { eachBuildingCell, materialAt, chunkMatrix, cellSize } from "game/world/surface"
 import { tileSurface } from "game/world/chunking"
 import { heapMatrix, heapFrame, heapFragments, fragmentMaterial, fragmentPool, shapeFor, pileOrder, SHAPES } from "game/world/rubble"
+import { gableCaps, wedgePool, WEDGE_SUFFIX } from "game/world/gables"
 import { baseMaterial } from "game/render/piece_meshes"
 import { absorb } from "game/damage"
 
@@ -91,6 +92,9 @@ export class Building {
     // For a heap: which pool and slot each of its chunks was drawn into. Undefined for
     // everything that is not a heap, which is what `isHeap` tests.
     this.fragments = new Array(count)
+    // For the top standing cell of each gable column: the pools and slots of the caps that
+    // fill the tooth above it, so they go and come back with the cell. Undefined elsewhere.
+    this.caps = new Array(count)
     // Heaps still growing out of the ground, as { index, t }.
     this.rising = []
     this.rise = this.rubbleRules.rise ?? 0
@@ -123,6 +127,16 @@ export class Building {
             const chunk = fragmentPool(fragmentMaterial(surface, row, col, k, surface.mix))
             into.set(chunk, (into.get(chunk) || 0) + 1)
           }
+        }
+      }
+
+      // The caps that fill a gable's teeth, counted exactly as buildCaps places them: a box
+      // goes into the material's own pool, a wedge into its wedge pool.
+      if (surface.kind === "gable") {
+        for (const cap of gableCaps(surface)) {
+          if (cap.box) into.set(surface.mat, (into.get(surface.mat) || 0) + 1)
+          const wedge = wedgePool(surface.mat)
+          if (cap.wedges.length) into.set(wedge, (into.get(wedge) || 0) + cap.wedges.length)
         }
       }
     }
@@ -216,6 +230,82 @@ export class Building {
         this.grid.insert(this.target(index), POSITION.x, POSITION.y, POSITION.z)
       }
     })
+
+    // After every cell, because a cap is keyed to the cell it stands on and has to know
+    // which of them the generator left standing.
+    for (const surface of this.spec.surfaces) {
+      if (surface.kind === "gable") this.buildCaps(surface)
+    }
+  }
+
+  // The caps that make a gable meet the roof: placed once, keyed by the cell they stand on.
+  buildCaps(surface) {
+    const u = new THREE.Vector3().fromArray(surface.u)
+    const v = new THREE.Vector3().fromArray(surface.v)
+    const n = new THREE.Vector3().fromArray(surface.n)
+    const origin = new THREE.Vector3().fromArray(surface.o).add(this.origin)
+    const name = surface.mat
+    const cellW = surface.w / surface.cols
+
+    for (const cap of gableCaps(surface)) {
+      if (cap.anchorRow < 0) continue
+
+      const index = surface.off + cap.anchorRow * surface.cols + cap.anchorCol
+      const entry = this.caps[index] || (this.caps[index] = { pools: [], slots: [], matrices: [] })
+      const place = (pool, matrix, cellU, cellV) => {
+        entry.pools.push(pool)
+        entry.slots.push(this.meshes.add(pool, matrix, this.tintFor(name, index), cellU, cellV))
+        entry.matrices.push(matrix.clone())
+      }
+
+      if (cap.box) {
+        CAP_MATRIX.makeBasis(u, v, n)
+        CAP_MATRIX.scale(CAP_SCALE.set(cap.box.width, cap.box.height, surface.t))
+        CAP_MATRIX.setPosition(CAP_POSITION.copy(origin).addScaledVector(u, cap.box.x0 + cap.box.width / 2).addScaledVector(v, cap.box.y0 + cap.box.height / 2))
+        place(name, CAP_MATRIX, cap.col * cellW, cap.box.y0)
+      }
+      for (const wedge of cap.wedges) {
+        // High on the right: the unit wedge as it is, from the column's left edge. High on
+        // the left: the same shape turned half a turn about v, from the right edge -- never
+        // a negative scale, which would mirror the winding and invert every normal.
+        if (wedge.high > 0) CAP_MATRIX.makeBasis(u, v, n)
+        else CAP_MATRIX.makeBasis(CAP_U.copy(u).negate(), v, CAP_N.copy(n).negate())
+        CAP_MATRIX.scale(CAP_SCALE.set(wedge.width, wedge.height, surface.t))
+        const edge = wedge.high > 0 ? wedge.x0 : wedge.x0 + wedge.width
+        CAP_MATRIX.setPosition(CAP_POSITION.copy(origin).addScaledVector(u, edge).addScaledVector(v, wedge.y0))
+        place(wedgePool(name), CAP_MATRIX, cap.col * cellW, wedge.y0)
+      }
+    }
+  }
+
+  showCaps(index, visible) {
+    const entry = this.caps[index]
+    if (!entry) return
+
+    for (let k = 0; k < entry.slots.length; k += 1) {
+      // The cap's OWN matrix, never the cell's: a wedge is a triangle where the cell is a
+      // box, and restoring one with the cell's transform would put a full panel there.
+      this.meshes.setVisible(entry.pools[k], entry.slots[k], visible, entry.matrices[k])
+    }
+  }
+
+  // For the tests: how many caps this building placed and how many are showing.
+  capReadout() {
+    let boxes = 0
+    let wedges = 0
+    let shown = 0
+
+    for (const entry of this.caps) {
+      if (!entry) continue
+
+      for (let k = 0; k < entry.pools.length; k += 1) {
+        if (entry.pools[k].endsWith(WEDGE_SUFFIX)) wedges += 1
+        else boxes += 1
+        if (this.meshes.isVisible(entry.pools[k], entry.slots[k])) shown += 1
+      }
+    }
+    const columns = this.spec.surfaces.filter((s) => s.kind === "gable").reduce((sum, s) => sum + s.cols, 0)
+    return { columns, boxes, wedges, shown }
   }
 
   createCollider(RAPIER, matrix, surface, name, index, colliderIndex) {
@@ -308,9 +398,13 @@ export class Building {
     }
   }
 
-  // Damage darkening, over the lump and its chunks alike.
+  // Damage darkening, over the lump and its chunks alike -- and over the caps standing on
+  // this cell, which are drawn as part of it and have to bruise with it.
   tintPiece(index, ratio) {
     this.meshes.tint(this.pool[index], this.slot[index], ratio)
+    const caps = this.caps[index]
+    if (caps) for (let k = 0; k < caps.slots.length; k += 1) this.meshes.tint(caps.pools[k], caps.slots[k], ratio)
+
     const chunks = this.fragments[index]
     if (!chunks) return
     for (let k = 0; k < chunks.slots.length; k += 1) {
@@ -515,6 +609,9 @@ export class Building {
       // of that matrix next to each other.
       if (!carried && !silent) this.debris?.spawn(this.matrices[index], this.material[index], { away })
       this.meshes.setVisible(this.pool[index], this.slot[index], false)
+      // Whatever was filling the tooth above this cell goes with it. A cap is drawing, so
+      // it leaves no shards and frees nothing -- it simply stops being drawn.
+      this.showCaps(index, false)
     }
     if (this.targets?.[index]) this.grid?.remove(this.targets[index])
     // Disabled, never removed. The handle stays valid, the registry stays consistent, and
@@ -735,6 +832,7 @@ export class Building {
     this.health[index] = this.maxHealth[index]
     if (this.isHeap(index)) this.showHeap(index, 1)
     else this.meshes.setVisible(this.pool[index], this.slot[index], true, this.matrices[index])
+    this.showCaps(index, true)
     this.tintPiece(index, 1)
     this.colliders[index]?.setEnabled(true)
     if (this.grid && this.matrices[index]) {
@@ -773,6 +871,12 @@ const SINGLE_CELL = (index) => [ index ]
 const SLAB_MATRIX = new THREE.Matrix4()
 const HEAP_MATRIX = new THREE.Matrix4()
 const FRAME = {}
+
+const CAP_MATRIX = new THREE.Matrix4()
+const CAP_SCALE = new THREE.Vector3()
+const CAP_POSITION = new THREE.Vector3()
+const CAP_U = new THREE.Vector3()
+const CAP_N = new THREE.Vector3()
 
 const POSITION = new THREE.Vector3()
 const ROTATION = new THREE.Quaternion()

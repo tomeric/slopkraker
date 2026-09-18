@@ -4,6 +4,7 @@ import { Patterns } from "game/fracture/patterns"
 import { Debris } from "game/render/debris"
 import { FallingPieces } from "game/world/falling_pieces"
 import { lumpGeometry, chunkGeometry, isFragmentPool, pileOrder, SHAPES } from "game/world/rubble"
+import { isWedgePool, wedgeGeometry } from "game/world/gables"
 import { Remnants } from "game/render/remnants"
 import { baseMaterial } from "game/render/piece_meshes"
 
@@ -55,6 +56,12 @@ export class Buildings {
     // the shape is this file's.
     for (const pool of counts.keys()) {
       if (isFragmentPool(pool)) this.meshes.useShape(pool, chunkGeometry(materials[baseMaterial(pool)]?.chunk))
+    }
+    // One wedge shape for every material that has a gable: the cap that makes the stair
+    // meet the roof. Named for the material like a chunk pool, so its colour and look are
+    // the material's; only the shape is gables.js's.
+    for (const pool of counts.keys()) {
+      if (isWedgePool(pool)) this.meshes.useShape(pool, wedgeGeometry())
     }
     this.meshes.allocate(counts)
     // Before the loop starts, so the first explosion is not also the first tessellation.

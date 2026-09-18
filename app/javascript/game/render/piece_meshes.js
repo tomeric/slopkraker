@@ -165,6 +165,13 @@ export class PieceMeshes {
     return [ attribute.getX(slot), attribute.getY(slot) ]
   }
 
+  // Whether an instance is being drawn. `shown` is the truth of it -- a hidden instance
+  // keeps its slot and is only scaled to nothing -- so there is nothing else to read.
+  isVisible(name, slot) {
+    const pool = this.pools.get(name)
+    return Boolean(pool && slot >= 0 && pool.shown[slot])
+  }
+
   baseAt(name, slot, target = SCRATCH_COLOUR) {
     const pool = this.pools.get(name)
     if (!pool || slot < 0) return null

@@ -364,6 +364,9 @@ export class GameEngine {
     // own palette".
     window.__arenaCellUV = (piece, buildingId) => this.buildings?.find(buildingId)?.cellUV(piece) ?? null
     window.__arenaTint = (piece, buildingId) => this.buildings?.find(buildingId)?.tint(piece) ?? null
+    // The gable caps: how many a building placed, how many are showing. Drawing, not
+    // pieces -- so a test proves a cap goes with the cell under it by breaking the cell.
+    window.__arenaGableCaps = (buildingId) => this.buildings?.find(buildingId)?.capReadout() ?? null
 
     this.running = true
     this.lastFrame = performance.now()
