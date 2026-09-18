@@ -255,6 +255,19 @@ function perTileEven(metres) {
   return Math.max(2, Math.round(TILE / metres / 2) * 2)
 }
 
+// Which unit's jitter a column draws, wrapped into the tile.
+//
+// A half-offset course runs from `c = -1` so the tile's left edge is covered by a unit
+// rather than by bare joint. That unit is the SAME unit as the one at `c = count - 1`:
+// once the texture wraps they are the left and right halves of one brick lying across the
+// seam. Indexed by their own `c` they are drawn two different lightnesses, and the step
+// between them -- about 7% at brick's variation -- is a faint vertical line at the same x
+// on every odd course, every TILE metres across every wall in the world. Wrapping the
+// index is what makes the two halves one brick.
+function wrapped(c, count) {
+  return ((c % count) + count) % count + 1
+}
+
 // Running bond: courses of `unit[1]`, bricks of `unit[0]`, every other course offset by
 // half a brick, joints recessed and darker, each brick its own lightness.
 function brick(ctx, hctx, rctx, look, spec) {
@@ -273,8 +286,9 @@ function brick(ctx, hctx, rctx, look, spec) {
       const y = r * ch + joint / 2
       const w = bw - joint
       const h = ch - joint
-      box(ctx, shade(look.base, 1 + (noise(r, c + 1, 0) - 0.5) * 2 * look.variation), x, y, w, h)
-      box(hctx, grey(0.85 + 0.15 * noise(r, c + 1, 1)), x, y, w, h)
+      const unit = wrapped(c, bricks)
+      box(ctx, shade(look.base, 1 + (noise(r, unit, 0) - 0.5) * 2 * look.variation), x, y, w, h)
+      box(hctx, grey(0.85 + 0.15 * noise(r, unit, 1)), x, y, w, h)
       box(rctx, grey(spec.roughness ?? 0.85), x, y, w, h)
     }
   }
@@ -299,7 +313,7 @@ function tiles(ctx, hctx, rctx, look, spec) {
       const x = c * tw + offset + joint / 2
       const y = r * ch
       const w = tw - joint
-      const value = 1 + (noise(r, c + 1, 2) - 0.5) * 2 * look.variation
+      const value = 1 + (noise(r, wrapped(c, across), 2) - 0.5) * 2 * look.variation
       box(ctx, shade(look.base, value), x, y, w, ch - lip)
       box(ctx, shade(look.base, value * look.joint_shade), x, y + ch - lip, w, lip)
       // Height rises down the course so the lower edge is the proud one.
@@ -396,13 +410,26 @@ function leaves(ctx, hctx, rctx, look, spec) {
   }
 }
 
-// A soft disc, drawn again at the tile's edges so the wrap is seamless.
+// A soft disc, drawn again across the tile's edge so the wrap is seamless -- but only
+// across an edge it actually reaches. A copy exists to carry the part of a blot that hangs
+// over the edge, so one lying wholly inside has nothing to carry and its eight copies are
+// eight fills off the canvas. Concrete draws six thousand blots and leaves two thousand
+// four hundred: at nine fills each that was most of what booting at `high` costs.
 function blot(ctx, colour, x, y, r, alpha) {
   if (!ctx) return
   ctx.globalAlpha = alpha
   ctx.fillStyle = colour
-  for (const dx of [ -SIZE, 0, SIZE ]) {
-    for (const dy of [ -SIZE, 0, SIZE ]) {
+  // The ellipse is r across and 0.7r high whatever its rotation, so r is the reach on
+  // both axes and the test is the same one twice.
+  const xs = [ 0 ]
+  if (x < r) xs.push(SIZE)
+  else if (x > SIZE - r) xs.push(-SIZE)
+  const ys = [ 0 ]
+  if (y < r) ys.push(SIZE)
+  else if (y > SIZE - r) ys.push(-SIZE)
+
+  for (const dx of xs) {
+    for (const dy of ys) {
       ctx.beginPath()
       ctx.ellipse(x + dx, y + dy, r, r * 0.7, noise(x | 0, y | 0, 9) * Math.PI, 0, Math.PI * 2)
       ctx.fill()
