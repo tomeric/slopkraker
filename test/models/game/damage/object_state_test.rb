@@ -141,6 +141,19 @@ class Game::Damage::ObjectStateTest < ActiveSupport::TestCase
     assert_equal({ 0 => 1 }, object.collapsed)
   end
 
+  # `nil.to_i` is 0, and 0 is the one value that means "down from the ground up" -- which is
+  # exactly what a bay that has never collapsed stores. Collapse.evaluate already drops a
+  # nil storey rather than coercing it; this is the earlier read of the same column, off the
+  # row before it ever reaches settle, and it has to agree.
+  test "a nil storey stored in the column is not read as a collapse to the ground" do
+    set = house
+    object = state(set, collapsed: { "0" => nil })
+
+    assert_empty object.collapsed
+    assert_equal [ 0 ], object.apply(0, 500.0, "impact"), "an ordinary wall hit should still land"
+    assert_empty object.apply(first_pile(set), 5_000.0, "impact"), "a dormant pile was cleared"
+  end
+
   test "it restores from the columns it was stored in" do
     set = house
     stored = state(set)

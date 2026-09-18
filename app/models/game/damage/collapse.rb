@@ -28,6 +28,18 @@ module Game
 
       Result = Struct.new(:collapsed, :broken, :health, keyword_init: true)
 
+      # Casts a collapse map's keys and values to Integer, the way it has to be read
+      # wherever it comes off JSON -- a wire message here, an `object_damages` row a frame
+      # earlier in ObjectState. A bay with no storey is a bay that has not come down, and it
+      # is dropped rather than coerced. `nil.to_i` is 0, and 0 is the one value that means
+      # "down from the ground up": a `{ "0" => nil }` surviving this cast would read as a
+      # building already flat, which reveals all of its wreckage, refuses every hit on it
+      # and can never be raised back -- the one direction this map may not move. Both
+      # readers call this rather than casting on their own, because they have to agree.
+      def self.normalise(collapsed)
+        collapsed.filter_map { |bay, storey| [ bay.to_i, storey.to_i ] unless storey.nil? }.to_h
+      end
+
       # `broken` is every piece index already gone; `health` is what the pieces that have
       # been hit but not broken have left, defaulting to full. Neither is mutated.
       #
@@ -44,12 +56,7 @@ module Game
         gone = Set.new(broken)
         left = health.dup
         felled = []
-        # A bay with no storey is a bay that has not come down, and it is dropped rather
-        # than coerced. `nil.to_i` is 0, and 0 is the one value that means "down from the
-        # ground up": a `{ "0" => nil }` arriving from a JSON column would read as a
-        # building already flat, which reveals all of its wreckage, refuses every hit on it
-        # and can never be raised back -- the one direction this map may not move.
-        result = collapsed.filter_map { |bay, storey| [ bay.to_i, storey.to_i ] unless storey.nil? }.to_h
+        result = normalise(collapsed)
 
         surfaces.bays.each do |bay|
           run = Run.new(surfaces, rules, bay: bay, gone: gone, health: left, felled: felled)

@@ -24,8 +24,14 @@ module Game
         # Bay => the storey it has come down from, and cast for the same reason: the column
         # is JSON, so the bays come back as strings, and a map keyed by strings would put
         # every collapsed dwelling back up on reload -- and with it every heap of wreckage
-        # it had left, which is what gates damage to the piles.
-        @collapsed = (collapsed || {}).to_h { |bay, storey| [ bay.to_i, storey.to_i ] }
+        # it had left, which is what gates damage to the piles. Gone through Collapse.normalise
+        # rather than a bare `to_i` on the value: `nil.to_i` is 0, and 0 is the one storey that
+        # means "down from the ground up", so a `{ "0" => nil }` sitting in this column would
+        # read a standing building as already flat -- every heap revealed, every hit refused,
+        # and no way back, since a collapsed bay may only ever move down. `settle` hands this
+        # straight to `Collapse.evaluate`, so the guard has to sit here, at the column, or
+        # the nil is already gone by the time evaluate's own copy of it would catch it.
+        @collapsed = Collapse.normalise(collapsed || {})
         @dirty = false
       end
 
