@@ -121,10 +121,17 @@ export class GameEngine {
 
     this.arenaGroup = buildArenaView(this.scene, this.spec.arena)
     if (terrain) this.terrainGroup = buildTerrainView(this.scene, terrain, this.spec.rules.terrain)
-    // After the terrain, because every vertex of the ribbon is laid on the ground it
-    // crosses. Null on a world without roads, and no collider either way -- the car drives
-    // on the heightfield, never on the road.
-    this.roadsView = buildRoadsView(this.scene, this.spec.arena.roads, this.ground, this.spec.rules.roads)
+    // After the terrain, because every vertex of the ribbon -- and every lawn quad -- is
+    // laid on the ground it crosses. Null on a world with neither roads nor lawns, and no
+    // collider either way -- the car drives on the heightfield, never on the road.
+    //
+    // Lawns arrive per building in its rotated frame, like its surfaces; carried out to
+    // the world by its position here, so the roads view knows nothing about buildings.
+    const lawns = (this.spec.arena.buildings || []).flatMap((building) =>
+      (building.lawns || []).map((ring) => ring.map(([ x, z ]) => [ x + building.o[0], z + building.o[2] ]))
+    )
+    this.roadsView = buildRoadsView(this.scene, this.spec.arena.roads, this.ground, this.spec.rules.roads,
+                                    { lawns, gardens: this.spec.rules.gardens, looks: this.looks })
     this.propGrid = new SpatialGrid({ cellSize: 5 })
     this.trackProps()
 
@@ -250,6 +257,10 @@ export class GameEngine {
     // How much ribbon there is. Zero on a world without roads, and one mesh however many
     // roads there are -- which is the whole of what drawing them as a ribbon buys.
     window.__arenaRoadVertices = () => this.roadsView?.geometry.attributes.position.count ?? 0
+    // How much of the roads mesh is lawn rather than asphalt. Zero with no roads view at
+    // all, and the only way to tell "the gardens are drawn" from "the rings are data
+    // nobody draped".
+    window.__arenaLawnVertices = () => this.roadsView?.userData.lawnVertices ?? 0
     window.__arenaCollapses = () => this.collapsesSeen ?? 0
     // The reasons the server has refused this session, batch truncation among them. A test
     // driving a huge break in one frame asserts this stays empty -- if it is not, the

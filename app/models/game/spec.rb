@@ -374,10 +374,16 @@ module Game
                    hemisphere: [ "#9fb8d0", "#2a2f36", 1.1 ], sun: "#fff4e0", sun_intensity: 2.2,
                    sun_direction: [ 48, 72, 36 ], fog: [ 110, 280 ] }
         },
-        # Front gardens are lawns draped beside the road ribbons: their colour, and how far
+        # Front gardens are lawns draped beside the road ribbons: their colour, how far
         # above the ground they float -- under the roads' lift, so a lawn meeting a road
-        # sits beneath it.
-        gardens: { grass: "#4f7a36", lift: 0.02 },
+        # sits beneath it -- the lawn texture's value-space base and per-blot variation
+        # (painted like the hedge's leaves), and how far one vertex's shade may drift from
+        # the next's.
+        gardens: {
+          grass: "#4f7a36", lift: 0.02,
+          look: { base: "#e2ead8", variation: 0.18 },
+          jitter: 0.12
+        },
         # How much one cell's colour may differ from the next, as a share of lightness. A
         # wall of one flat value reads as paint; a few percent, seeded per cell, reads as
         # brick that was fired in a kiln.

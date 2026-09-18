@@ -84,13 +84,13 @@ export class Looks {
     return this.apply(material, name)
   }
 
-  // The lawn's texture, painted on first use: a leafy speckle with no relief. Null when
-  // textures are off.
-  lawn() {
-    if (!this.enabled) return null
+  // The lawn's texture, painted on first use from `look` (`rules.gardens.look`): a leafy
+  // speckle with no relief. Null when textures are off, or when no look shipped at all.
+  lawn(look) {
+    if (!this.enabled || !look) return null
     if (!this.lawnTexture) {
       const albedo = canvas()
-      leaves(albedo.getContext("2d"), null, null, { base: "#e2ead8", variation: 0.18 }, {})
+      leaves(albedo.getContext("2d"), null, null, look, {})
       this.lawnTexture = texture(albedo, this.anisotropy)
       this.lawnTexture.colorSpace = THREE.SRGBColorSpace
     }

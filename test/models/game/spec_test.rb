@@ -519,6 +519,14 @@ class Game::SpecTest < ActiveSupport::TestCase
     assert_match(/\A#[0-9a-f]{6}\z/i, Game::Spec.default_rules.dig(:gardens, :grass))
     assert_operator Game::Spec.default_rules.dig(:gardens, :lift), :<, Game::Spec.default_rules.dig(:roads, :lift),
                     "a lawn meeting a road must sit beneath it"
+    # The lawn texture is painted like the hedge's leaves: a value-space base with a per-blot
+    # variation.
+    assert_match(/\A#[0-9a-f]{6}\z/i, Game::Spec.default_rules.dig(:gardens, :look, :base))
+    assert_operator Game::Spec.default_rules.dig(:gardens, :look, :variation), :>, 0
+    # The per-vertex shade spread a lawn quad is draped with -- a drawing number like the
+    # rest, so it lives here rather than as a literal in roads_view.js.
+    assert_operator Game::Spec.default_rules.dig(:gardens, :jitter), :>, 0
+
     jitter = Game::Spec.default_rules.dig(:looks, :jitter)
     assert_operator jitter, :>, 0
     assert_operator jitter, :<, 0.2, "a wall should not vary into a patchwork"

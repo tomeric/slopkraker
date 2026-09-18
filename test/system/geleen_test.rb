@@ -86,6 +86,17 @@ class GeleenTest < ApplicationSystemTestCase
     assert_match(/\A\d{6}\z/, plate["ids"].first)
   end
 
+  # Front gardens are lawns draped beside the road ribbons, in the same mesh, so they cost
+  # no draw call; and a row that has gardens ships the rings they are drawn from.
+  test "the estate's front gardens are drawn on the ground" do
+    boot(match: "geleen-lawns")
+    assert_operator page.evaluate_script("window.__arenaLawnVertices()"), :>, 100, "no lawn was draped"
+    with_gardens = page.evaluate_script("window.__arenaBuildingIds().map(i => window.__arenaBuildingSpec(i)).filter(s => s.lawns && s.lawns.length > 0).length")
+    assert_operator with_gardens, :>, 5, "fewer than six rows ship lawns"
+    draws_before = page.evaluate_script("window.__arenaDraws()")
+    assert_operator draws_before, :>, 0
+  end
+
   private
     # The band terrain_test measured the truck's chassis at over the hills heightfield.
     # Below it the car has sunk into ground it is drawn standing on; above it, it is
