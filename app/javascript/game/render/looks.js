@@ -236,16 +236,29 @@ function noise(a, b, c = 0) {
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296
 }
 
-// Whole units per tile, so the texture repeats seamlessly: a 210 x 65 mm brick comes out
-// 200 x 64.5 mm. Nobody measures.
+// Whole units per tile along an axis whose rows all start in the same place: bricks along
+// a course, tiles across one, boards across a door. Whole units are what makes the tile
+// seamless in GEOMETRY -- a unit is never cut in half at the edge -- and a 210 mm brick
+// comes out 200 mm for it. Nobody measures.
 function perTile(metres) {
   return Math.max(1, Math.round(TILE / metres))
+}
+
+// The same, for the axis a HALF OFFSET alternates along: a running bond's courses, a roof's
+// tile courses. Rounded to an EVEN count, because seamless geometry is only half of a
+// seamless tile and the other half is bond PARITY. The offset alternates on `r % 2`, so an
+// odd count puts the tile's last row and the next tile's first row both at offset zero:
+// their perpends line up and the wall carries a straight joint the whole way across at every
+// tile boundary. Brick's 65 mm courses come out 30 to the two metres rather than 31 --
+// 66.7 mm, and nobody measures that either.
+function perTileEven(metres) {
+  return Math.max(2, Math.round(TILE / metres / 2) * 2)
 }
 
 // Running bond: courses of `unit[1]`, bricks of `unit[0]`, every other course offset by
 // half a brick, joints recessed and darker, each brick its own lightness.
 function brick(ctx, hctx, rctx, look, spec) {
-  const courses = perTile(look.unit[1])
+  const courses = perTileEven(look.unit[1])
   const bricks = perTile(look.unit[0])
   const ch = SIZE / courses
   const bw = SIZE / bricks
@@ -271,7 +284,7 @@ function brick(ctx, hctx, rctx, look, spec) {
 // Each course's lower edge stands proud with a shadow line under it, which is the relief
 // a tiled roof actually has.
 function tiles(ctx, hctx, rctx, look, spec) {
-  const courses = perTile(look.unit[1])
+  const courses = perTileEven(look.unit[1])
   const across = perTile(look.unit[0])
   const ch = SIZE / courses
   const tw = SIZE / across
