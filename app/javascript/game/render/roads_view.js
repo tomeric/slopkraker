@@ -14,7 +14,8 @@ const STEP = 5
 // follow the ground it lies on rather than bridge it.
 const LAWN_STEP = 2
 
-export function buildRoadsView(scene, roads, ground, rules = {}, { lawns = [], gardens = {}, looks = null } = {}) {
+// `rules` and `gardens` have no default: a missing one must fail here, not later as a white lawn.
+export function buildRoadsView(scene, roads, ground, rules, { lawns = [], gardens, looks = null } = {}) {
   if ((!roads || roads.length === 0) && lawns.length === 0) return null
 
   const lift = rules.lift

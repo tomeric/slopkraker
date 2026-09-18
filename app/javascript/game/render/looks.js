@@ -421,8 +421,11 @@ function leaves(ctx, hctx, rctx, look, spec) {
 // A soft disc, drawn again across the tile's edge so the wrap is seamless -- but only
 // across an edge it actually reaches. A copy exists to carry the part of a blot that hangs
 // over the edge, so one lying wholly inside has nothing to carry and its eight copies are
-// eight fills off the canvas. Concrete draws six thousand blots and leaves two thousand
-// four hundred: at nine fills each that was most of what booting at `high` costs.
+// eight fills off the canvas. Plaster draws 40 of these and concrete 30 -- concrete's six
+// thousand are `box` speckles, which this does not touch. `leaves` is the real cost: 2400
+// per canvas on both the albedo and height canvases (4800), plus 2400 more painting the
+// lawn texture the same way -- at nine fills each, that was most of what booting at `high`
+// cost.
 function blot(ctx, colour, x, y, r, alpha) {
   if (!ctx) return
   ctx.globalAlpha = alpha
