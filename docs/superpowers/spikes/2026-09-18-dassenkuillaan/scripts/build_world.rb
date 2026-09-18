@@ -128,6 +128,10 @@ def build_cluster(c)
     end
   end
   recipe["footprint"] = Spike.ring(c["union"]).map { |g| frame.to_local(*g) }.map { |x, z| [ x.round(2), z.round(2) ] }
+  # What the debug overlay labels a building with: its category and the BAG Pand ids it
+  # was built from, shortened to the digits that differ within a neighbourhood.
+  recipe["category"] = houses ? "house" : "shed"
+  recipe["pands"] = c["pands"].map { |pand| pand[-6..] }
 
   radius = everything.map { |g| l = frame.to_local(*g); Math.hypot(*l) }.max + 4.0
   { "name" => "#{houses ? 'row' : 'sheds'}-#{c['cluster']}", "x" => frame.origin[0].round(3), "z" => frame.origin[1].round(3), "yaw" => frame.yaw.round(5),
@@ -194,7 +198,7 @@ DATA.roads.each_with_index do |r, i|
 end
 spawn = { "position" => [ CENTRE[0].round(2), 2.0, CENTRE[1].round(2) ], "yaw" => Math.atan2(0.73, 0.68).round(3) }
 
-File.write(File.join(SP, "spike", "recipes.json"), JSON.pretty_generate(
+File.write(File.join(SP, "recipes-cell-#{CELL}.json"), JSON.pretty_generate(
   "bounds" => bounds, "spawns" => [ spawn ], "statics" => statics, "objects" => objects
 ))
-puts "wrote #{objects.size} objects, #{statics.size} statics -> spike/recipes.json"
+puts "wrote #{objects.size} objects, #{statics.size} statics -> recipes-cell-#{CELL}.json"

@@ -32,8 +32,13 @@ class WorldObject < ApplicationRecord
       id: id,
       name: name,
       o: position.to_a,
-      yaw: yaw
-    }.merge(surface_set.to_spec)
+      yaw: yaw,
+      # What the debug overlay labels the building with. An imported recipe names its
+      # category and the source records it was built from; a hand-made one has only its
+      # kind, and the overlay falls back to the object's own id.
+      category: recipe["category"] || role,
+      pands: recipe["pands"]
+    }.compact.merge(surface_set.to_spec)
   end
 
   # `kind` says how a thing is stored and simulated; `recipe["kind"]` says what it is --

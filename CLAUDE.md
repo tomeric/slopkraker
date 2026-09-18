@@ -528,6 +528,7 @@ The engine exposes debug/test hooks on `window`:
 | `__arenaSlabsDropped` | `(buildingId)` — how many slabs THAT building put up, as against how many are up altogether. The two are the same number while one house exists, which is how the shared budget was over-subscribed in silence |
 | `__arenaBuildingStanding` | `(buildingId)` — one building's standing pieces. Moves both ways: a piece breaking takes it down, a heap of rubble being revealed puts it up, so "exactly unchanged" is what proves a neighbour was untouched |
 | `__arenaDraws` | `renderer.info.render.calls` — turns "did the render plan regress" into an assertion |
+| `__arenaBuildingLabels` | The debug overlay's plate for every building — `{ id, name, category, ids, shown }` — so "which building is that" is a name rather than a pointer, and a test can assert on the words |
 | `__arenaQuality` | Which tier the engine actually settled on |
 | `__arenaDebugVisible`, `__arenaMasterGain` | Overlay / audio assertions |
 | `__arenaTerrainProbe` | `(x, z)` — `{ physics, render, sampled, other, delta }`: a downward raycast against the heightfield, barycentric interpolation over the drawn triangles, the client sampler, and what the *opposite* diagonal would say |

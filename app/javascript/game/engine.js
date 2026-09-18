@@ -19,6 +19,7 @@ import { Explosions } from "game/explosions"
 import { VehicleAudio } from "game/audio/vehicle_audio"
 import { ControlsOverlay } from "game/controls_overlay"
 import { DebugGizmos } from "game/render/debug_gizmos"
+import { BuildingLabels } from "game/render/building_labels"
 import { DamageGizmos } from "game/render/damage_gizmos"
 import { HitMarkers } from "game/render/hit_markers"
 import { Interpolator, createEntry, savePrevious, readBack } from "game/sim/interpolator"
@@ -174,6 +175,8 @@ export class GameEngine {
 
     this.hud = new Hud(this.root)
     this.gizmos = new DebugGizmos(this.scene)
+    // Part of the same overlay: a plate above each nearby building saying what it is.
+    this.buildingLabels = new BuildingLabels(this.scene, this.buildings?.list ?? [])
     this.controls = new ControlsOverlay(
       this.root.querySelector('[data-arena-target="controls"]') || this.root,
       this.spec.input,
@@ -260,6 +263,9 @@ export class GameEngine {
     // Per building, so "collapsing one house left its neighbour untouched" is one read
     // rather than a thousand round trips through __arenaPieceState.
     window.__arenaBuildingStanding = (id) => this.buildings?.find(id)?.standingCount ?? 0
+    // What the overlay says about every building -- category, name, source ids -- and
+    // whether its plate is showing, so a test can assert on the words rather than pixels.
+    window.__arenaBuildingLabels = () => this.buildingLabels?.readout() ?? []
     // Where the car actually is. "It got off the pile" is a claim about height and nothing
     // else -- telemetry carries speeds, which read identically for a car that sank through
     // the wreckage and one still perched on top of it going nowhere.
@@ -529,6 +535,7 @@ export class GameEngine {
       this.controls.flash("toggle_debug")
       this.gizmos.toggle()
       if (this.damageGizmos) this.damageGizmos.visible = this.gizmos.visible
+      if (this.buildingLabels) this.buildingLabels.visible = this.gizmos.visible
       this.projectiles.debugVisible = this.gizmos.visible
       this.explosions.debugVisible = this.gizmos.visible
       window.__arenaDebugVisible = this.gizmos.visible
@@ -832,6 +839,7 @@ export class GameEngine {
       // fixed step -- they are decoration, and should not stutter when substeps do.
       entity.view.syncBoosters(this.vehicle.boosterState?.(), frameTime)
       this.gizmos.update(this.vehicle, entity.renderPos)
+      this.buildingLabels?.update(entity.renderPos)
       this.damageGizmos?.update(frameTime, this.vehicle)
       this.projectiles.sync(frameTime)
       this.explosions.sync()
@@ -910,6 +918,7 @@ export class GameEngine {
     this.audio?.dispose()
     this.controls?.dispose()
     this.gizmos?.dispose()
+    this.buildingLabels?.dispose()
     this.damageGizmos?.dispose()
     this.hitMarkers?.dispose()
     this.projectiles?.dispose()

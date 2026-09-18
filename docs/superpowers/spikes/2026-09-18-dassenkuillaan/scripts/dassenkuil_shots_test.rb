@@ -6,8 +6,8 @@ require_relative "terrace"
 # car in front of things worth seeing and saves frames. Never part of the suite.
 class DassenkuilShotsTest < ApplicationSystemTestCase
   SP = File.expand_path("..", __dir__)
-  SHOTS = File.join(SP, "shots")
-  RECIPES = JSON.parse(File.read(File.join(SP, "spike", ENV.fetch("RECIPES", "recipes.json"))))
+  SHOTS = Rails.root.join("tmp/shots").to_s
+  RECIPES = JSON.parse(File.read(File.join(SP, ENV.fetch("RECIPES", "recipes-cell-1.0.json"))))
 
   module SpikeSurfaces
     def surface_set
@@ -39,14 +39,17 @@ class DassenkuilShotsTest < ApplicationSystemTestCase
   end
 
   test "photograph the estate" do
-    visit_world("spike-dassenkuil", vehicle: ENV.fetch("VEHICLE", "buggy"), quality: ENV.fetch("QUALITY", "low"), match: "spike-shots-#{Time.now.to_i}")
+    @match_key = "spike-shots-#{Time.now.to_i}"
+    visit_world("spike-dassenkuil", vehicle: ENV.fetch("VEHICLE", "buggy"), quality: ENV.fetch("QUALITY", "low"), match: @match_key)
     started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
     wait_for(timeout: 90, message: "engine never booted") { page.evaluate_script("!!(window.__arena && window.__arena.ready)") }
     puts "\nbooted in #{(Process.clock_gettime(Process::CLOCK_MONOTONIC) - started).round(1)}s"
     sleep 2.0
-    press("g")
-    press("h")
-    sleep 0.6
+    unless ENV["KEEP_OVERLAY"]
+      press("g")
+      press("h")
+      sleep 0.6
+    end
     puts "draws #{page.evaluate_script('window.__arenaDraws()')}, pieces #{page.evaluate_script('window.__arena.pieces')}, buildings #{page.evaluate_script('window.__arenaBuildingIds().length')}"
     errors = severe_console_errors
     puts "SEVERE console: #{errors.inspect}" if errors.any?
@@ -225,6 +228,136 @@ class DassenkuilShotsTest < ApplicationSystemTestCase
       shot "25-row5-three-quarter"
       park_local(o, row_mid(o), o["recipe"]["band"][1] + 12, :minus_z)
       shot "26-row5-back"
+    end
+
+
+    # Drives a vehicle flat out into the longest ground-storey wall of the first building
+    # and reports how many cells of each row it took out: which rows a car can reach.
+    def ram_nave
+      o = RECIPES["objects"].first
+      result = page.evaluate_script(<<~JS, o["name"])
+        (() => {
+          const id = window.__arenaBuildingIds().find(i => window.__arenaBuildingSpec(i).name === arguments[0])
+          const spec = window.__arenaBuildingSpec(id)
+          const walls = spec.surfaces.filter(s => s.kind === "wall" && s.storey === 0)
+          const wall = walls.slice(0, 40).reduce((a, b) => (b.w > a.w ? b : a))
+          const cx = spec.o[0] + wall.o[0] + wall.u[0] * wall.w / 2 + wall.v[0] * wall.h / 2
+          const cz = spec.o[2] + wall.o[2] + wall.u[2] * wall.w / 2 + wall.v[2] * wall.h / 2
+          window.__ramWall = { id, off: wall.off, cols: wall.cols, rows: wall.rows, h: wall.h, nx: wall.n[0], nz: wall.n[2], cx, cz }
+          return window.__ramWall
+        })()
+      JS
+      side = ENV.fetch("SIDE", "-1").to_f
+      x = result["cx"] + side * result["nx"] * 22
+      z = result["cz"] + side * result["nz"] * 22
+      park(x, z, yaw: Math.atan2(-side * result["nx"], -side * result["nz"]))
+      page.execute_script("window.__arenaInput = { throttle: 1 }")
+      sleep 4.5
+      page.execute_script("window.__arenaInput = null")
+      sleep 0.8
+      rows = page.evaluate_script(<<~JS)
+        (() => {
+          const w = window.__ramWall
+          const rows = []
+          for (let r = 0; r < w.rows; r++) { let n = 0; for (let c = 0; c < w.cols; c++) { const st = window.__arenaPieceState(w.off + r * w.cols + c, w.id); if (st && !st.standing && st.material !== "void") n++ } rows.push(n) }
+          return { rows, cols: w.cols, cellHeight: +(w.h / w.rows).toFixed(2), car: window.__arenaVehiclePos().map(v => +v.toFixed(1)), wall: [ +w.cx.toFixed(1), +w.cz.toFixed(1) ] }
+        })()
+      JS
+      puts "RAM #{ENV.fetch("VEHICLE", "buggy")}: broken per row (bottom first) #{rows["rows"].inspect} of #{rows["cols"]} cols, cell height #{rows["cellHeight"]} m, car ended at #{rows["car"].inspect}, wall at #{rows["wall"].inspect}"
+      shot "30-ram-#{ENV.fetch("VEHICLE", "buggy")}"
+    end
+
+
+    # What a car's hits do to a tall ground storey: rows 0 and 1 of every storey-0 wall of
+    # the named building take a driving-speed impact each (30 m/s is about 60 damage),
+    # reported through the real path in waves under the batch cap. Then: what broke, and
+    # did the server condemn anything.
+    def graze_ground_storey
+      name = ENV.fetch("TARGET", RECIPES["objects"].first["name"])
+      amount = ENV.fetch("AMOUNT", "60").to_f
+      rows_hit = ENV.fetch("ROWS", "2").to_i
+      page.execute_script(<<~JS, name, amount, rows_hit)
+        window.__grazeDone = false
+        ;(async () => {
+          const id = window.__arenaBuildingIds().find(i => window.__arenaBuildingSpec(i).name === arguments[0])
+          const spec = window.__arenaBuildingSpec(id)
+          const walls = spec.surfaces.filter(s => s.kind === "wall" && s.storey === 0)
+          const cells = []
+          for (const s of walls) for (let r = 0; r < Math.min(arguments[2], s.rows); r++) for (let c = 0; c < s.cols; c++) cells.push(s.off + r * s.cols + c)
+          window.__grazeBefore = window.__arenaBuildingStanding(id)
+          for (let k = 0; k < cells.length; k += 250) {
+            for (const i of cells.slice(k, k + 250)) window.__arenaDamagePiece(i, arguments[1], id)
+            await new Promise(r => setTimeout(r, 300))
+          }
+          window.__grazeId = id
+          window.__grazeWalls = walls.map(s => ({ off: s.off, cols: s.cols, rows: s.rows }))
+          window.__grazeDone = true
+        })()
+      JS
+      wait_for(timeout: 60, message: "grazing never finished") { page.evaluate_script("window.__grazeDone === true") }
+      sleep 8
+      result = page.evaluate_script(<<~JS)
+        (() => {
+          const id = window.__grazeId
+          const perRow = {}
+          let cellsPerRow = {}
+          for (const w of window.__grazeWalls) for (let r = 0; r < w.rows; r++) {
+            for (let c = 0; c < w.cols; c++) {
+              const st = window.__arenaPieceState(w.off + r * w.cols + c, id)
+              if (!st || st.material === "void") continue
+              cellsPerRow[r] = (cellsPerRow[r] || 0) + 1
+              if (!st.standing) perRow[r] = (perRow[r] || 0) + 1
+            }
+          }
+          return { brokenPerRow: perRow, cellsPerRow, before: window.__grazeBefore, after: window.__arenaBuildingStanding(id), collapses: window.__arenaCollapses(), falling: window.__arenaFalling() }
+        })()
+      JS
+      puts "GRAZE #{name} amount #{amount} rows #{rows_hit}: broken per row #{result["brokenPerRow"].inspect} of #{result["cellsPerRow"].inspect}; standing #{result["before"]} -> #{result["after"]}; collapses #{result["collapses"]}, falling #{result["falling"]}"
+    end
+
+
+    # One rocket into the longest ground-storey wall, then: how many cells the client
+    # broke against how many the server recorded. A gap is the 512-hits-per-batch cap.
+    def rocket_wall
+      o = RECIPES["objects"].find { |x| x["name"] == ENV.fetch("TARGET", RECIPES["objects"].first["name"]) }
+      wall = page.evaluate_script(<<~JS, o["name"])
+        (() => {
+          const id = window.__arenaBuildingIds().find(i => window.__arenaBuildingSpec(i).name === arguments[0])
+          const spec = window.__arenaBuildingSpec(id)
+          const walls = spec.surfaces.filter(s => s.kind === "wall" && s.storey === 0)
+          const wall = walls.slice(0, 40).reduce((a, b) => (b.w > a.w ? b : a))
+          const cx = spec.o[0] + wall.o[0] + wall.u[0] * wall.w / 2 + wall.v[0] * wall.h / 2
+          const cz = spec.o[2] + wall.o[2] + wall.u[2] * wall.w / 2 + wall.v[2] * wall.h / 2
+          return { id, cx, cz, nx: wall.n[0], nz: wall.n[2], standing: window.__arenaBuildingStanding(id) }
+        })()
+      JS
+      # A box ring runs either way round, so the wall's normal may point in or out: park on
+      # whichever side is outside the footprint.
+      yaw = o["yaw"]
+      inside = lambda do |wx, wz|
+        dx = wx - o["x"]; dz = wz - o["z"]
+        lx = dx * Math.cos(yaw) + dz * Math.sin(yaw); lz = -dx * Math.sin(yaw) + dz * Math.cos(yaw)
+        ring = o["recipe"]["footprint"]; hit = false
+        ring.each_with_index do |(x1, z1), i|
+          x2, z2 = ring[(i + 1) % ring.length]
+          next unless (z1 > lz) != (z2 > lz)
+          hit = !hit if lx < x1 + (lz - z1) / (z2 - z1) * (x2 - x1)
+        end
+        hit
+      end
+      side = inside.call(wall["cx"] - wall["nx"] * 14, wall["cz"] - wall["nz"] * 14) ? 1 : -1
+      x = wall["cx"] + side * wall["nx"] * 14
+      z = wall["cz"] + side * wall["nz"] * 14
+      park(x, z, yaw: Math.atan2(-side * wall["nx"], -side * wall["nz"]))
+      page.execute_script("window.__arenaInput = { action: true, actionPressed: true }")
+      sleep 0.3
+      page.execute_script("window.__arenaInput = null")
+      sleep 5
+      client_broken = wall["standing"] - page.evaluate_script("window.__arenaBuildingStanding(#{wall['id']})")
+      Game::Damage::Registry.flush_all!
+      row = ObjectDamage.joins(:match).find_by(world_object_id: wall["id"], matches: { key: @match_key })
+      puts "ROCKET #{o["name"]}: client broke #{client_broken} cells, server recorded #{row&.broken_count.inspect}, collapsed_from #{row&.collapsed_from.inspect}, collapses seen #{page.evaluate_script('window.__arenaCollapses()')}"
+      shot "31-rocket-#{o["name"]}"
     end
 
     def press(key)

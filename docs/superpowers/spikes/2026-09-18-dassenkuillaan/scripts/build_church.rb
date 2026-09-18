@@ -40,7 +40,8 @@ churches.each_with_index do |(pand, ps), n|
   footprint = Spike.ring(nave["simple"]).map { |g| frame.to_local(*g) }.map { |x, z| [ x.round(2), z.round(2) ] }
   recipe = { "kind" => "spike_row", "yaw" => frame.yaw, "cell" => CELL, "seed" => pand[-6..].to_i % 1000,
              "band" => [ 0.0, 0.0 ], "storeys" => boxes.map { |b| b["storeys"] }.max, "storey_height" => 4.0,
-             "dwellings" => [], "annexes" => boxes, "footprint" => footprint }
+             "dwellings" => [], "annexes" => boxes, "footprint" => footprint,
+             "category" => "church", "pands" => [ pand[-6..] ] }
   set = Spike::Terrace.generate(recipe)
   spec = set.to_spec
   radius = everything.map { |g| Math.hypot(*frame.to_local(*g)) }.max + 4.0
@@ -54,7 +55,7 @@ churches.each_with_index do |(pand, ps), n|
 end
 
 statics = [ { "name" => "ground", "kind" => "ground", "x" => 60.0, "y" => -0.5, "z" => 0.0, "yaw" => 0.0, "size" => [ 400.0, 1.0, 400.0 ], "colour" => "#4a5159" } ]
-File.write(File.join(SP, "spike", "recipes-church.json"), JSON.pretty_generate(
+File.write(File.join(SP, "recipes-church-cell-#{CELL}.json"), JSON.pretty_generate(
   "bounds" => [ -140, -200, 260, 200 ], "spawns" => [ { "position" => [ 0.0, 2.0, -60.0 ], "yaw" => 0.0 } ], "statics" => statics, "objects" => objects
 ))
-puts "wrote spike/recipes-church.json"
+puts "wrote recipes-church-cell-#{CELL}.json"
