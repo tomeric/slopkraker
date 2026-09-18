@@ -369,7 +369,10 @@ module Game
         sky: {
           day: { zenith: "#4f86c6", horizon: "#d3dde6", ground: "#4d5a45",
                  hemisphere: [ "#bfd4ec", "#4d5a45", 0.9 ], sun: "#fff1dc", sun_intensity: 2.6,
-                 sun_direction: [ 30, 80, 24 ], fog: [ 150, 420 ] },
+                 # Negative z: the sun stands BEHIND the camera on a row of fronts, so the
+                 # faces the driver sees are the lit ones. At +z every front on the estate
+                 # was in its own shade.
+                 sun_direction: [ 30, 80, -24 ], fog: [ 150, 420 ] },
           night: { zenith: "#0e1116", horizon: "#0e1116", ground: "#2a2f36",
                    hemisphere: [ "#9fb8d0", "#2a2f36", 1.1 ], sun: "#fff4e0", sun_intensity: 2.2,
                    sun_direction: [ 48, 72, 36 ], fog: [ 110, 280 ] }
