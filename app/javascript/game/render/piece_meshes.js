@@ -44,9 +44,10 @@ export function baseMaterial(name) {
 }
 
 export class PieceMeshes {
-  constructor(scene, materialSpecs) {
+  constructor(scene, materialSpecs, { looks = null } = {}) {
     this.scene = scene
     this.specs = materialSpecs
+    this.looks = looks
     this.geometry = unitCube()
     this.pools = new Map()
     // Pools whose shape is not the unit cube. A wall panel is a box and every one of them
@@ -75,9 +76,15 @@ export class PieceMeshes {
     for (const [ name, count ] of counts) {
       if (count === 0) continue
 
-      const mesh = new THREE.InstancedMesh(
-        this.shapes.get(name) || this.geometry, this.materialFor(name), count
-      )
+      // Every pool owns a copy of its geometry, because a per-instance attribute lives on
+      // the geometry and the pools do not share instance counts. A unit cube is 24
+      // vertices; copying it a dozen times costs nothing.
+      const geometry = (this.shapes.get(name) || this.geometry).clone()
+      // Each instance's offset along its surface in metres, read by the metres shader
+      // chunk (looks.js) so a brick bond runs on across the cells of a wall.
+      geometry.setAttribute("cellUV", new THREE.InstancedBufferAttribute(new Float32Array(count * 2), 2))
+
+      const mesh = new THREE.InstancedMesh(geometry, this.materialFor(name), count)
       mesh.name = `pieces:${name}`
       mesh.castShadow = true
       mesh.receiveShadow = true
@@ -90,14 +97,23 @@ export class PieceMeshes {
       // instance rasterises nothing but the POOL still costs a draw call, so a pool with
       // nothing in it is switched off entirely -- which is what stops sixteen shapes of
       // rubble being sixteen draw calls in a world where nothing has fallen down yet.
-      this.pools.set(name, { mesh, next: 0, live: 0, shown: new Uint8Array(count) })
+      //
+      // `base` is what each instance is coloured before damage: the palette's colour for
+      // the material's role, with its jitter. Damage darkening multiplies it (tint), so it
+      // has to be kept rather than read back off the instanceColor it has already dimmed.
+      this.pools.set(name, { mesh, geometry, next: 0, live: 0, shown: new Uint8Array(count), base: new Float32Array(count * 3).fill(1) })
     }
   }
 
+  // Colour WHITE, always: the instance carries the colour, which is how one pool serves
+  // every palette. At high quality the material is dressed in the material's look --
+  // albedo, normal and roughness maps painted at boot -- and at low it stays flat, so the
+  // suite's timing assertions stand on the fragment cost they were measured at.
   materialFor(name) {
-    const spec = this.specs[name] || this.specs[baseMaterial(name)] || {}
-    return new THREE.MeshStandardMaterial({
-      color: spec.colour || "#888888",
+    const base = baseMaterial(name)
+    const spec = this.specs[name] || this.specs[base] || {}
+    const material = new THREE.MeshStandardMaterial({
+      color: "#ffffff",
       roughness: spec.roughness ?? 0.85,
       metalness: spec.metalness ?? 0.05,
       transparent: (spec.opacity ?? 1) < 1,
@@ -105,10 +121,13 @@ export class PieceMeshes {
       // See the note above unitCube: without this setColorAt does nothing at all.
       vertexColors: true
     })
+    return this.looks ? this.looks.apply(material, base) : material
   }
 
   // Returns the instance slot, which the caller keeps so it can hide the piece later.
-  add(name, matrix) {
+  // `colour` is the piece's base tint; `cellU`/`cellV` its offset along its surface in
+  // metres.
+  add(name, matrix, colour = WHITE, cellU = 0, cellV = 0) {
     const pool = this.pools.get(name)
     if (!pool) return -1
 
@@ -116,22 +135,40 @@ export class PieceMeshes {
     pool.next += 1
     pool.mesh.count = pool.next
     pool.mesh.setMatrixAt(slot, matrix)
-    pool.mesh.setColorAt(slot, WHITE)
+    pool.base[slot * 3] = colour.r
+    pool.base[slot * 3 + 1] = colour.g
+    pool.base[slot * 3 + 2] = colour.b
+    pool.mesh.setColorAt(slot, colour)
+    pool.geometry.attributes.cellUV.setXY(slot, cellU, cellV)
     pool.shown[slot] = 1
     pool.live += 1
     pool.mesh.visible = true
     return slot
   }
 
-  // Damage darkening. A ratio rather than an absolute colour: instanceColor multiplies
-  // the material's own, and that multiplication happens in linear space.
+  // Damage darkening, over the base tint. instanceColor multiplies the material's own,
+  // and that multiplication happens in linear space.
   tint(name, slot, ratio) {
     const pool = this.pools.get(name)
     if (!pool || slot < 0) return
 
     const shade = 0.35 + 0.65 * Math.max(Math.min(ratio, 1), 0)
-    pool.mesh.setColorAt(slot, SCRATCH_COLOUR.setRGB(shade, shade, shade))
+    pool.mesh.setColorAt(slot, SCRATCH_COLOUR.setRGB(pool.base[slot * 3] * shade, pool.base[slot * 3 + 1] * shade, pool.base[slot * 3 + 2] * shade))
     pool.mesh.instanceColor.needsUpdate = true
+  }
+
+  // Readouts for the tests: where an instance's texture starts and what it was coloured.
+  cellUVAt(name, slot) {
+    const pool = this.pools.get(name)
+    if (!pool || slot < 0) return null
+    const attribute = pool.geometry.attributes.cellUV
+    return [ attribute.getX(slot), attribute.getY(slot) ]
+  }
+
+  baseAt(name, slot, target = SCRATCH_COLOUR) {
+    const pool = this.pools.get(name)
+    if (!pool || slot < 0) return null
+    return target.setRGB(pool.base[slot * 3], pool.base[slot * 3 + 1], pool.base[slot * 3 + 2])
   }
 
   // Hiding rather than removing. A zero-scale instance rasterises nothing, the slot stays
@@ -161,6 +198,7 @@ export class PieceMeshes {
   finalise() {
     for (const { mesh } of this.pools.values()) {
       mesh.instanceMatrix.needsUpdate = true
+      mesh.geometry.attributes.cellUV.needsUpdate = true
       if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
       mesh.computeBoundingSphere()
       mesh.frustumCulled = true
@@ -172,10 +210,13 @@ export class PieceMeshes {
   }
 
   dispose() {
-    for (const { mesh } of this.pools.values()) {
+    for (const { mesh, geometry } of this.pools.values()) {
       mesh.removeFromParent()
       mesh.material.dispose()
       mesh.dispose()
+      // The pool's own copy, made in allocate so it could carry cellUV. The shape it was
+      // cloned from is disposed below, once, however many pools share it.
+      geometry.dispose()
     }
     for (const shape of this.shapes.values()) shape.dispose()
     this.pools.clear()

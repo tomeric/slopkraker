@@ -1,6 +1,6 @@
 import * as THREE from "three"
 import { PROP_GROUPS, RUBBLE_GROUPS } from "game/physics/groups"
-import { eachBuildingCell, materialAt, chunkMatrix } from "game/world/surface"
+import { eachBuildingCell, materialAt, chunkMatrix, cellSize } from "game/world/surface"
 import { tileSurface } from "game/world/chunking"
 import { heapMatrix, heapFrame, heapFragments, fragmentMaterial, fragmentPool, shapeFor, pileOrder, SHAPES } from "game/world/rubble"
 import { baseMaterial } from "game/render/piece_meshes"
@@ -34,7 +34,7 @@ const ABSENT = 2
 const DORMANT = 3
 
 export class Building {
-  constructor({ RAPIER, world, spec, materials, meshes, colliderIndex, contactThreshold, spread = 0, debris = null, falling = null, grid = null, rules = {}, chunk = null, rubbleRules = null, remnants = null, ground = null, onDamage = null }) {
+  constructor({ RAPIER, world, spec, materials, meshes, colliderIndex, contactThreshold, spread = 0, debris = null, falling = null, grid = null, rules = {}, chunk = null, rubbleRules = null, remnants = null, ground = null, palettes = {}, lookRules = {}, onDamage = null }) {
     this.spec = spec
     this.materials = materials
     this.meshes = meshes
@@ -45,6 +45,11 @@ export class Building {
     this.falling = falling
     this.grid = grid
     this.rules = rules
+    // The building's colours: one key into the palette table, applied per instance where
+    // damage darkening already lives. A recipe that names none is drawn in the default,
+    // which is tuned to the colours the hand-made worlds always had.
+    this.palette = palettes[spec.palette] || palettes.brown_brick || {}
+    this.jitter = lookRules.jitter ?? 0
     this.chunkSize = chunk
     this.rubbleRules = rubbleRules || {}
     this.remnants = remnants
@@ -131,6 +136,27 @@ export class Building {
     return surface.kind === "rubble" ? `${name}#${shapeFor(surface, row, col, shapes)}` : name
   }
 
+  // What colour a piece of `name` starts out: the palette's colour for the material's role
+  // -- brick for brick, roof_tile for tiles, door for a door -- or the material's own, and
+  // a seeded jitter of a few percent so a wall is not one flat value. The albedo the pool
+  // draws is value space, so this multiplication IS the colouring; damage darkening
+  // multiplies it again (PieceMeshes#tint), and a broken cell is hidden, so the product is
+  // never seen at zero.
+  tintFor(name, index, target = TINT) {
+    const spec = this.materials[name] || {}
+    target.set((spec.role && this.palette[spec.role]) || spec.colour || "#888888")
+    return target.multiplyScalar(1 + jitter(index, this.id) * this.jitter)
+  }
+
+  cellUV(index) {
+    return this.meshes.cellUVAt(this.pool[index], this.slot[index])
+  }
+
+  tint(index) {
+    const colour = this.meshes.baseAt(this.pool[index], this.slot[index])
+    return colour ? `#${colour.getHexString()}` : null
+  }
+
   build(RAPIER, colliderIndex) {
     const surfaceIndex = new Map(this.spec.surfaces.map((surface, i) => [ surface, i ]))
     // Block ids are local to their surface, so they are rebased onto a building-wide id
@@ -164,7 +190,10 @@ export class Building {
       // of rubble. Kept per piece, because hiding and tinting address the pool while damage
       // and breaking address the material.
       this.pool[index] = Building.poolName(surface, row, col, name, this.rubbleRules.shapes)
-      this.slot[index] = this.meshes.add(this.pool[index], matrix)
+      // The cell's offset along its surface in metres, so the bond runs on from the cell
+      // before it; and its colour.
+      const cell = cellSize(surface)
+      this.slot[index] = this.meshes.add(this.pool[index], matrix, this.tintFor(name, index), col * cell.width, row * cell.height)
       this.colliders[index] = this.createCollider(RAPIER, matrix, surface, name, index, colliderIndex)
 
       // Built now and revealed later. The collider array and the instance pools are both
@@ -228,7 +257,9 @@ export class Building {
     heapFragments(surface, row, col, frame, surface.mix, this.materials, this.rubbleRules, (k, name, matrix) => {
       const pool = fragmentPool(name)
       pools.push(pool)
-      slots.push(this.meshes.add(pool, matrix))
+      // The chunks in a red house's wreckage are red: a chunk is coloured exactly as a
+      // standing cell of the same material is.
+      slots.push(this.meshes.add(pool, matrix, this.tintFor(name, k)))
     })
     return { pools, slots }
   }
@@ -555,6 +586,8 @@ export class Building {
       // Whose wreckage this slab is carrying down. It comes back on landing, so the heaps
       // it pays for are this bay's rather than the building's.
       slab.bay = bay
+      // The colour it fell with, from its first cell, so a slab of a red house is red.
+      slab.tint = this.tintFor(slab.material, slab.surface.off + slab.row * slab.surface.cols + slab.col, new THREE.Color())
       if (!this.falling.drop(matrix, slab.material, slab)) continue
       dropped += 1
 
@@ -744,3 +777,12 @@ const FRAME = {}
 const POSITION = new THREE.Vector3()
 const ROTATION = new THREE.Quaternion()
 const SCALE = new THREE.Vector3()
+const TINT = new THREE.Color()
+
+// A seeded value in [-1, 1) per cell, from the piece index and the building's own id so
+// two buildings do not share a pattern of light and dark cells.
+function jitter(index, salt) {
+  let h = (index * 374761393 + salt * 668265263) | 0
+  h = Math.imul(h ^ (h >>> 13), 1274126177)
+  return (((h ^ (h >>> 16)) >>> 0) / 4294967296) * 2 - 1
+}

@@ -10,9 +10,12 @@ const SKY = "#0e1116"
 // caps its substeps rather than running slow, so the SIMULATION quietly drops to 65% of
 // real time. Every timed assertion in the suite then under-runs, and does it consistently
 // enough to look like a physics change rather than a frame rate.
+// `textures` is the surface detail of §2: the bond, the courses, the planks, painted at
+// boot. It is off at `low` for the same reason the shadows are -- it is fragment cost, and
+// the timing assertions are calibrated without it.
 export const QUALITY = {
-  high: { shadows: true, shadowMap: 2048, pixelRatio: 2 },
-  low: { shadows: false, shadowMap: 512, pixelRatio: 1 }
+  high: { shadows: true, shadowMap: 2048, pixelRatio: 2, textures: true },
+  low: { shadows: false, shadowMap: 512, pixelRatio: 1, textures: false }
 }
 
 export function qualityFor(name) {

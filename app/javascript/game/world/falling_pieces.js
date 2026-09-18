@@ -21,13 +21,14 @@ import { FALLING_GROUPS } from "game/physics/groups"
 //     actually came to rest, and reading a freed body reaches into released memory and
 //     poisons the whole Rapier instance -- not just this piece.
 export class FallingPieces {
-  constructor({ RAPIER, world, scene, colliderIndex, materials, debris, rules = {} }) {
+  constructor({ RAPIER, world, scene, colliderIndex, materials, debris, rules = {}, looks = null }) {
     this.RAPIER = RAPIER
     this.world = world
     this.scene = scene
     this.colliderIndex = colliderIndex
     this.materials = materials
     this.debris = debris
+    this.looks = looks
 
     this.max = rules.max ?? 140
     this.perBuilding = rules.per_building ?? this.max
@@ -118,7 +119,6 @@ export class FallingPieces {
     const entry = this.take(name)
     entry.body = body
     entry.collider = collider
-    entry.name = name
     entry.age = 0
     entry.touched = false
     // The grid this slab covered, kept so its landing can be broken back down into cells.
@@ -137,7 +137,15 @@ export class FallingPieces {
     entry.mesh.scale.copy(SCALE)
     entry.mesh.position.copy(POSITION)
     entry.mesh.quaternion.copy(ROTATION)
-    entry.mesh.material = this.debris.materialFor(name)
+    // A slab keeps the look and the colour it fell with. The material is this entry's own
+    // -- a slab's tint is per mesh -- and is remade only when the entry changes material,
+    // because the textures under it are shared and a material is cheap.
+    if (entry.name !== name || !entry.mesh.material.userData.slab) {
+      entry.mesh.material.dispose()
+      entry.mesh.material = this.slabMaterial(name)
+    }
+    entry.mesh.material.color.copy(shape.tint ?? WHITE)
+    entry.name = name
     entry.mesh.visible = true
 
     this.colliderIndex.set(collider.handle, { kind: "falling", falling: entry })
@@ -145,11 +153,20 @@ export class FallingPieces {
     return true
   }
 
+  // A slab's own material, never a shared one: its colour is the building's palette and
+  // two houses on the same street are not the same colour. The textures under it are
+  // shared, so this costs a uniform block and nothing else.
+  slabMaterial(name) {
+    const material = this.looks ? this.looks.slabMaterial(name) : this.debris.materialFor(name).clone()
+    material.userData.slab = true
+    return material
+  }
+
   take(name) {
     const entry = this.pool.pop()
     if (entry) return entry
 
-    const mesh = new THREE.Mesh(this.geometry, this.debris.materialFor(name))
+    const mesh = new THREE.Mesh(this.geometry, this.slabMaterial(name))
     mesh.castShadow = true
     mesh.receiveShadow = false
     this.scene.add(mesh)
@@ -262,9 +279,15 @@ export class FallingPieces {
       this.colliderIndex.delete(entry.collider.handle)
       this.world.removeRigidBody(entry.body)
       entry.mesh.removeFromParent()
+      // Per entry, so nobody else is holding it. The textures on it belong to Looks and
+      // are freed there.
+      entry.mesh.material.dispose()
       entry.owner = null
     }
-    for (const entry of this.pool) entry.mesh.removeFromParent()
+    for (const entry of this.pool) {
+      entry.mesh.removeFromParent()
+      entry.mesh.material.dispose()
+    }
     this.live = []
     this.pool = []
     this.cells = 0
@@ -277,6 +300,7 @@ function rand(scale) {
 }
 
 const SINGLE_CELL = { rows: 1, cols: 1, cells: 1 }
+const WHITE = new THREE.Color(1, 1, 1)
 
 const POSITION = new THREE.Vector3()
 const LANDED_AT = new THREE.Vector3()

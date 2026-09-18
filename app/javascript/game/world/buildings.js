@@ -16,12 +16,15 @@ import { baseMaterial } from "game/render/piece_meshes"
 export class Buildings {
   // `ground` is (x, z) => height for a world with terrain, or null; everything that lays
   // something on the ground takes it and reproduces its flat-world behaviour without it.
-  constructor({ RAPIER, world, scene, spec, materials, colliderIndex, grid, ground = null, onDamage = null }) {
+  constructor({ RAPIER, world, scene, spec, materials, colliderIndex, grid, ground = null, looks = null, onDamage = null }) {
     this.list = []
     this.byId = new Map()
 
     const specs = spec.arena.buildings || []
-    this.meshes = new PieceMeshes(scene, materials)
+    // The textures every pool is dressed in, and the material a falling slab is drawn
+    // with. It paints nothing at `low` quality and dresses nothing then either, so a world
+    // built without one and a world built with a disabled one are drawn the same.
+    this.meshes = new PieceMeshes(scene, materials, { looks })
     this.patterns = new Patterns(materials)
     const debrisRules = spec.rules.debris || {}
     this.debris = new Debris({ scene, materials, patterns: this.patterns, rules: debrisRules, ground })
@@ -29,7 +32,7 @@ export class Buildings {
     // its telemetry to something real on a world made of nothing but ground.
     this.falling = new FallingPieces({
       RAPIER, world, scene, colliderIndex, materials, debris: this.debris,
-      rules: spec.rules.collapse?.fall
+      rules: spec.rules.collapse?.fall, looks
     })
     const rubbleRules = spec.rules.collapse?.rubble || {}
     // Built whether or not there are buildings, for the same reason the falling pool is.
@@ -73,6 +76,8 @@ export class Buildings {
         grid,
         rules: spec.rules.damage,
         ground,
+        palettes: spec.palettes || {},
+        lookRules: spec.rules.looks || {},
         onDamage
       })
       this.list.push(building)

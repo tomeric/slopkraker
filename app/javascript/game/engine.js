@@ -6,6 +6,7 @@ import { buildTerrainView } from "game/render/terrain_view"
 import { buildRoadsView } from "game/render/roads_view"
 import { installParityHooks } from "game/parity"
 import { createRenderer, createScene, createCamera, disposeScene, qualityFor } from "game/render/scene"
+import { Looks } from "game/render/looks"
 import { buildArenaView } from "game/render/arena_view"
 import { createPhysicsWorld } from "game/physics/world"
 import { buildVehicle, vehicleKeys } from "game/vehicles"
@@ -99,6 +100,10 @@ export class GameEngine {
     this.maxSubsteps = this.spec.rules.max_substeps
 
     this.renderer = createRenderer(this.canvas, this.quality)
+    // The textures every pool is dressed in, painted once from the spec. Nothing at `low`.
+    // After the renderer, because it asks it what anisotropy it can filter at; before the
+    // buildings, because their materials are dressed as they are made.
+    this.looks = new Looks(this.spec.materials, this.quality, this.renderer)
     const { scene, sun } = createScene(this.quality)
     this.scene = scene
     this.sun = sun
@@ -149,6 +154,7 @@ export class GameEngine {
       materials: this.spec.materials, colliderIndex: this.colliderIndex,
       grid: this.propGrid,
       ground: this.ground,
+      looks: this.looks,
       onDamage: (id, piece, raw, kind) => this.reporter.report(id, piece, raw, kind)
     })
 
@@ -331,6 +337,14 @@ export class GameEngine {
     // The JS side of every ported Ruby/JS pair, for parity_test.rb.
     installParityHooks({ spec: this.spec, buildings: this.buildings, terrain: this.terrain })
     window.__arenaQuality = this.qualityName
+    // What was painted, and at what size. The surface detail is assertable without reading
+    // pixels: a texture exists per patterned material and none for the flat ones.
+    window.__arenaLooks = () => ({ ...this.looks.readout(), environment: Boolean(this.scene.environment), sky: this.timeName ?? null })
+    // Where a cell's texture starts along its surface, in metres, and what it was coloured
+    // before damage -- the two halves of "the bond runs across the wall in the building's
+    // own palette".
+    window.__arenaCellUV = (piece, buildingId) => this.buildings?.find(buildingId)?.cellUV(piece) ?? null
+    window.__arenaTint = (piece, buildingId) => this.buildings?.find(buildingId)?.tint(piece) ?? null
 
     this.running = true
     this.lastFrame = performance.now()
@@ -977,6 +991,10 @@ export class GameEngine {
     this.eventQueue?.free()
     this.world?.free()
 
+    // Freed here rather than left to disposeScene: one painted texture is shared by every
+    // pool and every slab drawn with that material, and this is the only complete list of
+    // them.
+    this.looks?.dispose()
     if (this.scene) disposeScene(this.scene)
     this.renderer?.dispose()
     this.renderer?.forceContextLoss()
