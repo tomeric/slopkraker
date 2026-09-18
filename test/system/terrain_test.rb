@@ -5,6 +5,9 @@ class TerrainTest < ApplicationSystemTestCase
   def boot(match)
     visit_world("hills", match: match)
     wait_for(message: "engine never booted") { page.evaluate_script("!!(window.__arena && window.__arena.ready)") }
+    # `ready` is the engine, not the world: Rapier builds its broad phase inside `step`, so
+    # a raycast issued before the first one finds nothing anywhere -- not a miss, nothing.
+    wait_for(timeout: 60, message: "the world never stepped") { page.evaluate_script("window.__arena.steps").positive? }
   end
 
   def height_at(x, z)
