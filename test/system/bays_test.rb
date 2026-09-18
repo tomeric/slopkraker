@@ -6,6 +6,10 @@ class BaysTest < ApplicationSystemTestCase
   def boot(match)
     visit_world("geleen", vehicle: "buggy", match: match)
     wait_for(timeout: 60, message: "geleen never booted") { page.evaluate_script("!!(window.__arena && window.__arena.ready)") }
+    # `ready` is the engine having booted, not the world having run. Same milestone
+    # geleen_test waits on, and for the same reason: nothing physical -- a raycast, a
+    # falling slab, a contact -- has happened yet at `ready`.
+    wait_for(timeout: 60, message: "the world never stepped") { page.evaluate_script("window.__arena.steps").positive? }
     page.execute_script(<<~JS)
       window.__row = () => window.__arenaBuildingIds().find(i => {
         const s = window.__arenaBuildingSpec(i)
@@ -48,7 +52,13 @@ class BaysTest < ApplicationSystemTestCase
     assert page.evaluate_script("window.__arenaPieceState(#{party['off']}, #{id}).standing"), "a shared wall was felled"
     rubble = page.evaluate_script("window.__arenaRubble()")
     assert_operator rubble["standing"], :>, 0, "the fallen bay left no wreckage"
-    assert_operator rubble["dormant"], :>, rubble["standing"], "the neighbours' wreckage was revealed too"
+    # `__arenaRubble` counts the WHOLE world. Over forty-eight buildings "dormant beats
+    # standing" is true by three orders of magnitude whatever happened here, so it asserts
+    # nothing -- the number has to be nameable instead. This is a fresh match, so the only
+    # wreckage standing anywhere is this collapse's; the bay came down from storey 0, which
+    # leaves all of its heaps and none of anybody else's.
+    assert_equal page.evaluate_script("window.__arenaPileOrder(#{id}, 1).length"), rubble["standing"],
+                 "the wreckage standing is not exactly the felled bay's"
   end
 
   test "the client and the server reveal a bay's heaps in the same order" do
@@ -56,8 +66,17 @@ class BaysTest < ApplicationSystemTestCase
     id = page.evaluate_script("window.__row()")
     record = WorldObject.find(id)
     surface = record.surface_set.surfaces.last
-    [ 0, 1 ].each do |bay|
-      assert_equal Game::Building::Rubble.pile_indices(surface, bay: bay), page.evaluate_script("window.__arenaPileOrder(#{id}, #{bay})")
+    orders = [ 0, 1 ].map do |bay|
+      order = page.evaluate_script("window.__arenaPileOrder(#{id}, #{bay})")
+      # Two sides answering [] agree about nothing, and two sides answering the WHOLE
+      # grid's order agree about nothing per bay: drop `bays` from the rubble surface and
+      # both languages fall back to it, in step, for every bay. So the orders have to be
+      # non-empty and have to differ from each other before agreeing means anything.
+      refute_empty order, "bay #{bay} was given no heaps"
+      assert_equal Game::Building::Rubble.pile_indices(surface, bay: bay), order,
+                   "the client reveals bay #{bay} in an order the server does not gate on"
+      order
     end
+    refute_equal orders[0], orders[1], "both bays were handed the same heaps"
   end
 end
