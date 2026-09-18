@@ -10,6 +10,22 @@ module Game
       # Categories that are never sliced into dwellings, whatever their parts are tall
       # enough to be: a church and a hall are a row of ZERO dwellings and one bay per part.
       PER_PART = %w[church hall].freeze
+      # Which colours a row may be drawn in, by category, drawn by the row's seed. This
+      # estate is 1987 brown-and-red brick under anthracite or orange tiles; the church is
+      # the church.
+      PALETTES = {
+        "house" => %w[brown_brick red_brick brown_brick sand_brick dark_brick red_brick],
+        "apartments" => %w[brown_brick sand_brick dark_brick],
+        "shed" => %w[brown_brick dark_brick],
+        "church" => %w[church],
+        "hall" => %w[church dark_brick]
+      }.freeze
+      # A box is a garage when its street-facing edge is at least a car wide.
+      GARAGE_WIDTH = 2.5
+      # How deep a front garden may be, from the front line to the road's edge. Shallower
+      # is a pavement; deeper is not this dwelling's garden.
+      GARDEN_MIN = 1.5
+      GARDEN_MAX = 25.0
 
       # A cluster's own axes, not the world's. Named Frame because that is what it is, and
       # deliberately never confused with Terrain::Frame: that one maps survey metres to
@@ -34,8 +50,8 @@ module Game
         # A line of one point is not a line: it has no segment to measure against and the
         # client's ribbon has nothing to extrude, so it is dropped here rather than half
         # the way down the pipeline.
-        @roads = roads.map { |r| Array(r["points"]) }.select { |pts| pts.length >= 2 }
-                      .map { |pts| pts.map { |x, y| frame.to_game(x, y) } }
+        @roads = roads.map { |r| [ Array(r["points"]), (r["width"] || 5.5).to_f ] }.select { |pts, _| pts.length >= 2 }
+                      .map { |pts, width| [ pts.map { |x, y| frame.to_game(x, y) }, width ] }
         # Which long side of a row is its street is decided by the roads and nothing else.
         # With none there is no answer to give, and every row would silently take whichever
         # way its annexes happened to lie -- a world of houses facing their own back gardens.
@@ -47,7 +63,38 @@ module Game
       def objects = @clusters.map { |c| build(c) }
 
       def road_distance(gx, gz)
-        @roads.map { |line| line.each_cons(2).map { |(x1, z1), (x2, z2)| segment_distance(gx, gz, x1, z1, x2, z2) }.min }.min
+        nearest_road(gx, gz).fetch(:distance)
+      end
+
+      # The nearest road to a point, its width, and the point on it that is nearest.
+      def nearest_road(gx, gz)
+        best = nil
+        @roads.each do |points, width|
+          points.each_cons(2) do |(x1, z1), (x2, z2)|
+            px, pz = nearest_on_segment(gx, gz, x1, z1, x2, z2)
+            distance = Math.hypot(gx - px, gz - pz)
+            best = { distance: distance, width: width, point: [ px, pz ] } if best.nil? || distance < best[:distance]
+          end
+        end
+        best
+      end
+
+      # The edge of a box that faces the street, or nil: it runs along the row (more x than
+      # z), is at least a car wide, and stands no further back than the row's front line.
+      # The street is at low z in the row frame. Returns the ring rotated to start at that
+      # edge, because the generator puts a box's door on its first edge.
+      def self.garage_ring(ring, front_z)
+        candidates = ring.each_with_index.filter_map do |a, i|
+          b = ring[(i + 1) % ring.length]
+          next unless (b[0] - a[0]).abs > (b[1] - a[1]).abs
+          next unless Math.hypot(b[0] - a[0], b[1] - a[1]) >= GARAGE_WIDTH
+          next unless (a[1] + b[1]) / 2.0 <= front_z + 0.5
+
+          [ (a[1] + b[1]) / 2.0, i ]
+        end
+        return nil if candidates.empty?
+
+        ring.rotate(candidates.min.last)
       end
 
       private
@@ -77,6 +124,13 @@ module Game
           l2 = dx * dx + dz * dz
           t = l2.zero? ? 0.0 : (((px - x1) * dx + (pz - z1) * dz) / l2).clamp(0.0, 1.0)
           Math.hypot(px - (x1 + t * dx), pz - (z1 + t * dz))
+        end
+
+        def nearest_on_segment(px, pz, x1, z1, x2, z2)
+          dx, dz = x2 - x1, z2 - z1
+          length2 = dx * dx + dz * dz
+          t = length2.zero? ? 0.0 : (((px - x1) * dx + (pz - z1) * dz) / length2).clamp(0.0, 1.0)
+          [ x1 + t * dx, z1 + t * dz ]
         end
 
         def build(c)
@@ -141,6 +195,8 @@ module Game
           recipe = { "kind" => "row", "category" => category, "pands" => c["pands"].map { |p| p[-6..] },
                      "yaw" => frame.yaw.round(5), "cell" => CELLS.fetch(category, 1.0), "seed" => seed,
                      "dwellings" => [], "boxes" => [] }
+          choices = PALETTES.fetch(category, %w[brown_brick])
+          recipe["palette"] = choices[seed % choices.length]
 
           if houses
             boxes = homes.map { |m| [ m, bbox(local.call(m, "env")) ] }.sort_by { |_, b| (b[0] + b[2]) / 2 }
@@ -172,8 +228,30 @@ module Game
             end
             annexes.each do |p|
               ring = local.call(p, "simple").map { |x, z| [ x.round(2), z.round(2) ] }
+              door = false
+              # A one-storey annex whose street edge is a car wide is a garage, and its
+              # ring is turned so that edge is the one the generator puts the door on.
+              if %w[house apartments].include?(category) && (garage = self.class.garage_ring(ring, band_z0))
+                ring = garage
+                door = "garage"
+              end
               recipe["boxes"] << { "ring" => ring, "eaves" => part_height(p).round(2), "ridge" => part_height(p).round(2), "storeys" => 1,
-                                   "roof" => "flat", "door" => false, "solid" => false, "bay" => bay_of(recipe["dwellings"], ring), "name" => p["source_id"][-8..] }
+                                   "roof" => "flat", "door" => door, "solid" => false, "bay" => bay_of(recipe["dwellings"], ring), "name" => p["source_id"][-8..] }
+            end
+            # A front garden per dwelling that faces a road: the strip from the front line to
+            # the road's edge, when the nearest road lies across the front -- in front of the
+            # dwelling rather than beside or behind it -- and no box of this bay stands in it.
+            recipe["gardens"] = recipe["dwellings"].each_with_index.filter_map do |d, i|
+              mx = (d["x0"] + d["x1"]) / 2.0
+              road = nearest_road(*frame.to_world(mx, band_z0))
+              next unless road
+
+              lx, lz = frame.to_local(*road[:point])
+              depth = road[:distance] - road[:width] / 2.0
+              next unless lz < band_z0 - 1.0 && (lx - mx).abs < (d["x1"] - d["x0"]) && depth.between?(GARDEN_MIN, GARDEN_MAX)
+              next if recipe["boxes"].any? { |b| b["bay"] == i && b["ring"].map(&:last).min < band_z0 - 0.3 }
+
+              { "bay" => i, "depth" => depth.round(2) }
             end
           else
             recipe.merge!("band" => [ 0.0, 0.0 ], "storeys" => [ mains.map { |m| ((m["eaves"] || m["h70"]) / 4.0).round }.max, 1 ].max,

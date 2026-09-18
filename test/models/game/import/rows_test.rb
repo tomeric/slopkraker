@@ -105,4 +105,63 @@ class Game::Import::RowsTest < ActiveSupport::TestCase
     back = [ x + mid * Math.cos(yaw) - 15 * Math.sin(yaw), z + mid * Math.sin(yaw) + 15 * Math.cos(yaw) ]
     assert_operator rows.road_distance(*front), :<, rows.road_distance(*back)
   end
+
+  test "every row carries a palette the table knows, and the estate is not one colour" do
+    palettes = rows.objects.map { |o| o[:recipe]["palette"] }
+
+    palettes.each { |key| assert Game::Palettes.key?(key), "#{key} is not a palette" }
+    assert_operator palettes.uniq.length, :>, 1, "thirty rows in one colour is the estate we had"
+    church = church_rows.objects.find { |o| o[:category] == "church" }
+    assert_equal "church", church[:recipe]["palette"]
+  end
+
+  # Pure geometry, so it can be asked of rings that exist and rings that do not. The
+  # street is at low z in the row frame; `front_z` is the row's front line.
+  test "a street-facing box a car wide is a garage, and its street edge comes first" do
+    garage = Game::Import::Rows.garage_ring([ [ 0, 3 ], [ 0, 0 ], [ 6, 0 ], [ 6, 3 ] ], 0.0)
+    assert_equal [ [ 0, 0 ], [ 6, 0 ], [ 6, 3 ], [ 0, 3 ] ], garage, "rotated so the edge along the street is first"
+    assert_equal [ [ 0, 0 ], [ 6, 0 ], [ 6, 3 ], [ 0, 3 ] ], Game::Import::Rows.garage_ring([ [ 0, 0 ], [ 6, 0 ], [ 6, 3 ], [ 0, 3 ] ], 0.0)
+    assert_nil Game::Import::Rows.garage_ring([ [ 0, 5 ], [ 6, 5 ], [ 6, 8 ], [ 0, 8 ] ], 0.0), "behind the front line is a shed"
+    assert_nil Game::Import::Rows.garage_ring([ [ 0, 0 ], [ 2, 0 ], [ 2, 3 ], [ 0, 3 ] ], 0.0), "two metres is not a car"
+    assert_nil Game::Import::Rows.garage_ring([ [ 0, 0 ], [ 0, 6 ], [ 2, 6 ], [ 2, 0 ] ], 0.0), "a box deeper than it is wide, two metres across, is a shed"
+  end
+
+  test "a garage box carries its door and every garage is one storey" do
+    garages = (rows.objects + church_rows.objects).flat_map { |o| o[:recipe]["boxes"].select { |b| b["door"] == "garage" } }
+    garages.each do |box|
+      assert_equal 1, box["storeys"]
+      refute box["solid"]
+    end
+  end
+
+  test "dwellings facing a road get a front garden that reaches it" do
+    houses = rows.objects.select { |o| o[:category] == "house" }
+    gardens = houses.flat_map { |o| o[:recipe]["gardens"] }
+    dwellings = houses.sum { |o| o[:recipe]["dwellings"].length }
+
+    assert_operator gardens.length, :>=, dwellings / 2, "fewer than half the estate's dwellings have a garden"
+    gardens.each do |g|
+      assert_operator g["depth"], :>=, Game::Import::Rows::GARDEN_MIN
+      assert_operator g["depth"], :<=, Game::Import::Rows::GARDEN_MAX
+    end
+    houses.each do |o|
+      bays = o[:recipe]["gardens"].map { |g| g["bay"] }
+      assert_equal bays.uniq, bays, "#{o[:name]} gives one dwelling two gardens"
+      bays.each { |b| assert_operator b, :<, o[:recipe]["dwellings"].length }
+    end
+    # The row this file already proves faces its road has a garden.
+    row12 = rows.objects.find { |o| o[:recipe]["pands"].include?("053076") }
+    assert_operator row12[:recipe]["gardens"].length, :>=, 1, "the row that faces its road has no garden"
+  end
+
+  test "a garden never lies under a box of its own bay" do
+    (rows.objects + church_rows.objects).each do |o|
+      z0 = o[:recipe]["band"]&.first
+      Array(o[:recipe]["gardens"]).each do |g|
+        o[:recipe]["boxes"].select { |b| b["bay"] == g["bay"] }.each do |box|
+          assert_operator box["ring"].map(&:last).min, :>=, z0 - 0.3, "#{o[:name]}: #{box['name']} stands in bay #{g['bay']}'s garden"
+        end
+      end
+    end
+  end
 end
