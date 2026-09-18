@@ -7,6 +7,9 @@ module Game
       DWELLING_EAVES = 4.0        # a main part lower than this is a shed
       STOREY_TARGET = 2.8
       CELLS = { "house" => 1.0, "shed" => 1.0, "church" => 2.0, "hall" => 2.0, "apartments" => 1.5 }.freeze
+      # Categories that are never sliced into dwellings, whatever their parts are tall
+      # enough to be: a church and a hall are a row of ZERO dwellings and one bay per part.
+      PER_PART = %w[church hall].freeze
 
       # A cluster's own axes, not the world's. Named Frame because that is what it is, and
       # deliberately never confused with Terrain::Frame: that one maps survey metres to
@@ -79,16 +82,35 @@ module Game
         def build(c)
           mains = c["main_ids"].map { |id| @parts[id] }
           members = c["pands"].flat_map { |pand| @parts.values.select { |p| p["pand"] == pand } }
-          annexes = members - mains
-          houses = mains.all? { |m| (m["eaves"] || m["h70"]) >= DWELLING_EAVES }
-          category = @categories[c["pands"].first] || (houses ? "house" : "shed")
+          # Judged per main, not over the whole cluster. `mains.all?` demoted five houses of
+          # 5.9 to 6.9 m eaves to eight flat boxes because ONE main among them stood at
+          # 3.49 m: a main too low to be a dwelling is an outbuilding of the row, not proof
+          # that the row is sheds.
+          homes = mains.select { |m| (m["eaves"] || m["h70"]) >= DWELLING_EAVES }
+          annexes = members - homes
+          # The tallest main's category, not the first Pand's. `pands` comes back sorted by
+          # id, so a gabled pair whose smaller half classified as a shed was labelled shed
+          # by the accident of which of the two ids sorts first. Tallest FIRST rather than
+          # tallest full stop: the classifier windows its Pand by centroid and this one
+          # windows by geometry, so a cluster can reach in from outside it and the tallest
+          # main of all be the one Pand nobody labelled -- which would throw away what its
+          # neighbours in the same cluster do say.
+          category = mains.sort_by { |m| -part_height(m) }.filter_map { |m| @categories[m["pand"]] }.first ||
+                     (homes.any? ? "house" : "shed")
+          # Whether this cluster is BUILT as a row of dwellings, which is not the same
+          # question as whether its mains are tall enough to be one. A church's nave is a
+          # main part well over DWELLING_EAVES, so height alone made Sint-Marcellinus a
+          # single 36.5 m "dwelling" under one gable band with nine flat one-storey boxes
+          # beside it, every one of them in bay 0 -- and gutting the nave's ground storey
+          # then condemned nothing at all, because a church has no bays to condemn.
+          houses = homes.any? && !PER_PART.include?(category)
           env = ring(c["envelope"])
 
           # The row runs along one of the envelope's edge directions; the dwellings'
           # centroids say which of the two.
           yaw = axis_of(env)
-          if houses && mains.size >= 2
-            cs = mains.map { |m| centroid(ring(m["env"])) }
+          if houses && homes.size >= 2
+            cs = homes.map { |m| centroid(ring(m["env"])) }
             along = cs.map { |x, z| x * Math.cos(yaw) + z * Math.sin(yaw) }
             across = cs.map { |x, z| -x * Math.sin(yaw) + z * Math.cos(yaw) }
             yaw += Math::PI / 2 if across.max - across.min > along.max - along.min
@@ -98,7 +120,7 @@ module Game
 
           # The street side: the nearer road when the two long sides differ by more than
           # three metres, else the side the annexes are not on.
-          probe = houses ? mains.flat_map { |m| ring(m["env"]) } : ring(c["union"])
+          probe = houses ? homes.flat_map { |m| ring(m["env"]) } : ring(c["union"])
           ux0, uz0, ux1, uz1 = bbox(probe.map { |g| frame.to_local(*g) })
           d_min = road_distance(*frame.to_world((ux0 + ux1) / 2, uz0))
           d_max = road_distance(*frame.to_world((ux0 + ux1) / 2, uz1))
@@ -106,7 +128,7 @@ module Game
             if (d_min - d_max).abs > 3.0
               d_max < d_min
             elsif annexes.any? && houses
-              mz = mains.sum { |m| centroid(ring(m["env"]).map { |g| frame.to_local(*g) })[1] } / mains.size
+              mz = homes.sum { |m| centroid(ring(m["env"]).map { |g| frame.to_local(*g) })[1] } / homes.size
               az = annexes.sum { |p| centroid(ring(p["simple"]).map { |g| frame.to_local(*g) })[1] } / annexes.size
               az < mz
             else
@@ -121,7 +143,7 @@ module Game
                      "dwellings" => [], "boxes" => [] }
 
           if houses
-            boxes = mains.map { |m| [ m, bbox(local.call(m, "env")) ] }.sort_by { |_, b| (b[0] + b[2]) / 2 }
+            boxes = homes.map { |m| [ m, bbox(local.call(m, "env")) ] }.sort_by { |_, b| (b[0] + b[2]) / 2 }
             band_z0 = boxes.map { |_, b| b[1] }.max
             band_z1 = boxes.map { |_, b| b[3] }.min
             if band_z1 - band_z0 < 5.0
@@ -132,8 +154,8 @@ module Game
             bounds = [ xs.first[0] ] + xs.each_cons(2).map { |a, b| (a[1] + b[0]) / 2.0 } + [ xs.last[1] ]
             recipe["dwellings"] = boxes.each_index.map { |i| { "x0" => bounds[i].round(2), "x1" => bounds[i + 1].round(2) } }
             recipe["band"] = [ band_z0.round(2), band_z1.round(2) ]
-            eaves = mains.map { |m| m["eaves"] || m["h70"] * 0.75 }.max
-            ridge = median(mains.map { |m| m["ridge"] || m["h70"] * 1.1 })
+            eaves = homes.map { |m| m["eaves"] || m["h70"] * 0.75 }.max
+            ridge = median(homes.map { |m| m["ridge"] || m["h70"] * 1.1 })
             storeys = [ (eaves / STOREY_TARGET).round, 1 ].max
             recipe.merge!("eaves" => eaves.round(2), "ridge" => [ ridge, eaves ].max.round(2), "storeys" => storeys,
                           "storey_height" => (eaves / storeys).round(3), "roof" => ridge - eaves > 0.8 ? "gable" : "flat")
@@ -157,7 +179,10 @@ module Game
             recipe.merge!("band" => [ 0.0, 0.0 ], "storeys" => [ mains.map { |m| ((m["eaves"] || m["h70"]) / 4.0).round }.max, 1 ].max,
                           "storey_height" => 3.0, "eaves" => mains.map { |m| part_height(m) }.max.round(2), "roof" => "flat")
             recipe["ridge"] = recipe["eaves"]
-            (mains + annexes).sort_by { |p| -p["area"] }.each_with_index do |p, i|
+            # Union rather than concatenation: `annexes` excludes only the mains that became
+            # dwellings, so a main too low to be one is in both lists and would otherwise be
+            # built twice, in two bays, on the same ground.
+            (mains | annexes).sort_by { |p| -p["area"] }.each_with_index do |p, i|
               ring = local.call(p, category == "church" ? "simple" : "env").map { |x, z| [ x.round(2), z.round(2) ] }
               eaves = p["eaves"] || p["h70"] * 0.8
               ridge = p["ridge"] || p["h70"] * 1.1

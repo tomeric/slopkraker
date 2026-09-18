@@ -302,4 +302,46 @@ class Game::Damage::CollapseTest < ActiveSupport::TestCase
     assert_equal({ 1 => 0 }, result.collapsed)
     assert_empty result.broken
   end
+
+  # A church in miniature, generated rather than built by hand, because what is being tested
+  # is that the importer's own shape -- a row of NO dwellings whose every part is a box with a
+  # bay of its own -- reaches the collapse rule as separate bays. A nave of 20 x 12 m under a
+  # gable, and a tower of 8 x 8 m six storeys up under a pyramid, standing six metres clear of
+  # it so they share no wall.
+  def church
+    Game::Building::Generator.call(
+      "kind" => "row", "category" => "church", "cell" => 1.0, "seed" => 3, "yaw" => 0.0,
+      "band" => [ 0.0, 0.0 ], "storeys" => 6, "storey_height" => 4.0, "eaves" => 24.0, "ridge" => 24.0, "roof" => "flat",
+      "dwellings" => [],
+      "boxes" => [
+        { "ring" => [ [ 0, 0 ], [ 20, 0 ], [ 20, 12 ], [ 0, 12 ] ], "eaves" => 8.0, "ridge" => 12.0,
+          "storeys" => 2, "roof" => "gable", "door" => true, "solid" => false, "bay" => 0, "name" => "nave" },
+        { "ring" => [ [ 26, 0 ], [ 34, 0 ], [ 34, 8 ], [ 26, 8 ] ], "eaves" => 24.0, "ridge" => 30.0,
+          "storeys" => 6, "roof" => "pyramid", "door" => false, "solid" => false, "bay" => 1, "name" => "tower" }
+      ],
+      "footprint" => [ [ 0, 0 ], [ 34, 0 ], [ 34, 12 ], [ 0, 12 ] ]
+    )
+  end
+
+  # The spike's third scenario, and the reason a church is not one building to this rule:
+  # taking the whole ground storey out of the Sint-Marcellinus nave left 65% of the church's
+  # support standing, because the tower and the chapels share its "storey 0" and hold their
+  # own ground up. Weighed per bay, the nave is on its own.
+  test "the nave alone collapses the nave and leaves the tower" do
+    set = church
+    assert_equal [ 0, 1 ], set.bays, "the church came out as one bay"
+    nave = set.for_bay(0)[:own].select { |s| s.kind == :wall && s.storey.zero? }
+    assert_operator nave.length, :>, 0, "the nave has no ground-storey walls"
+
+    result = evaluate(set, broken: indices_of(nave))
+
+    assert_equal({ 0 => 0 }, result.collapsed, "the tower was condemned with the nave, or the nave stood")
+    assert_includes result.broken, set.for_bay(0)[:own].find { |s| s.kind == :roof }.piece_offset, "the nave kept its roof in the air"
+    # Picked out by where they stand rather than by the bay they carry: with both parts in
+    # bay 0 -- which is what a church imported as a dwelling row came out as -- `for_bay(1)`
+    # is empty and an assertion made against it passes by having nothing in it.
+    tower = set.surfaces.select { |s| s.kind != :rubble && s.origin.x >= 25.0 }
+    assert_operator tower.length, :>, 0, "nothing stands where the tower was put"
+    assert_empty result.broken & indices_of(tower), "the tower came down with the nave"
+  end
 end
