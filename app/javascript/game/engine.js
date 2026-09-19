@@ -367,6 +367,10 @@ export class GameEngine {
     // The gable caps: how many a building placed, how many are showing. Drawing, not
     // pieces -- so a test proves a cap goes with the cell under it by breaking the cell.
     window.__arenaGableCaps = (buildingId) => this.buildings?.find(buildingId)?.capReadout() ?? null
+    // The rainwater goods: how many the building hung, how many are showing, and how many
+    // pools they cost. Drawing, like the caps -- a test proves one goes by breaking the
+    // cell it hangs on.
+    window.__arenaFittings = (buildingId) => this.buildings?.find(buildingId)?.capReadout() ?? null
 
     this.running = true
     this.lastFrame = performance.now()

@@ -4,6 +4,7 @@ import { eachBuildingCell, materialAt, chunkMatrix, cellSize } from "game/world/
 import { tileSurface } from "game/world/chunking"
 import { heapMatrix, heapFrame, heapFragments, fragmentMaterial, fragmentPool, shapeFor, pileOrder, SHAPES } from "game/world/rubble"
 import { gableCaps, wedgePool, isWedgePool } from "game/world/gables"
+import { fittingsFor, gutters, downpipes, FITTING_MATERIAL } from "game/world/fittings"
 import { baseMaterial } from "game/render/piece_meshes"
 import { absorb } from "game/damage"
 
@@ -92,9 +93,11 @@ export class Building {
     // For a heap: which pool and slot each of its chunks was drawn into. Undefined for
     // everything that is not a heap, which is what `isHeap` tests.
     this.fragments = new Array(count)
-    // For the top standing cell of each gable column: the pools and slots of the caps that
-    // fill the tooth above it, so they go and come back with the cell. Undefined elsewhere.
-    this.caps = new Array(count)
+    // What is DRAWN against a cell without being a piece of its own: the caps that fill the
+    // tooth above a gable column, and the gutter or downpipe hanging off an eaves or a wall
+    // end. They go and come back with the cell they are keyed to, and they cross no wire and
+    // hold no collider. Undefined at every index nothing hangs on.
+    this.attachments = new Array(count)
     // Heaps still growing out of the ground, as { index, t }.
     this.rising = []
     this.rise = this.rubbleRules.rise ?? 0
@@ -130,8 +133,8 @@ export class Building {
         }
       }
 
-      // The caps that fill a gable's teeth, counted exactly as buildCaps places them: a box
-      // goes into the material's own pool, a wedge into its wedge pool.
+      // The caps that fill a gable's teeth, counted exactly as buildGableCaps places them: a
+      // box goes into the material's own pool, a wedge into its wedge pool.
       if (surface.kind === "gable") {
         for (const cap of gableCaps(surface)) {
           if (cap.box) into.set(surface.mat, (into.get(surface.mat) || 0) + 1)
@@ -139,6 +142,17 @@ export class Building {
           if (cap.wedges.length) into.set(wedge, (into.get(wedge) || 0) + cap.wedges.length)
         }
       }
+
+      // The rainwater goods hang on the cells of roofs and walls. Counted here exactly as
+      // buildFittings places them, because an InstancedMesh cannot grow and a short pool
+      // drops instances without a word.
+      //
+      // Not QUITE exactly: buildFittings skips a fitting whose cell is ABSENT -- a void
+      // doorway, a clipped corner -- and this counts it anyway, because the state array it
+      // would have to ask does not exist yet. The pool comes out a little large, which is
+      // the safe direction and the same asymmetry the caps already have.
+      const fittings = fittingsFor(surface).length
+      if (fittings) into.set(FITTING_MATERIAL, (into.get(FITTING_MATERIAL) || 0) + fittings)
     }
     return into
   }
@@ -231,15 +245,16 @@ export class Building {
       }
     })
 
-    // After every cell, because a cap is keyed to the cell it stands on and has to know
-    // which of them the generator left standing.
+    // After every cell, because an attachment is keyed to the cell it hangs on and has to
+    // know which of them the generator left standing.
     for (const surface of this.spec.surfaces) {
-      if (surface.kind === "gable") this.buildCaps(surface)
+      if (surface.kind === "gable") this.buildGableCaps(surface)
+      this.buildFittings(surface)
     }
   }
 
   // The caps that make a gable meet the roof: placed once, keyed by the cell they stand on.
-  buildCaps(surface) {
+  buildGableCaps(surface) {
     const u = new THREE.Vector3().fromArray(surface.u)
     const v = new THREE.Vector3().fromArray(surface.v)
     const n = new THREE.Vector3().fromArray(surface.n)
@@ -251,7 +266,7 @@ export class Building {
       if (cap.anchorRow < 0) continue
 
       const index = surface.off + cap.anchorRow * surface.cols + cap.anchorCol
-      const entry = this.caps[index] || (this.caps[index] = { pools: [], slots: [], matrices: [] })
+      const entry = this.attachments[index] || (this.attachments[index] = { pools: [], slots: [], matrices: [], fittings: 0 })
       const place = (pool, matrix, cellU, cellV) => {
         entry.pools.push(pool)
         entry.slots.push(this.meshes.add(pool, matrix, this.tintFor(name, index), cellU, cellV))
@@ -289,19 +304,52 @@ export class Building {
     }
   }
 
-  showCaps(index, visible) {
-    const entry = this.caps[index]
+  // A box per fitting, in the surface's own frame, keyed to the cell it hangs on. Composed
+  // T * R * S exactly as cellMatrix composes a cell, for the shear reason set out there.
+  buildFittings(surface) {
+    const boxes = fittingsFor(surface)
+    if (boxes.length === 0) return
+
+    const u = new THREE.Vector3().fromArray(surface.u)
+    const v = new THREE.Vector3().fromArray(surface.v)
+    const n = new THREE.Vector3().fromArray(surface.n)
+    const origin = new THREE.Vector3().fromArray(surface.o).add(this.origin)
+
+    for (const box of boxes) {
+      const index = surface.off + box.anchorRow * surface.cols + box.anchorCol
+      // A fitting on a cell that was never built -- a void doorway, a clipped corner -- has
+      // nothing to hang on and nothing to disappear with, so it is not drawn at all.
+      if (this.state[index] === ABSENT) continue
+
+      CAP_MATRIX.makeBasis(u, v, n)
+      CAP_MATRIX.scale(CAP_SCALE.set(box.su, box.sv, box.sn))
+      CAP_MATRIX.setPosition(
+        CAP_POSITION.copy(origin).addScaledVector(u, box.u0).addScaledVector(v, box.v0).addScaledVector(n, box.n0)
+      )
+      const entry = this.attachments[index] || (this.attachments[index] = { pools: [], slots: [], matrices: [], fittings: 0 })
+      entry.pools.push(FITTING_MATERIAL)
+      entry.slots.push(this.meshes.add(FITTING_MATERIAL, CAP_MATRIX, this.tintFor(FITTING_MATERIAL, index), 0, 0))
+      entry.matrices.push(CAP_MATRIX.clone())
+      // Always pushed AFTER any cap on the same index, which is what lets the readout tell
+      // the two apart by counting caps from the front and fittings from the back.
+      entry.fittings += 1
+    }
+  }
+
+  showAttachments(index, visible) {
+    const entry = this.attachments[index]
     if (!entry) return
 
     for (let k = 0; k < entry.slots.length; k += 1) {
-      // The cap's OWN matrix, never the cell's: a wedge is a triangle where the cell is a
-      // box, and restoring one with the cell's transform would put a full panel there.
+      // The attachment's OWN matrix, never the cell's: a wedge is a triangle and a gutter is
+      // a 120 mm bar where the cell is a full panel, and restoring either with the cell's
+      // transform would put a panel there.
       this.meshes.setVisible(entry.pools[k], entry.slots[k], visible, entry.matrices[k])
     }
   }
 
   // For the tests: how many caps this building placed, how many are showing, and how many
-  // of the gable's columns received at least one.
+  // of the gable's columns received at least one -- and the same for the rainwater goods.
   capReadout() {
     let boxes = 0
     let wedges = 0
@@ -310,17 +358,40 @@ export class Building {
     // one per building or per column. A total draw count cannot say this on a world with
     // one building, where the two are the same number.
     const wedgeNames = new Set()
+    let fittingsShown = 0
+    const fittingPools = new Set()
 
-    for (const entry of this.caps) {
+    for (const entry of this.attachments) {
       if (!entry) continue
 
-      for (let k = 0; k < entry.pools.length; k += 1) {
+      // Caps from the front of the entry, fittings from the back. No index carries both
+      // today -- a cap anchors inside its gable's range and a fitting inside a roof's or a
+      // wall's, and piece offsets partition those -- but nothing stops a later fitting
+      // hanging on a gable, and counting the whole entry as caps would then put a downpipe
+      // in the gable's box total and break the caps' own arithmetic. Hence the invariant
+      // buildFittings keeps: it pushes AFTER buildGableCaps, always.
+      const caps = entry.pools.length - entry.fittings
+      for (let k = 0; k < caps; k += 1) {
         if (isWedgePool(entry.pools[k])) {
           wedges += 1
           wedgeNames.add(entry.pools[k])
         } else boxes += 1
         if (this.meshes.isVisible(entry.pools[k], entry.slots[k])) shown += 1
       }
+      for (let k = caps; k < entry.pools.length; k += 1) {
+        fittingPools.add(entry.pools[k])
+        if (this.meshes.isVisible(entry.pools[k], entry.slots[k])) fittingsShown += 1
+      }
+    }
+
+    // Recomputed from the modules rather than read off the attachments, for the reason the
+    // gable's columns are: an index that was never built carries no entry, so counting
+    // entries would report a building's fittings short by however many the generator voided.
+    let gutterCount = 0
+    let downpipeCount = 0
+    for (const surface of this.spec.surfaces) {
+      gutterCount += gutters(surface).length
+      downpipeCount += downpipes(surface).length
     }
 
     let columns = 0
@@ -336,7 +407,10 @@ export class Building {
         if (cap.box || cap.wedges.length) capped += 1
       }
     }
-    return { columns, boxes, wedges, wedgePools: wedgeNames.size, shown, capped }
+    return {
+      columns, boxes, wedges, wedgePools: wedgeNames.size, shown, capped,
+      gutters: gutterCount, downpipes: downpipeCount, fittingPools: fittingPools.size, shownFittings: fittingsShown
+    }
   }
 
   createCollider(RAPIER, matrix, surface, name, index, colliderIndex) {
@@ -429,12 +503,12 @@ export class Building {
     }
   }
 
-  // Damage darkening, over the lump and its chunks alike -- and over the caps standing on
-  // this cell, which are drawn as part of it and have to bruise with it.
+  // Damage darkening, over the lump and its chunks alike -- and over whatever hangs on this
+  // cell, cap or gutter, which is drawn as part of it and has to bruise with it.
   tintPiece(index, ratio) {
     this.meshes.tint(this.pool[index], this.slot[index], ratio)
-    const caps = this.caps[index]
-    if (caps) for (let k = 0; k < caps.slots.length; k += 1) this.meshes.tint(caps.pools[k], caps.slots[k], ratio)
+    const hanging = this.attachments[index]
+    if (hanging) for (let k = 0; k < hanging.slots.length; k += 1) this.meshes.tint(hanging.pools[k], hanging.slots[k], ratio)
 
     const chunks = this.fragments[index]
     if (!chunks) return
@@ -640,9 +714,10 @@ export class Building {
       // of that matrix next to each other.
       if (!carried && !silent) this.debris?.spawn(this.matrices[index], this.material[index], { away })
       this.meshes.setVisible(this.pool[index], this.slot[index], false)
-      // Whatever was filling the tooth above this cell goes with it. A cap is drawing, so
-      // it leaves no shards and frees nothing -- it simply stops being drawn.
-      this.showCaps(index, false)
+      // Whatever was hanging on this cell goes with it -- the cap filling the tooth above
+      // it, the gutter off its eaves, the pipe down its corner. All of it is drawing, so it
+      // leaves no shards and frees nothing: it simply stops being drawn.
+      this.showAttachments(index, false)
     }
     if (this.targets?.[index]) this.grid?.remove(this.targets[index])
     // Disabled, never removed. The handle stays valid, the registry stays consistent, and
@@ -863,7 +938,7 @@ export class Building {
     this.health[index] = this.maxHealth[index]
     if (this.isHeap(index)) this.showHeap(index, 1)
     else this.meshes.setVisible(this.pool[index], this.slot[index], true, this.matrices[index])
-    this.showCaps(index, true)
+    this.showAttachments(index, true)
     this.tintPiece(index, 1)
     this.colliders[index]?.setEnabled(true)
     if (this.grid && this.matrices[index]) {
