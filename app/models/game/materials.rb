@@ -89,6 +89,9 @@ module Game
         fracture: { method: "voronoi", mode: "2.5D", fragments: 22, project_along_normal: true },
         friction: 0.35, restitution: 0.1,
         opacity: 0.3, metalness: 0.1, roughness: 0.08,
+        # A pane is not as thick as the wall it is set into. Drawn at a third of the
+        # surface, centred, so the glass sits in a reveal with brick returns either side.
+        depth: 0.35,
         chunk: { size: [ 0.35, 0.03, 0.30 ], vary: 0.50, jitter: 0.50 },
         # A transparent pane inside an opaque frame. The frame's width is in metres of a
         # one-metre cell; a bigger cell gets a proportionally bigger frame, which is right
@@ -123,6 +126,9 @@ module Game
         fracture: { method: "voronoi", mode: "2.5D", fragments: 14, project_along_normal: true },
         friction: 0.4, restitution: 0.08,
         metalness: 0.3, roughness: 0.25,
+        # A panel LIES ON the tiles rather than replacing them, so it is the thinnest
+        # thing a building is made of: a sheet a quarter of the roof's own thickness.
+        depth: 0.25,
         chunk: { size: [ 0.45, 0.04, 0.35 ], vary: 0.40, jitter: 0.35 },
         # A near-black field divided into cells, with a lighter frame round each module.
         # `unit` is the cell and the module: 0.16 m cells inside a 1 m module.
@@ -151,6 +157,9 @@ module Game
         multipliers: { blade: 1.4, bull_bar: 1.3 },
         fracture: { method: "simple", planes: { x: false, y: true, z: false }, fragments: 10 },
         friction: 0.75,
+        # A leaf hangs in a frame set back from the face of the wall. Deeper than glass,
+        # because a door is a slab of timber and a window is a sheet.
+        depth: 0.7,
         chunk: { size: [ 1.60, 0.16, 0.20 ], vary: 0.35, jitter: 0.08 },
         look: { pattern: "planks", unit: [ 0.12 ], joint: 0.006, joint_shade: 0.6,
                 variation: 0.08, relief: 0.35, base: "#e4dccf" },

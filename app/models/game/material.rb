@@ -19,13 +19,13 @@ module Game
 
     attr_reader :name, :health_per_m2, :density, :hardness, :structural_weight,
                 :multipliers, :fracture, :colour, :friction, :restitution,
-                :opacity, :metalness, :roughness, :chunk, :toll, :look, :role
+                :opacity, :metalness, :roughness, :chunk, :toll, :look, :role, :depth
 
     def initialize(name:, health_per_m2:, density:, colour:,
                    hardness: 0.0, structural_weight: 1.0, multipliers: {}, fracture: {},
                    friction: 0.8, restitution: 0.05,
                    opacity: 1.0, metalness: 0.05, roughness: 0.85, chunk: nil, toll: 1.0,
-                   look: nil, role: nil)
+                   look: nil, role: nil, depth: 1.0)
       @name = name.to_sym
       @health_per_m2 = health_per_m2.to_f
       @density = density.to_f
@@ -62,6 +62,14 @@ module Game
       # Which palette colour a piece of this takes, or nil for its own colour. A brick wall
       # is coloured by the building's `brick`, its tiles by `roof_tile`, a door by `door`.
       @role = role&.to_sym
+      # How thick a cell of this material is DRAWN, as a fraction of its surface's
+      # thickness, centred on the plane. A Surface has one thickness, so glass in a 300 mm
+      # wall was 300 mm of glass sitting flush with the brick; a pane sits in a reveal.
+      #
+      # Drawing only. health_for, mass_for, the collapse rule and every number the server
+      # reasons about keep using the surface's own thickness, because what holds a wall up
+      # is the wall and not the pane in it.
+      @depth = depth.to_f
       freeze
     end
 
@@ -101,7 +109,7 @@ module Game
     end
 
     def to_spec
-      {
+      spec = {
         name: name.to_s,
         health_per_m2: health_per_m2,
         density: density,
@@ -120,6 +128,10 @@ module Game
         look: look,
         role: role&.to_s
       }
+      # Only when it is not the wall's own. Almost every material fills its surface, and a
+      # key that appears on three of them says which three are drawn in a reveal.
+      spec[:depth] = depth unless depth == 1.0
+      spec
     end
   end
 end

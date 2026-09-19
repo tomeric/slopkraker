@@ -50,7 +50,7 @@ export function cellSize(surface) {
 // patchwork of separate boxes stacked against each other, which is worse. A wall is one
 // object that happens to be destructible; the irregularity belongs in how it comes APART,
 // which is what the block tiling is for, not in how it looks standing up.
-export function cellMatrix(surface, row, col, target, origin) {
+export function cellMatrix(surface, row, col, target, origin, depth = 1) {
   const width = surface.w / surface.cols
   const height = surface.h / surface.rows
 
@@ -68,7 +68,17 @@ export function cellMatrix(surface, row, col, target, origin) {
   if (origin) position.add(origin)
 
   target.makeBasis(u, v, n)
-  target.scale(scale.set(width, height, surface.t))
+  // `depth` is the MATERIAL's, a fraction of the surface's own thickness (Material#depth,
+  // shipped in the table). A surface has one thickness, so glass in a 300 mm wall used to
+  // be 300 mm of glass sitting flush with the brick; at 0.35 it sits in a reveal. It needs
+  // no re-centring, because a cell already straddles the plane rather than hanging off one
+  // face of it, so a thinner cell shrinks towards that plane from both sides at once.
+  //
+  // A collider built from this matrix is thinner too, which is correct and harmless: a
+  // recessed pane is met a few centimetres later than the brick around it. Health and mass
+  // are not built from it -- they come from the surface, because what holds a wall up is
+  // the wall and not the pane in it.
+  target.scale(scale.set(width, height, surface.t * depth))
   target.setPosition(position)
   return target
 }

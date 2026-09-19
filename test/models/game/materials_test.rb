@@ -279,4 +279,20 @@ class Game::MaterialsTest < ActiveSupport::TestCase
     assert_equal "panels", solar.look[:pattern]
     assert_equal 0.0, solar.hardness
   end
+
+  # A Surface has ONE thickness, so a glass cell filled the whole 300 mm of the wall around
+  # it and its face sat flush with the brick. Real glass sits in a reveal.
+  test "a pane is drawn thinner than the wall that holds it" do
+    assert_equal 1.0, Game::Materials.fetch(:brick).depth
+    assert_operator Game::Materials.fetch(:glass).depth, :<, Game::Materials.fetch(:brick).depth
+    Game::Materials::TABLE.each_value do |material|
+      assert_operator material.depth, :>, 0.0, "#{material.name} has no depth"
+      assert_operator material.depth, :<=, 1.0, "#{material.name} is thicker than its wall"
+    end
+  end
+
+  test "depth ships only when it is not the wall's own" do
+    assert_not Game::Materials.fetch(:brick).to_spec.key?(:depth)
+    assert_in_delta 0.35, Game::Materials.fetch(:glass).to_spec[:depth], 1e-9
+  end
 end

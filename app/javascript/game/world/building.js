@@ -1,6 +1,6 @@
 import * as THREE from "three"
 import { PROP_GROUPS, RUBBLE_GROUPS } from "game/physics/groups"
-import { eachBuildingCell, materialAt, chunkMatrix, cellSize } from "game/world/surface"
+import { eachBuildingCell, materialAt, cellMatrix, chunkMatrix, cellSize } from "game/world/surface"
 import { tileSurface } from "game/world/chunking"
 import { heapMatrix, heapFrame, heapFragments, fragmentMaterial, fragmentPool, shapeFor, pileOrder, SHAPES } from "game/world/rubble"
 import { gableCaps, wedgePool, isWedgePool } from "game/world/gables"
@@ -207,6 +207,14 @@ export class Building {
       // seed, which is what makes two players agree about where it is.
       const rubble = surface.kind === "rubble"
       if (rubble) heapMatrix(surface, row, col, matrix, this.origin, this.rubbleRules, 1, this.ground)
+
+      // A pane is thinner than the wall that holds it. Every cell of a surface arrives at
+      // the surface's own thickness, which made a window 300 mm of glass flush with the
+      // brick; the material's `depth` re-composes the few that are drawn in a reveal --
+      // glass, doors, panels -- and leaves everything else exactly where it was. The
+      // number is Ruby's (Material#depth); this side holds none of it.
+      const depth = this.materials[name]?.depth ?? 1
+      if (!rubble && depth !== 1) cellMatrix(surface, row, col, matrix, this.origin, depth)
 
       this.matrices[index] = matrix.clone()
       // Keyed by material, not per surface: a glass window in a brick wall has to break
