@@ -413,6 +413,18 @@ export class Building {
     }
   }
 
+  // For the tests: every piece index carrying at least one rainwater-goods attachment. A
+  // dakkapel's and a chimney's own surfaces should contribute NONE of these -- which a
+  // count can only show as a building-wide total moving, where this shows the indices
+  // themselves stayed clear of the surface the exclusion names.
+  fittingIndices() {
+    const indices = []
+    for (let index = 0; index < this.attachments.length; index += 1) {
+      if (this.attachments[index]?.fittings > 0) indices.push(index)
+    }
+    return indices
+  }
+
   createCollider(RAPIER, matrix, surface, name, index, colliderIndex) {
     matrix.decompose(POSITION, ROTATION, SCALE)
     const material = this.materials[name] || {}

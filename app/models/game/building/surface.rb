@@ -21,11 +21,11 @@ module Game
 
       attr_reader :kind, :storey, :material, :origin, :u, :v, :normal,
                   :width, :height, :cols, :rows, :thickness, :patches, :piece_offset, :seed,
-                  :mix, :bay, :between, :bays
+                  :mix, :bay, :between, :bays, :fittings, :outward
 
       def initialize(kind:, storey:, material:, origin:, u:, v:, width:, height:,
                      cols:, rows:, thickness:, patches: [], piece_offset: 0, seed: 0, mix: nil,
-                     bay: 0, between: nil, bays: nil)
+                     bay: 0, between: nil, bays: nil, fittings: true, outward: -1)
         @kind = kind
         @storey = storey
         @material = material
@@ -51,6 +51,16 @@ module Game
         @bay = bay.to_i
         @between = between&.map(&:to_i)
         @bays = bays
+        # Whether this surface gets rainwater goods drawn on it -- a gutter along a roof's
+        # eaves, a downpipe at a wall's corner. True everywhere except a dakkapel's four
+        # surfaces and a chimney's four walls: see #to_spec for why the generator decides
+        # rather than the client.
+        @fittings = fittings
+        # The sign that turns a WALL's own u x v normal into a vector pointing away from the
+        # building. Meaningless off a wall built from a footprint ring; see
+        # Game::Building::Walls.outward for how a ring's own winding decides it, and #to_spec
+        # for why -1 is the default that ships no key.
+        @outward = outward
       end
 
       def piece_count = cols * rows
@@ -109,7 +119,7 @@ module Game
           kind: kind, storey: storey, material: material, origin: origin, u: u, v: v,
           width: width, height: height, cols: cols, rows: rows, thickness: thickness,
           patches: patches, piece_offset: offset, seed: seed, mix: mix,
-          bay: bay, between: between, bays: bays
+          bay: bay, between: between, bays: bays, fittings: fittings, outward: outward
         )
       end
 
@@ -129,7 +139,8 @@ module Game
         self.class.new(
           kind: kind, storey: storey, material: material, origin: turn.call(origin), u: turn.call(u), v: turn.call(v),
           width: width, height: height, cols: cols, rows: rows, thickness: thickness,
-          patches: patches, piece_offset: piece_offset, seed: seed, mix: mix, bay: bay, between: between, bays: bays
+          patches: patches, piece_offset: piece_offset, seed: seed, mix: mix, bay: bay, between: between, bays: bays,
+          fittings: fittings, outward: outward
         )
       end
 
@@ -182,6 +193,18 @@ module Game
           spec[:bay] = bay unless bay.zero?
           spec[:between] = between if between
           spec[:bays] = bays if bays
+          # A dakkapel and a chimney are surfaces of the building like any other, but a
+          # gutter belongs under the tiles of the roof itself and a downpipe against the
+          # wall of the house, not round a zinc box on the slope or a stack 0.9 m square --
+          # so the generator says which surfaces carry rainwater goods, and the client is
+          # never trusted to infer it from kind or material.
+          spec[:fittings] = false unless fittings
+          # A wall's stored normal is u x v, and whether that points out of the building or
+          # into it depends on which way its footprint ring was wound -- a question only the
+          # generator can answer, because an imported ring's winding is whatever PostGIS gave
+          # us. -1 is the default because every wall this codebase lays out by hand is wound
+          # so that u x v points in; shipped only when a ring turned out the other way.
+          spec[:out] = 1 if outward.positive?
         end
       end
 

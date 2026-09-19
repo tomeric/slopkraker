@@ -28,20 +28,33 @@ export const GUTTER_SIDE = 0.12
 // second. A gutter pushed along +n on the second hangs in the attic. Chosen over inferring
 // the side from v's y, which is positive on both planes and says only that they rise.
 //
-// A WALL's normal is level, so y says nothing there. Both generators build a wall from a
-// footprint edge with u along the ring and v up, and every ring they lay down runs
-// (x0,z0) -> (x1,z0) -> (x1,z1) -> (x0,z1) -- so u x v points INTO the building. Verified by
-// a point-in-ring test over every wall of hills, targets and street: 152 of 152 inward, none
-// out. Hence the constant -1 rather than a test of anything.
+// A WALL's normal is level, so y says nothing there. A ring hand-laid by a generator
+// always runs (x0,z0) -> (x1,z0) -> (x1,z1) -> (x0,z1), and for that winding u x v points
+// INTO the building -- true for every wall of hills, targets and street (152 of 152, by a
+// point-in-ring test), which is why -1 used to be returned unconditionally here. It is
+// not a safe assumption for an IMPORTED ring: PostGIS makes no promise about winding, and
+// 58 of geleen's 93 box rings run the other way, where u x v already points out. Ruby
+// knows which way its own ring turned (Game::Building::Walls.outward) and ships the
+// answer as `out` only when it differs from the default -- absent means -1, exactly as an
+// absent `bay` means 0.
 export function outward(surface) {
   if (surface.kind === "roof") return surface.n[1] < 0 ? -1 : 1
-  return -1
+  return surface.out ?? -1
 }
+
+// A dakkapel's four surfaces and a chimney's four walls are surfaces of a building like any
+// other, but neither should carry rainwater goods: a gutter belongs under the tiles of the
+// main roof, not round a zinc box on the slope, and a downpipe against the house's own
+// wall, not a stack 0.9 m square. Ruby decides this at generation time, never the client --
+// a chimney's walls are ordinary brick like any other wall, so no rule keyed on material
+// could tell the two apart -- and ships it as `surface.fittings`. Absent means yes, the
+// same as every other flag omitted at its default, so both guards below check `=== false`
+// rather than treating a merely falsy value as a no.
 
 // One gutter box per column of a roof plane's bottom row, hung just below the eaves edge
 // and just outside it, so it sits under the tiles' lip rather than in them.
 export function gutters(surface) {
-  if (surface.kind !== "roof") return []
+  if (surface.kind !== "roof" || surface.fittings === false) return []
 
   const width = surface.w / surface.cols
   const out = []
@@ -66,7 +79,7 @@ export function gutters(surface) {
 // every party line and on a hand-made building exactly one at each corner -- each corner is
 // the last column of exactly one edge.
 export function downpipes(surface) {
-  if (surface.kind !== "wall") return []
+  if (surface.kind !== "wall" || surface.fittings === false) return []
 
   const col = surface.cols - 1
   return [ {

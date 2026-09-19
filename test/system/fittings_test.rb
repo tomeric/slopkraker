@@ -49,4 +49,34 @@ class FittingsTest < ApplicationSystemTestCase
     sleep 0.3
     assert_operator page.evaluate_script("window.__arenaDraws()"), :<, 45
   end
+
+  # targets has no dormers and no chimneys, so every count above is unmoved by the
+  # fittings: false rule and none of it proves the rule actually fires. geleen does --
+  # Rows.detail? flags dwellings for a dakkapel or a chimney from the seed -- so this is
+  # the world where "no fitting on a dakkapel or a chimney" is a claim with something to
+  # break it.
+  test "on geleen, a dakkapel or a chimney carries no fitting of its own" do
+    visit_world("geleen", quality: "low", match: "fittings-geleen")
+    wait_for(timeout: 60, message: "geleen never booted") { page.evaluate_script("!!(window.__arena && window.__arena.ready)") }
+
+    # Every surface the generator flagged fittings: false, on the first building that has
+    # any, as its [first, last] piece index range -- the readout has no per-surface index
+    # list of its own, so the range is worked out here from the same `off`/`cols`/`rows`
+    # the spec ships for every surface.
+    target = page.evaluate_script(<<~JS)
+      (() => {
+        for (const id of window.__arenaBuildingIds()) {
+          const spec = window.__arenaBuildingSpec(id)
+          const excluded = spec.surfaces.filter((s) => s.fittings === false)
+          if (excluded.length) return { id, ranges: excluded.map((s) => [ s.off, s.off + s.cols * s.rows - 1 ]) }
+        }
+        return null
+      })()
+    JS
+
+    assert target, "no surface shipped fittings: false -- has geleen lost its dormers and chimneys?"
+    indices = page.evaluate_script("window.__arenaFittingIndices(arguments[0])", target["id"])
+    hit = target["ranges"].any? { |off, last| indices.any? { |index| index.between?(off, last) } }
+    refute hit, "a fitting was keyed to a piece of a dakkapel's or a chimney's own surface"
+  end
 end

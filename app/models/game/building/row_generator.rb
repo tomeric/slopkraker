@@ -40,20 +40,23 @@ module Game
         built = []
         row.dwellings.each_with_index do |d, i|
           openings = Openings.new(seed: row.seed + i, style: :house, garage: d.garage, glazing: d.glazing)
-          row.storeys.times { |s| built << wall(row, [ d.x0, row.z0 ], [ d.x1, row.z0 ], storey: s, openings: openings, edge: 0, bay: i) }
-          row.storeys.times { |s| built << wall(row, [ d.x1, row.z1 ], [ d.x0, row.z1 ], storey: s, openings: openings, edge: 2, bay: i) }
+          row.storeys.times { |s| built << wall(row, [ d.x0, row.z0 ], [ d.x1, row.z0 ], storey: s, openings: openings, edge: 0, bay: i, outward: -1) }
+          row.storeys.times { |s| built << wall(row, [ d.x1, row.z1 ], [ d.x0, row.z1 ], storey: s, openings: openings, edge: 2, bay: i, outward: -1) }
         end
-        row.storeys.times { |s| built << wall(row, [ row.x1, row.z0 ], [ row.x1, row.z1 ], storey: s, openings: Openings.new(seed: row.seed + 7, style: :annex), edge: 1, bay: n - 1) }
-        row.storeys.times { |s| built << wall(row, [ row.x0, row.z1 ], [ row.x0, row.z0 ], storey: s, openings: Openings.new(seed: row.seed + 11, style: :annex), edge: 3, bay: 0) }
+        row.storeys.times { |s| built << wall(row, [ row.x1, row.z0 ], [ row.x1, row.z1 ], storey: s, openings: Openings.new(seed: row.seed + 7, style: :annex), edge: 1, bay: n - 1, outward: -1) }
+        row.storeys.times { |s| built << wall(row, [ row.x0, row.z1 ], [ row.x0, row.z0 ], storey: s, openings: Openings.new(seed: row.seed + 11, style: :annex), edge: 3, bay: 0, outward: -1) }
         row.party_lines.each_with_index do |x, i|
-          row.storeys.times { |s| built << wall(row, [ x, row.z0 ], [ x, row.z1 ], storey: s, openings: nil, edge: 5, between: [ i, i + 1 ]) }
+          # A party wall has no outside at all -- it stands between two dwellings -- so
+          # outward is moot here rather than meaningful; -1 because every wall needs some
+          # value, and this is the one every hand-laid ring already uses.
+          row.storeys.times { |s| built << wall(row, [ x, row.z0 ], [ x, row.z1 ], storey: s, openings: nil, edge: 5, between: [ i, i + 1 ], outward: -1) }
         end
         row.dwellings.each_with_index { |d, i| built.concat Interior.build(rectangle(row, d.x0, d.x1)).map { |s| tagged(s, i) } }
         row.dwellings.each_with_index { |d, i| built.concat roof_section(row, d, i); built.concat dormer(row, d, i); built.concat chimney(row, d, i) }
         built
       end
 
-      def self.wall(row, from, to, storey:, openings:, edge:, bay: 0, between: nil, storeys: row.storeys, storey_height: row.storey_height, seed: row.seed)
+      def self.wall(row, from, to, storey:, openings:, edge:, bay: 0, between: nil, storeys: row.storeys, storey_height: row.storey_height, seed: row.seed, outward: -1)
         along = Vector3.new(to[0] - from[0], 0.0, to[1] - from[1])
         cols = Walls.cells(along.length, row.cell)
         rows = Walls.cells(storey_height, row.cell)
@@ -62,7 +65,7 @@ module Game
           origin: Vector3.new(from[0], storey * storey_height, from[1]), u: along.normalised, v: UP,
           width: along.length, height: storey_height, cols: cols, rows: rows, thickness: Walls::THICKNESS,
           patches: openings ? openings.for_wall(edge: edge, storey: storey, cols: cols, rows: rows) : [],
-          seed: seed, bay: bay, between: between
+          seed: seed, bay: bay, between: between, outward: outward
         )
       end
 
@@ -211,16 +214,19 @@ module Game
         # skipped and the face is all glass: a two-column dormer front is all window.
         returns = cols >= 3 ? [ 0, cols - 1 ].map { |c| Surface::Patch.new(col0: c, row0: 0, col1: c, row1: rows - 1, material: :plaster) } : []
 
+        # fittings: false on all four -- a gutter belongs under the tiles of the main roof,
+        # not round a zinc box on the slope, and a downpipe against the house's own wall,
+        # not a dormer cheek the width of a door.
         front = Surface.new(kind: :wall, storey: row.storeys, material: Materials.fetch(:glass), origin: Vector3.new(x0, y_base, z_front),
                             u: EAST, v: UP, width: width, height: DORMER_HEIGHT, cols: cols, rows: rows, thickness: Walls::THICKNESS,
-                            patches: returns, seed: row.seed + 300 + i, bay: i)
+                            patches: returns, seed: row.seed + 300 + i, bay: i, fittings: false)
         cheeks = [ x0, x1 ].map do |x|
           Surface.new(kind: :wall, storey: row.storeys, material: Materials.fetch(:plaster), origin: Vector3.new(x, y_base, z_front),
                       u: SOUTH, v: UP, width: depth, height: DORMER_HEIGHT, cols: deep, rows: rows, thickness: Interior::PARTITION_THICKNESS,
-                      seed: row.seed + 300 + i, bay: i)
+                      seed: row.seed + 300 + i, bay: i, fittings: false)
         end
         top = Surface.new(kind: :roof, storey: row.storeys, material: Materials.fetch(:steel), origin: Vector3.new(x0, y_top, z_front),
-                          u: EAST, v: SOUTH, width: width, height: depth, cols: cols, rows: deep, thickness: DORMER_TOP_THICKNESS, bay: i)
+                          u: EAST, v: SOUTH, width: width, height: depth, cols: cols, rows: deep, thickness: DORMER_TOP_THICKNESS, bay: i, fittings: false)
         [ front, *cheeks, top ]
       end
 
@@ -256,7 +262,9 @@ module Game
             kind: :wall, storey: row.storeys, material: Materials.fetch(:brick),
             origin: Vector3.new(from[0], row.eaves, from[1]), u: along.normalised, v: UP,
             width: along.length, height: height, cols: Walls.cells(along.length, row.cell), rows: rows,
-            thickness: Walls::THICKNESS, seed: row.seed + 400 + i, bay: i
+            thickness: Walls::THICKNESS, seed: row.seed + 400 + i, bay: i,
+            # fittings: false -- a downpipe against a stack 0.9 m square has nowhere to run.
+            fittings: false
           )
         end
       end
@@ -283,6 +291,9 @@ module Game
         row.boxes.each_with_index do |box, i|
           style = style_for(row, box)
           openings = style ? Openings.new(seed: row.seed + 100 + i, style: style) : nil
+          # An imported ring makes no promise about which way it winds -- Walls.outward
+          # works it out per box rather than assuming every ring turns like a hand-laid one.
+          out = Walls.outward(box.ring)
           edges(box.ring).each_with_index do |(from, to), e|
             # The three rules say whether a wall stands HERE. How much of it they excuse is a
             # HEIGHT, and taking that decision once for the box leaves a six-storey tower
@@ -295,7 +306,8 @@ module Game
             kept << [ from, to, box.storeys * box.storey_height ]
             storeys.each do |s|
               built << wall(row, from, to, storey: s, openings: openings, edge: box.door && e.zero? ? 0 : 1 + e,
-                            bay: box.bay, storeys: box.storeys, storey_height: box.storey_height, seed: row.seed + 100 + i)
+                            bay: box.bay, storeys: box.storeys, storey_height: box.storey_height, seed: row.seed + 100 + i,
+                            outward: out)
             end
           end
           # Per box rather than per edge, so these are unchanged: a deck is void where it

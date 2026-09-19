@@ -81,6 +81,29 @@ class Game::Building::RowTest < ActiveSupport::TestCase
     assert_equal [ 1 ] * 5, set.surfaces[28, 5].map(&:bay), "every surface of the box carries the box's own bay"
   end
 
+  # A box's ring is imported and makes no promise about which way it winds -- unlike a
+  # hand-laid one, which always turns so u x v points in (Walls.outward). RowGenerator.boxes
+  # works this out per box rather than assuming every ring turns the way the annex's does.
+  test "a box's own ring decides which way its downpipes push, not a hardcoded guess" do
+    base = annex
+    wound = pair("boxes" => [ base ])
+    other_way = pair("boxes" => [ base.merge("ring" => base["ring"].reverse) ])
+    walls = wound.surfaces[28, 3]
+    reversed_walls = other_way.surfaces[28, 3]
+
+    assert_equal [ -1 ] * 3, walls.map(&:outward), "the annex ring turns like every hand-built one"
+    assert walls.none? { |s| s.to_spec.key?(:out) }, "-1 is the default and ships no key"
+    assert_equal [ 1 ] * 3, reversed_walls.map(&:outward), "wound the other way, u x v already points out"
+    assert_equal [ 1 ] * 3, reversed_walls.map { |s| s.to_spec[:out] }
+  end
+
+  test "a dwelling's own walls are always outward -1, and ship no key" do
+    walls = pair.surfaces.select { |s| s.kind == :wall }
+
+    assert walls.all? { |s| s.outward == -1 }
+    assert walls.none? { |s| s.to_spec.key?(:out) }
+  end
+
   test "every surface knows its bay, and the party wall is shared" do
     set = pair
     walls = set.surfaces.select { |s| s.kind == :wall }
@@ -669,6 +692,8 @@ class Game::Building::RowTest < ActiveSupport::TestCase
     front, left, right, top = set.surfaces[25, 4]
     assert_equal [ 2, 2, 2, 2 ], [ front.storey, left.storey, right.storey, top.storey ], "a dormer is above every storey, like a roof"
     assert_equal [ 0 ] * 4, [ front.bay, left.bay, right.bay, top.bay ]
+    assert_equal [ false ] * 4, [ front, left, right, top ].map(&:fittings), "no rainwater goods of its own"
+    assert_equal [ false ] * 4, [ front, left, right, top ].map { |s| s.to_spec[:fittings] }
     assert_equal :glass, front.material.name
     assert_equal %i[plaster plaster], front.patches.map(&:material), "a plaster return at each end"
     assert_equal [ 0, 2 ], front.patches.map(&:col0), "the returns are the outer columns"
@@ -791,6 +816,8 @@ class Game::Building::RowTest < ActiveSupport::TestCase
     assert_equal [ :brick ] * 4, stack.map { |s| s.material.name }
     assert_equal [ 2 ] * 4, stack.map(&:storey), "above every storey, like the roof it stands on"
     assert_equal [ 0 ] * 4, stack.map(&:bay)
+    assert_equal [ false ] * 4, stack.map(&:fittings), "no downpipe on a stack 0.9 m square"
+    assert_equal [ false ] * 4, stack.map { |s| s.to_spec[:fittings] }
     assert_equal [ 1 ] * 4, stack.map(&:cols)
     assert_equal [ 4 ] * 4, stack.map(&:rows)
     assert_in_delta 6.0, stack.map { |s| s.origin.x }.sum / 4, 1e-9, "centred on the party line"
@@ -812,5 +839,18 @@ class Game::Building::RowTest < ActiveSupport::TestCase
 
     assert_equal 4, set.for_bay(0)[:own].count { |s| s.storey == 2 && s.kind == :wall }
     assert_equal 0, set.for_bay(1)[:own].count { |s| s.storey == 2 && s.kind == :wall }
+  end
+
+  # A dakkapel and a chimney are the exception, not the rule: everything else on a row --
+  # including a dwelling's own front wall, which is exactly where a real downpipe belongs --
+  # keeps the generator's default and ships no key for it.
+  test "fittings is the generator's default everywhere except a dakkapel and a chimney" do
+    set = pair
+    plane = set.surfaces.find { |s| s.kind == :roof }
+    gable = set.surfaces.find { |s| s.kind == :gable }
+    front = set.surfaces.find { |s| s.kind == :wall }
+
+    assert [ plane, gable, front ].all?(&:fittings)
+    assert [ plane, gable, front ].none? { |s| s.to_spec.key?(:fittings) }, "true is the default and ships no key"
   end
 end

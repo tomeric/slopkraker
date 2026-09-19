@@ -371,6 +371,10 @@ export class GameEngine {
     // pools they cost. Drawing, like the caps -- a test proves one goes by breaking the
     // cell it hangs on.
     window.__arenaFittings = (buildingId) => this.buildings?.find(buildingId)?.capReadout() ?? null
+    // Which piece indices actually carry a gutter or a downpipe -- the only way to prove a
+    // fitting landed on NEITHER a dakkapel's NOR a chimney's cells, rather than merely
+    // lowering some building-wide total that a different bug could also lower.
+    window.__arenaFittingIndices = (buildingId) => this.buildings?.find(buildingId)?.fittingIndices() ?? []
 
     this.running = true
     this.lastFrame = performance.now()
