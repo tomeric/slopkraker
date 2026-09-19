@@ -817,21 +817,57 @@ class Game::Building::RowTest < ActiveSupport::TestCase
     assert_empty planes[1].patches
   end
 
+  # A dakkapel ALWAYS stands on the front plane and the sun is on the front plane whenever
+  # cos(yaw) is not positive, so half of a dwelling flagged for both would have had its array
+  # drawn under its dormer: measured on the fixture with both flags forced, estate-row-1
+  # bay 0 was 72% swallowed (5.09 of 7.08 m2) and church-row-6 bay 0 52%.
+  #
+  # A steep pair for the arithmetic: ridge 14 on a 9 m depth is a rise of 8 over a run of
+  # 4.5, so the plane is hypot(4.5, 8) = 9.179 m up, nine rows of 1.0199 m. The dormer is
+  # 1.5 m tall, so it lies 1.5 x 4.5 / 8 = 0.844 m back up the roof from its setback of 1 m;
+  # 1.844 m horizontal is 1.844 x 9.179 / 4.5 = 3.761 m up the plane, which is 3.69 cells --
+  # so four whole rows are the dormer's and the array starts at the fifth at the earliest.
+  test "an array on the plane a dakkapel stands on starts above it" do
+    steep = { "yaw" => Math::PI, "ridge" => 14.0 }
+    plain = pair(**steep, "dwellings" => [ { "x0" => 0.0, "x1" => 6.0, "solar" => true }, { "x0" => 6.0, "x1" => 12.0 } ])
+    both = pair(**steep, "dwellings" => [ { "x0" => 0.0, "x1" => 6.0, "solar" => true, "dormer" => true }, { "x0" => 6.0, "x1" => 12.0 } ])
+    front = ->(set) { set.surfaces.find { |s| s.kind == :roof }.patches.find { |p| p.material == :solar } }
+
+    assert_equal 1, Game::Building::RowGenerator.sun_facing_side(Math::PI), "the sun is on the plane the dormer stands on"
+    assert_equal [ 1, 3, 4, 4 ], [ front.(plain).col0, front.(plain).row0, front.(plain).col1, front.(plain).row1 ]
+    assert_equal [ 1, 5, 4, 6 ], [ front.(both).col0, front.(both).row0, front.(both).col1, front.(both).row1 ],
+                 "the same four columns, pushed clear of the dakkapel's four rows"
+  end
+
+  # And when the push leaves too little plane above the dormer, the array goes rather than
+  # shrinking to a sliver -- the same judgement a plane too narrow for one already gets. The
+  # ordinary pair is the case: its dormer is 2.7 m deep on a 4.5 m run, which is most of the
+  # slope.
+  test "an array with no room above the dakkapel is dropped, not shrunk" do
+    both = pair("yaw" => Math::PI, "dwellings" => [ { "x0" => 0.0, "x1" => 6.0, "solar" => true, "dormer" => true }, { "x0" => 6.0, "x1" => 12.0 } ])
+
+    assert_empty both.surfaces.select { |s| s.kind == :roof }.flat_map(&:patches).select { |p| p.material == :solar }
+  end
+
   # STEP 5c OF THE CONTRACT. A chimney is four walls right after its dwelling's dormer.
   # Worked by hand from the pair with a chimney on the first dwelling: the stack is 0.9 m
   # square on the ridge at x = 6 (the party line), so its ring runs x 5.55..6.45 and
-  # z 4.05..4.95; each wall is Walls.cells(0.9, 1) = 1 column. It stands from the eaves at
-  # 6.0 to the ridge at 8.5 plus 1.2 = 9.7, so 3.7 m -> 4 rows. Four walls of 4 cells is 16,
-  # appended after the first gable ends at 654 + 27 = 681, which moves the second dwelling's
-  # roof from 681 to 697 and the rubble from 768 to 784: 840 -> 856 pieces, 29 -> 33 surfaces.
+  # z 4.05..4.95; each wall is Walls.cells(0.9, 1) = 1 column.
+  #
+  # Its FOOT is at the roof's own height under its near edge, not at the eaves: the ridge
+  # at 8.5 less half the side times the pitch, 0.45 x 2.5 / 4.5 = 0.25, so 8.25. It runs to
+  # the ridge plus the rise, 9.7, which is 1.45 m -> Walls.cells(1.45, 1) = 1 row. Four
+  # walls of 1 cell is 4, appended after the first gable ends at 654 + 27 = 681, which moves
+  # the second dwelling's roof from 681 to 685 and the rubble from 768 to 772: 840 -> 844
+  # pieces, 29 -> 33 surfaces.
   test "a chimney is four walls right after its dwelling's dormer" do
     set = pair("dwellings" => [ { "x0" => 0.0, "x1" => 6.0, "chimney" => true }, { "x0" => 6.0, "x1" => 12.0 } ])
 
     assert_equal 33, set.surfaces.length
-    assert_equal 856, set.piece_count
+    assert_equal 844, set.piece_count
     assert_equal [ 0, 18, 36, 54, 72, 90, 108, 126, 144, 171, 198, 225, 252, 279,
                    306, 360, 414, 432, 450, 504, 558, 576, 594, 624, 654,
-                   681, 685, 689, 693, 697, 727, 757, 784 ],
+                   681, 682, 683, 684, 685, 715, 745, 772 ],
                  set.surfaces.map(&:piece_offset)
     stack = set.surfaces[25, 4]
     assert_equal %i[wall] * 4, stack.map(&:kind)
@@ -841,11 +877,43 @@ class Game::Building::RowTest < ActiveSupport::TestCase
     assert_equal [ false ] * 4, stack.map(&:fittings), "no downpipe on a stack 0.9 m square"
     assert_equal [ false ] * 4, stack.map { |s| s.to_spec[:fittings] }
     assert_equal [ 1 ] * 4, stack.map(&:cols)
-    assert_equal [ 4 ] * 4, stack.map(&:rows)
+    assert_equal [ 1 ] * 4, stack.map(&:rows)
     assert_in_delta 6.0, stack.map { |s| s.origin.x }.sum / 4, 1e-9, "centred on the party line"
     assert_in_delta 4.5, stack.map { |s| s.origin.z }.sum / 4, 1e-9, "on the ridge"
-    assert_in_delta 6.0, stack.first.origin.y, 1e-9, "standing at the eaves, its foot inside the roof"
-    assert_in_delta 3.7, stack.first.height, 1e-9
+    assert_in_delta 8.25, stack.first.origin.y, 1e-9, "standing on the roof under its near edge, not on the eaves"
+    assert_in_delta 1.45, stack.first.height, 1e-9
+  end
+
+  # A single-leaf flue, and no buried storey of it. Run from the eaves at Walls::THICKNESS
+  # the stack weighed 7,192.8 kg -- and under identical damage a flagged dwelling lost all
+  # 18 of its ground-floor partition cells to the pancake where its unflagged neighbour lost
+  # none. 0.9 x 1.45 x 0.15 x 4 walls x brick's 1800 kg/m3 is 1,409.4.
+  test "a chimney weighs what a flue weighs, not what a storey of wall weighs" do
+    set = pair("dwellings" => [ { "x0" => 0.0, "x1" => 6.0, "chimney" => true }, { "x0" => 6.0, "x1" => 12.0 } ])
+    stack = set.surfaces[25, 4]
+
+    assert_equal [ Game::Building::RowGenerator::CHIMNEY_THICKNESS ] * 4, stack.map(&:thickness)
+    assert_operator stack.first.thickness, :<, Game::Building::Walls::THICKNESS, "a flue is single-leaf"
+    mass = stack.sum { |s| s.width * s.height * s.thickness * s.material.density }
+    assert_in_delta 1409.4, mass, 0.1
+  end
+
+  # Every dwelling but the last stands its stack on the party line at its x1. The last has
+  # no party line there, so it goes just past the one at x0 -- beside its neighbour's, where
+  # an end terrace's flue runs. Pulled inward from x1 instead, it stood in the middle of the
+  # slope: measured over geleen with both flags forced on, a 0.74-0.81 m overlap with the
+  # solar array's columns on every last bay that could carry both, and 0 after.
+  test "the last dwelling's stack goes to the party end, not into the middle of its slope" do
+    row = Game::Building::Row.from(pair_recipe("dwellings" => [
+      { "x0" => 0.0, "x1" => 6.0, "chimney" => true }, { "x0" => 6.0, "x1" => 12.0, "chimney" => true }
+    ]))
+    centre = ->(i) { Game::Building::RowGenerator.chimney(row, row.dwellings[i], i).sum { |s| s.origin.x } / 4 }
+
+    assert_in_delta 6.0, centre.call(0), 1e-9, "on the party line"
+    assert_in_delta 6.95, centre.call(1), 1e-9, "half the side plus half a metre past the same party line"
+    assert_operator centre.call(1) + Game::Building::RowGenerator::CHIMNEY_SIDE / 2, :<, 12.0, "clear of the row's end wall"
+    assert_operator centre.call(1) - Game::Building::RowGenerator::CHIMNEY_SIDE / 2, :>,
+                    centre.call(0) + Game::Building::RowGenerator::CHIMNEY_SIDE / 2, "clear of its neighbour's"
   end
 
   test "no chimney on a flat roof, on a narrow dwelling, or on an unflagged one" do

@@ -222,7 +222,10 @@ class Game::Import::RowsTest < ActiveSupport::TestCase
 
       assert_equal "gable", o[:recipe]["roof"], "#{o[:name]}: fittings on a flat roof"
       assert_includes %w[house apartments], o[:category], "#{o[:name]}: fittings on a #{o[:category]}"
-      assert_operator d["x1"] - d["x0"], :>=, 1.8, "#{o[:name]}: a chimney on a dwelling narrower than its stack" if d["chimney"]
+      # Read the constant rather than its value: the gate is 2 x CHIMNEY_SIDE in the
+      # importer, and a test spelling 1.8 keeps passing when the stack changes size.
+      assert_operator d["x1"] - d["x0"], :>=, 2 * Game::Building::RowGenerator::CHIMNEY_SIDE,
+                      "#{o[:name]}: a chimney on a dwelling narrower than its stack" if d["chimney"]
     end
   end
 
@@ -235,10 +238,36 @@ class Game::Import::RowsTest < ActiveSupport::TestCase
       # tells a stack's four walls apart from a dakkapel that happens to share a dwelling.
       stacks = set.surfaces.count { |s| s.kind == :wall && s.storey == o[:recipe]["storeys"] && s.material.name == :brick }
       assert_equal chimneys * 4, stacks, "#{o[:name]}: a flagged chimney was not generated"
-      panels = o[:recipe]["dwellings"].count { |d| d["solar"] }
-      next if panels.zero?
-
-      assert_operator set.surfaces.count { |s| s.patches.any? { |p| p.material == :solar } }, :>, 0, "#{o[:name]}: no panels"
     end
+  end
+
+  # A dwelling flagged for solar gets an array UNLESS a dakkapel stands on the same plane and
+  # leaves fewer than three clear rows above it. Panels go on the sun-facing plane and a
+  # dakkapel is always on the front, so the two meet whenever the sun is on the front -- and
+  # then the panels start above the dormer, or go entirely. The totals are pinned as well as
+  # the rule, because a rule that swallowed every array would satisfy the rule alone.
+  test "a solar flag becomes an array unless a dakkapel has taken the plane" do
+    flagged = 0
+    arrays = 0
+    (rows.objects + church_rows.objects).each do |o|
+      next unless o[:recipe]["dwellings"]
+
+      row = Game::Building::Row.from(o[:recipe])
+      sun = Game::Building::RowGenerator.sun_facing_side(row.yaw)
+      row.dwellings.each_with_index do |d, i|
+        next unless d.solar
+
+        flagged += 1
+        panels = Game::Building::RowGenerator.roof_section(row, d, i).any? { |s| s.patches.any? { |p| p.material == :solar } }
+        arrays += 1 if panels
+        next if panels
+
+        assert Game::Building::RowGenerator.dormer_plan(row, d), "#{o[:name]} bay #{i}: no panels and no dakkapel to blame"
+        assert_equal Game::Building::RowGenerator::DORMER_SIDE, sun, "#{o[:name]} bay #{i}: the dakkapel is on the other plane"
+      end
+    end
+
+    assert_equal 18, flagged, "the two windows' solar flags"
+    assert_equal 16, arrays, "and the arrays that fit above a dakkapel or had none to clear"
   end
 end

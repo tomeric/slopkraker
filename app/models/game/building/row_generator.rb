@@ -107,13 +107,20 @@ module Game
         start = d.x0 - (first ? OVERHANG : 0.0)
         span = d.width + (first ? OVERHANG : 0.0) + (last ? OVERHANG : 0.0)
         sun = sun_facing_side(row.yaw)
+        # A dakkapel always stands on the FRONT plane, and the sun is on the front plane half
+        # the time, so half of a flagged-and-dormered dwelling's arrays would be drawn UNDER
+        # the dormer: measured before this, estate-row-1 bay 0 had 72% of its array (5.09 of
+        # 7.08 m2) swallowed and church-row-6 bay 0 52%. The array starts above the dormer's
+        # reach instead, and is dropped when too little plane is left above it.
+        dakkapel = dormer_plan(row, d)
         planes = [ 1, -1 ].map do |side|
           origin = Vector3.new(start, row.eaves, side.positive? ? row.z0 : row.z1)
           up_slope = Vector3.new(0.0, row.rise, side * run)
           cols = Walls.cells(span, row.cell)
           rows = Walls.cells(slope, row.cell)
+          floor = dakkapel && side == DORMER_SIDE ? dormer_rows(dakkapel, run: run, slope: slope, rows: rows) : 0
           # Panels on the sun-facing slope of a flagged dwelling, and on nothing else.
-          panels = d.solar && side == sun ? Array(solar_patch(cols, rows)) : []
+          panels = d.solar && side == sun ? Array(solar_patch(cols, rows, floor: floor)) : []
           Surface.new(
             kind: :roof, storey: row.storeys, material: Materials.fetch(:roof_tile),
             origin: origin, u: EAST, v: up_slope.normalised, width: span, height: slope,
@@ -142,19 +149,25 @@ module Game
       # The panels, as a patch of `solar` cells centred on the plane and inset from its
       # edges. A patch, so a roof of panels is the same surfaces and the same indices as a
       # roof of tiles -- and a broken panel is a broken roof cell, which is what it is.
-      def self.solar_patch(cols, rows)
+      #
+      # `floor` is the first row the array may start on, which is the inset everywhere
+      # except the plane a dakkapel stands on: see roof_section.
+      def self.solar_patch(cols, rows, floor: 0)
         across = cols - 2 * SOLAR_INSET
-        up = rows - 2 * SOLAR_INSET
+        bottom = [ SOLAR_INSET, floor ].max
+        up = rows - SOLAR_INSET - bottom
         # Below three clear cells in either direction the array would be a sliver -- one
         # or two panels rather than a rectangle -- so a plane that narrow gets none, not a
         # shrunk one. (Design doc §2: "none at all if the plane has fewer than three
-        # columns or three rows after the inset.")
+        # columns or three rows after the inset.") The SAME judgement decides what is left
+        # above a dormer, rather than a second threshold that could drift from this one --
+        # and three clear rows is stricter than the SOLAR_ROWS an array actually needs.
         return nil if across < 3 || up < 3
 
         width = [ SOLAR_COLS, across ].min
         height = [ SOLAR_ROWS, up ].min
         col0 = SOLAR_INSET + (across - width) / 2
-        row0 = SOLAR_INSET + (up - height) / 2
+        row0 = bottom + (up - height) / 2
         Surface::Patch.new(col0: col0, row0: row0, col1: col0 + width - 1, row1: row0 + height - 1, material: :solar)
       end
 
@@ -199,16 +212,41 @@ module Game
       # reaches that height `height * run / rise` further back, which is where the cheeks
       # and the top end. Above every storey and in the dwelling's bay, like its roof, so
       # it falls with the dwelling.
-      def self.dormer(row, d, i)
-        return [] unless d.dormer && row.roof == "gable" && row.rise.positive?
+      # A dakkapel stands on the plane at z0, which roof_section builds as `side` +1.
+      DORMER_SIDE = 1
+
+      # The dakkapel this dwelling gets, or nil for none: its width and its depth up the
+      # roof, behind the three gates that decide whether there is one at all. Pulled out of
+      # `dormer` so roof_section can ask the same question the builder answers, rather than
+      # re-deriving the gates and drifting from them.
+      def self.dormer_plan(row, d)
+        return nil unless d.dormer && row.roof == "gable" && row.rise.positive?
 
         run = row.depth / 2.0
         width = [ DORMER_WIDTH, d.width - 2.0 ].min
-        return [] if width < DORMER_MIN_WIDTH
+        return nil if width < DORMER_MIN_WIDTH
 
         depth = DORMER_HEIGHT * run / row.rise
-        return [] if DORMER_SETBACK + depth > run - DORMER_CLEARANCE
+        return nil if DORMER_SETBACK + depth > run - DORMER_CLEARANCE
 
+        { width: width, depth: depth }
+      end
+
+      # How many whole rows of a roof plane a dakkapel reaches up from the eaves. Its top
+      # meets the roof `DORMER_SETBACK + depth` back horizontally, and a horizontal metre is
+      # `slope / run` metres measured up the plane; rounded UP, so the row a panel may start
+      # on is clear of the dormer rather than half behind it.
+      def self.dormer_rows(plan, run:, slope:, rows:)
+        ((DORMER_SETBACK + plan[:depth]) * slope / run / (slope / rows)).ceil
+      end
+
+      def self.dormer(row, d, i)
+        plan = dormer_plan(row, d)
+        return [] unless plan
+
+        run = row.depth / 2.0
+        width = plan[:width]
+        depth = plan[:depth]
         x0 = d.x0 + (d.width - width) / 2.0
         x1 = x0 + width
         z_front = row.z0 + DORMER_SETBACK
@@ -242,23 +280,36 @@ module Game
       # come in pairs down the roof.
       CHIMNEY_SIDE = 0.9
       CHIMNEY_RISE = 1.2
+      # A flue is SINGLE-LEAF brick, not the 0.3 m of a cavity wall. At Walls::THICKNESS and
+      # running from the eaves, the stack on the worked example weighed 7,192.8 kg -- and
+      # under identical damage a flagged dwelling lost all 18 of its ground-floor partition
+      # cells to the pancake where its unflagged neighbour lost none. The same trap
+      # DORMER_TOP_THICKNESS is calibrated against. At 0.15 m, and started at the roof rather
+      # than the eaves, the same stack weighs 1,409.4 kg.
+      CHIMNEY_THICKNESS = 0.15
 
-      # 5c. Four walls, or none. The stack runs from the EAVES to the ridge plus the rise,
-      # so its foot is buried in the roof and its four walls are one height rather than
-      # four staircases; the buried part is never seen, and a cell inside a roof costs an
-      # index that the alternative -- clipping each wall to the pitch -- would spend on
-      # geometry nobody looks at.
+      # 5c. Four walls, or none. The stack stands ON the ridge, so only the corner nearest
+      # the ridge is at ridge height and the rest of its foot needs burying: it starts at the
+      # roof's own height under the stack's NEAR edge, `ridge - half * rise / run`, which is
+      # 0.25 m on the worked example. Running it from the EAVES instead -- as this did --
+      # buries 2.5 m of full-thickness brick that does not exist, which is mass on the roof
+      # and nothing visible anywhere. One height for all four walls still, so the stack is a
+      # box rather than four staircases.
       def self.chimney(row, d, i)
         return [] unless d.chimney && row.roof == "gable" && d.width >= 2 * CHIMNEY_SIDE
 
         half = CHIMNEY_SIDE / 2.0
-        # The party-line end for every dwelling but the last, which puts its stack at the
-        # end it shares with nobody -- half a metre in, so it stands on the roof and not on
-        # the verge.
+        run = row.depth / 2.0
+        # The party-line end for every dwelling but the last, which has no party line of its
+        # own at x1 and puts its stack just past the one at x0 -- where an end terrace's flue
+        # actually runs, beside its neighbour's. Pulling it inward from x1 instead put it in
+        # the middle of the slope: measured, a 0.74-0.81 m overlap with the solar array's
+        # columns on every last bay that could carry both.
         last = i == row.dwellings.length - 1
-        cx = last ? d.x1 - half - 0.5 : d.x1
+        cx = last ? d.x0 + half + 0.5 : d.x1
         cz = (row.z0 + row.z1) / 2.0
-        height = row.ridge + CHIMNEY_RISE - row.eaves
+        base = row.ridge - half * row.rise / run
+        height = row.ridge + CHIMNEY_RISE - base
         rows = [ Walls.cells(height, row.cell), 1 ].max
         corners = [ [ cx - half, cz - half ], [ cx + half, cz - half ], [ cx + half, cz + half ], [ cx - half, cz + half ] ]
 
@@ -267,9 +318,9 @@ module Game
           along = Vector3.new(to[0] - from[0], 0.0, to[1] - from[1])
           Surface.new(
             kind: :wall, storey: row.storeys, material: Materials.fetch(:brick),
-            origin: Vector3.new(from[0], row.eaves, from[1]), u: along.normalised, v: UP,
+            origin: Vector3.new(from[0], base, from[1]), u: along.normalised, v: UP,
             width: along.length, height: height, cols: Walls.cells(along.length, row.cell), rows: rows,
-            thickness: Walls::THICKNESS, seed: row.seed + 400 + i, bay: i,
+            thickness: CHIMNEY_THICKNESS, seed: row.seed + 400 + i, bay: i,
             # fittings: false -- a downpipe against a stack 0.9 m square has nowhere to run.
             fittings: false
           )
