@@ -769,4 +769,48 @@ class Game::Building::RowTest < ActiveSupport::TestCase
     assert_equal 1, planes[0].patches.count { |p| p.material == :solar }
     assert_empty planes[1].patches
   end
+
+  # STEP 5c OF THE CONTRACT. A chimney is four walls right after its dwelling's dormer.
+  # Worked by hand from the pair with a chimney on the first dwelling: the stack is 0.9 m
+  # square on the ridge at x = 6 (the party line), so its ring runs x 5.55..6.45 and
+  # z 4.05..4.95; each wall is Walls.cells(0.9, 1) = 1 column. It stands from the eaves at
+  # 6.0 to the ridge at 8.5 plus 1.2 = 9.7, so 3.7 m -> 4 rows. Four walls of 4 cells is 16,
+  # appended after the first gable ends at 654 + 27 = 681, which moves the second dwelling's
+  # roof from 681 to 697 and the rubble from 768 to 784: 840 -> 856 pieces, 29 -> 33 surfaces.
+  test "a chimney is four walls right after its dwelling's dormer" do
+    set = pair("dwellings" => [ { "x0" => 0.0, "x1" => 6.0, "chimney" => true }, { "x0" => 6.0, "x1" => 12.0 } ])
+
+    assert_equal 33, set.surfaces.length
+    assert_equal 856, set.piece_count
+    assert_equal [ 0, 18, 36, 54, 72, 90, 108, 126, 144, 171, 198, 225, 252, 279,
+                   306, 360, 414, 432, 450, 504, 558, 576, 594, 624, 654,
+                   681, 685, 689, 693, 697, 727, 757, 784 ],
+                 set.surfaces.map(&:piece_offset)
+    stack = set.surfaces[25, 4]
+    assert_equal %i[wall] * 4, stack.map(&:kind)
+    assert_equal [ :brick ] * 4, stack.map { |s| s.material.name }
+    assert_equal [ 2 ] * 4, stack.map(&:storey), "above every storey, like the roof it stands on"
+    assert_equal [ 0 ] * 4, stack.map(&:bay)
+    assert_equal [ 1 ] * 4, stack.map(&:cols)
+    assert_equal [ 4 ] * 4, stack.map(&:rows)
+    assert_in_delta 6.0, stack.map { |s| s.origin.x }.sum / 4, 1e-9, "centred on the party line"
+    assert_in_delta 4.5, stack.map { |s| s.origin.z }.sum / 4, 1e-9, "on the ridge"
+    assert_in_delta 6.0, stack.first.origin.y, 1e-9, "standing at the eaves, its foot inside the roof"
+    assert_in_delta 3.7, stack.first.height, 1e-9
+  end
+
+  test "no chimney on a flat roof, on a narrow dwelling, or on an unflagged one" do
+    assert_equal 840, pair.piece_count
+    flat = pair("roof" => "flat", "ridge" => 6.0, "dwellings" => [ { "x0" => 0.0, "x1" => 6.0, "chimney" => true }, { "x0" => 6.0, "x1" => 12.0 } ])
+    assert_empty flat.surfaces.select { |s| s.storey == 2 && s.kind == :wall }
+    narrow = pair("dwellings" => [ { "x0" => 0.0, "x1" => 1.5, "chimney" => true }, { "x0" => 1.5, "x1" => 12.0 } ])
+    assert_empty narrow.surfaces.select { |s| s.storey == 2 && s.kind == :wall }
+  end
+
+  test "a chimney falls with its dwelling" do
+    set = pair("dwellings" => [ { "x0" => 0.0, "x1" => 6.0, "chimney" => true }, { "x0" => 6.0, "x1" => 12.0 } ])
+
+    assert_equal 4, set.for_bay(0)[:own].count { |s| s.storey == 2 && s.kind == :wall }
+    assert_equal 0, set.for_bay(1)[:own].count { |s| s.storey == 2 && s.kind == :wall }
+  end
 end

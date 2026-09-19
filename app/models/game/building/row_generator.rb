@@ -32,7 +32,7 @@ module Game
       end
 
       # 1 fronts and backs, 2 ends, 3 party walls, 4 interiors, 5 roof sections, 5b dormers,
-      # 6 boxes, 7 hedges, rubble LAST.
+      # 5c chimneys, 6 boxes, 7 hedges, rubble LAST.
       def self.dwellings(row)
         return [] if row.dwellings.empty?
 
@@ -49,7 +49,7 @@ module Game
           row.storeys.times { |s| built << wall(row, [ x, row.z0 ], [ x, row.z1 ], storey: s, openings: nil, edge: 5, between: [ i, i + 1 ]) }
         end
         row.dwellings.each_with_index { |d, i| built.concat Interior.build(rectangle(row, d.x0, d.x1)).map { |s| tagged(s, i) } }
-        row.dwellings.each_with_index { |d, i| built.concat roof_section(row, d, i); built.concat dormer(row, d, i) }
+        row.dwellings.each_with_index { |d, i| built.concat roof_section(row, d, i); built.concat dormer(row, d, i); built.concat chimney(row, d, i) }
         built
       end
 
@@ -222,6 +222,43 @@ module Game
         top = Surface.new(kind: :roof, storey: row.storeys, material: Materials.fetch(:steel), origin: Vector3.new(x0, y_top, z_front),
                           u: EAST, v: SOUTH, width: width, height: depth, cols: cols, rows: deep, thickness: DORMER_TOP_THICKNESS, bay: i)
         [ front, *cheeks, top ]
+      end
+
+      # A chimney: a square brick stack on the ridge, at the dwelling's party-line end --
+      # which is where a terrace's flues actually run, and why the chimneys of a real row
+      # come in pairs down the roof.
+      CHIMNEY_SIDE = 0.9
+      CHIMNEY_RISE = 1.2
+
+      # 5c. Four walls, or none. The stack runs from the EAVES to the ridge plus the rise,
+      # so its foot is buried in the roof and its four walls are one height rather than
+      # four staircases; the buried part is never seen, and a cell inside a roof costs an
+      # index that the alternative -- clipping each wall to the pitch -- would spend on
+      # geometry nobody looks at.
+      def self.chimney(row, d, i)
+        return [] unless d.chimney && row.roof == "gable" && d.width >= 2 * CHIMNEY_SIDE
+
+        half = CHIMNEY_SIDE / 2.0
+        # The party-line end for every dwelling but the last, which puts its stack at the
+        # end it shares with nobody -- half a metre in, so it stands on the roof and not on
+        # the verge.
+        last = i == row.dwellings.length - 1
+        cx = last ? d.x1 - half - 0.5 : d.x1
+        cz = (row.z0 + row.z1) / 2.0
+        height = row.ridge + CHIMNEY_RISE - row.eaves
+        rows = [ Walls.cells(height, row.cell), 1 ].max
+        corners = [ [ cx - half, cz - half ], [ cx + half, cz - half ], [ cx + half, cz + half ], [ cx - half, cz + half ] ]
+
+        corners.each_with_index.map do |from, e|
+          to = corners[(e + 1) % 4]
+          along = Vector3.new(to[0] - from[0], 0.0, to[1] - from[1])
+          Surface.new(
+            kind: :wall, storey: row.storeys, material: Materials.fetch(:brick),
+            origin: Vector3.new(from[0], row.eaves, from[1]), u: along.normalised, v: UP,
+            width: along.length, height: height, cols: Walls.cells(along.length, row.cell), rows: rows,
+            thickness: Walls::THICKNESS, seed: row.seed + 400 + i, bay: i
+          )
+        end
       end
 
       # How close to the row's rectangle an edge has to run before it counts as standing
