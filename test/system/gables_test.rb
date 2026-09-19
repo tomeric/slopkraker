@@ -58,9 +58,19 @@ class GablesTest < ApplicationSystemTestCase
     assert_equal before, caps(building)["shown"], "restoring the cell did not bring its caps back"
   end
 
-  # One new pool per gable material, never one per building or per column.
+  # One new pool per gable MATERIAL, never one per building or per column. The total draw
+  # count cannot say that here -- on a one-building world "a pool per material" and "a pool
+  # per building" are the same number -- so the assertion is the number of distinct
+  # `#wedge` pools the caps were placed in. `street_test` is what proves the pools are
+  # SHARED across buildings; this proves the targets house asks for exactly one.
   test "the caps cost one draw call for the wedge pool" do
-    boot
+    building = boot
+    readout = caps(building)
+
+    assert_equal 1, readout["wedgePools"],
+                 "both gables are brick, so every wedge belongs in brick#wedge and nowhere else"
+    assert_operator readout["wedges"], :>, readout["wedgePools"], "many wedges, one pool"
+
     page.driver.browser.action.key_down("g").key_up("g").perform
     wait_for(message: "debug view never hid") { page.evaluate_script("window.__arenaDebugVisible") == false }
     sleep 0.3

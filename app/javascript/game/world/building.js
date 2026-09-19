@@ -306,13 +306,19 @@ export class Building {
     let boxes = 0
     let wedges = 0
     let shown = 0
+    // The DISTINCT wedge pools, which is the draw-call claim: one per gable MATERIAL, never
+    // one per building or per column. A total draw count cannot say this on a world with
+    // one building, where the two are the same number.
+    const wedgeNames = new Set()
 
     for (const entry of this.caps) {
       if (!entry) continue
 
       for (let k = 0; k < entry.pools.length; k += 1) {
-        if (isWedgePool(entry.pools[k])) wedges += 1
-        else boxes += 1
+        if (isWedgePool(entry.pools[k])) {
+          wedges += 1
+          wedgeNames.add(entry.pools[k])
+        } else boxes += 1
         if (this.meshes.isVisible(entry.pools[k], entry.slots[k])) shown += 1
       }
     }
@@ -330,7 +336,7 @@ export class Building {
         if (cap.box || cap.wedges.length) capped += 1
       }
     }
-    return { columns, boxes, wedges, shown, capped }
+    return { columns, boxes, wedges, wedgePools: wedgeNames.size, shown, capped }
   }
 
   createCollider(RAPIER, matrix, surface, name, index, colliderIndex) {
