@@ -519,7 +519,27 @@ how the pool's ONE material is dressed and how each instance is coloured.
 - **Gable ends meet the roof by drawing, not by pieces.** The stair is the index space;
   the client fills each column's tooth with a box in the material's pool and a wedge in a
   `<material>#wedge` shape pool, keyed to the cell they stand on (`Building#buildGableCaps`),
-  hidden and restored with it. One pool per gable material, no collider.
+  hidden and restored with it. One pool per capped material, no collider.
+- **A HIPPED ROOF IS CAPPED THE SAME WAY, and the surface has to say so.** A pyramid's four
+  planes are the same isoceles triangle over a rectangular grid — the apex sits at
+  `(w / 2, h)` in the plane's own frame, which is exactly the line `Roof.clip` judges — so
+  `gableCaps` generalises without a special case, tent column and all. What does not
+  generalise is telling them apart: a pyramid plane is `kind: :roof`, indistinguishable
+  from the plain plane of an ordinary gable roof, so `Surface#capped` ships `caps: true`
+  and the client never guesses, exactly as it never guesses `fittings` or `out`. Until it
+  could be capped, `RowGenerator.pyramid` had to keep the old middle rule and stand proud:
+  **12 of the 32 cells the spire's four planes stood up were out past their own hip, the
+  worst by 1.708 m**, and its point was an open A-frame with daylight through it. Strictly
+  clipped it is 20 cells and none. Three things follow. A cap still has **no collider** —
+  it has no piece index, so one would be solid and unbreakable, and on the spire that
+  leaves about 17 m² per plane drawn over nothing, 19 to 27 m up a church tower and the
+  same bargain `EAVES_OVERHANG` already makes on every roof in the game. `cols += 1 if
+  cols.even?` in the pyramid builder is **no longer load-bearing but stays**, because cols
+  is the piece numbering. And a capped plane is a pitched roof, so it carries **gutters and
+  caps on one index** — the first time that happens; what keeps `capReadout`'s arithmetic
+  right is that `buildFittings` pushes after `buildGableCaps` within a surface, never a
+  claim that the two do not meet. The 1×1 and 3×1 planes over the porch empty under the
+  strict rule and keep `Roof.clip`'s documented fallback, proud as before.
 - **The tiles reach past the wall, and that is drawing too.** A roof plane starts on the
   wall's OWN plane and a wall straddles its plane, so the outer 150 mm of every wall top
   had open sky above it and the gutter hung over the gap rather than clear of the wall.
@@ -851,7 +871,7 @@ The engine exposes debug/test hooks on `window`:
 | `__arenaBuildingLabels` | The debug overlay's plate for every building — `{ id, name, category, ids, shown }` — so "which building is that" is a name rather than a pointer, and a test can assert on the words |
 | `__arenaQuality` | Which tier the engine actually settled on |
 | `__arenaLooks` | What the client painted at boot — which materials got a texture, the tile size, whether the environment map and which sky are live — so the surface detail is an assertion, not a screenshot |
-| `__arenaGableCaps` | `(buildingId)` → `{ columns, boxes, wedges, shown, capped }`: how many gable columns a building has, how many box/wedge caps it placed and how many are showing, and how many columns are capped at all — recomputed from `gableCaps` rather than the anchor-keyed cap list, so an eaves column sharing its neighbour's anchor still counts once. `shown` dropping on a break and returning on its restore is the proof a cap goes with the cell it stands on |
+| `__arenaGableCaps` | `(buildingId)` → `{ columns, boxes, wedges, shown, capped }`: how many columns a building's CAPPED surfaces have — its gable ends and any hipped roof's planes — how many box/wedge caps it placed and how many are showing, and how many columns are capped at all — recomputed from `gableCaps` rather than the anchor-keyed cap list, so an eaves column sharing its neighbour's anchor still counts once. `shown` dropping on a break and returning on its restore is the proof a cap goes with the cell it stands on |
 | `__arenaFittings` | `(buildingId)` — the same `Building#capReadout()` as `__arenaGableCaps`, read for its rainwater-goods fields: `gutters` and `downpipes` (how many the fittings module lays out over the building's surfaces, whatever their cells' state), `fittingPools` (the distinct instanced pools they draw into — the draw-call claim, same idea as `wedgePools`), and `shownFittings` (how many are currently visible, which drops when the cell a fitting hangs on breaks and returns when it is restored) |
 | `__arenaFittingIndices` | `(buildingId)` — every piece index carrying at least one gutter or downpipe. Where a count can only show a building-wide total move, this proves the indices themselves stayed clear of a dakkapel's and a chimney's own surfaces, which `Surface#fittings` excludes |
 | `__arenaDebugVisible`, `__arenaMasterGain` | Overlay / audio assertions |

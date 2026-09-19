@@ -122,6 +122,7 @@ module Game
             cols: cols, rows: rows,
             thickness: GABLE_THICKNESS,
             patches: clip(cols, rows),
+            capped: true,
             seed: recipe.seed
           )
         end
@@ -129,12 +130,21 @@ module Game
 
       # Everything above the pitch line becomes void.
       #
+      # Used by a gable end and by a pyramid's four planes, which are the same triangle over
+      # a rectangular grid and are capped by the same client module. A caller that clips by
+      # this says `capped: true`, and the two go together: the strict rule is only affordable
+      # BECAUSE the step it leaves is drawn back in.
+      #
       # Judged against the cell's TOP edge and against the LOWEST roof line over the whole
       # column -- the lower of the line's two ends, never its middle. A cell is a rectangle
       # spanning the column and the roof over it is a slope, so the line at the middle says
       # nothing about what the cell does at its outer edge: judged there, 166 of the 746
       # gable cells in the seeded worlds stood proud of their own roof, the worst by 1.92 m
       # through tiles 0.2 m thick -- brick teeth stepping up the verge, plain from the kerb.
+      # The pyramids had the same fault until 2026-09-19 and kept it a year longer, because
+      # a gable's step is filled against the wall below it and a hipped plane's step is on
+      # the roof itself: 14 of the 34 cells they stand up were proud of their own hip, the
+      # worst by 1.708 m, at the top of Sint-Marcellinus's spire.
       # Judged on the lower end, a kept cell is wholly beneath the roof everywhere across
       # its width, and what that leaves is a STEP rather than a tooth: the client fills it
       # with a box and a wedge (`game/world/gables.js`), which is drawing and costs no index.
@@ -145,10 +155,11 @@ module Game
       # height and a cell's top edge is `(row + 1) / rows` of it, so the whole test clears
       # its denominators.
       #
-      # A GABLE IS NEVER CLIPPED TO NOTHING, and the fallbacks are ranked by how big a lie
+      # A SURFACE IS NEVER CLIPPED TO NOTHING, and the fallbacks are ranked by how big a lie
       # each one tells. A cap hangs on a STANDING cell -- that is how it is hidden and
       # restored with the wall it fills -- so a gable with nothing standing is not a clean
-      # triangle of caps, it is a hole where a wall was.
+      # triangle of caps, it is a hole where a wall was, and a hipped plane with nothing
+      # standing is a hole in a roof.
       #
       # Two shapes empty under the strict rule: one ONE ROW tall, whose only row reaches the
       # ridge and so is wholly under nothing; and one TWO COLUMNS wide, where the roof line
@@ -195,36 +206,6 @@ module Game
 
           rows.times.filter_map do |row|
             next if (row + 1) * cols <= rows * line
-
-            Surface::Patch.new(col0: col, row0: row, col1: col, row1: row, material: :void)
-          end
-        end
-      end
-
-      # The same triangle, judged on the column's MIDDLE, for a surface that is the roof
-      # rather than a wall under one.
-      #
-      # A gable end can afford the strict clip because the step it leaves is filled in by
-      # the client's caps, and a cap hangs on the cell below it. A pyramid's four planes
-      # (`RowGenerator.pyramid`) have no caps -- `gableCaps` is only run over `kind: gable`
-      # -- so the strict clip there takes the apex cell of all four planes and leaves the
-      # point open to the sky, which is the square hole the odd column count in
-      # `RowGenerator.pyramid` exists to avoid. Judged on the middle, the apex column is
-      # kept whole and the four planes still meet.
-      #
-      # This is a HOLDING position and not a claim that a roof plane is different in kind:
-      # measured over the seeded worlds, 14 of the 34 cells these planes stand up are proud
-      # of their own hip by up to 1.708 m, which is the same defect the gables had, at the
-      # church tower's spire. Fixing it means capping a roof plane the way a gable is
-      # capped, which needs the generator to say which planes carry the tent -- the client
-      # can no more infer that than it can infer `Surface#fittings`.
-      def self.clip_plane(cols, rows)
-        cols.times.flat_map do |col|
-          across = (col + 0.5) / cols
-          line = 1.0 - (2.0 * across - 1.0).abs
-
-          rows.times.filter_map do |row|
-            next if line >= (row + 1).to_f / rows
 
             Surface::Patch.new(col0: col, row0: row, col1: col, row1: row, material: :void)
           end

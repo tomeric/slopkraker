@@ -108,6 +108,105 @@ class GablesTest < ApplicationSystemTestCase
     assert_equal readout["boxes"] + readout["wedges"], readout["shown"], "a cap was placed and not shown"
   end
 
+  # A HIPPED ROOF IS CAPPED THE SAME WAY, and that is the whole point of the `caps` flag.
+  #
+  # A pyramid's four planes ARE the roof rather than a wall under one, so until they could
+  # be capped they had to keep the old middle rule and stand proud: 12 of the 32 cells the
+  # spire's planes stood up were out past their own hip, the worst by 1.708 m. They are
+  # `kind: "roof"`, indistinguishable from the plain planes of an ordinary gable roof, so
+  # the client cannot tell which to cap and Ruby says so instead.
+  #
+  # Only geleen has a pyramid, and it is Sint-Marcellinus's spire.
+  test "a hipped roof's planes are capped, and its spire comes to a point" do
+    visit_world("geleen", match: "gables-spire")
+    wait_for(timeout: 120, message: "geleen never booted") { page.evaluate_script("!!(window.__arena && window.__arena.ready)") }
+
+    page.execute_script(<<~JS)
+      window.__hip = null
+      import("game/world/gables").then(({ gableCaps, capped }) => {
+        const hipped = (s) => s.kind === "roof" && capped(s)
+        const id = window.__arenaBuildingIds().find(i => window.__arenaBuildingSpec(i).surfaces.some(hipped))
+        if (!id) { window.__hip = { planes: [] }; return }
+        const spec = window.__arenaBuildingSpec(id)
+        const lineAt = (t, h) => h * (1 - Math.abs(2 * t - 1))
+        window.__hip = {
+          id,
+          // Every gable end of this building is capped too, and both kinds land in the
+          // same readout -- so what the readout counts is asked of the spec, never written
+          // down here.
+          columns: spec.surfaces.filter(s => capped(s)).reduce((n, s) => n + s.cols, 0),
+          // Columns needing no cap at all: their own cells already reach the roof line.
+          // Only the fallback shapes have any -- a plane too small to clip strictly keeps a
+          // cell that stands proud, and there is nothing left above it to fill.
+          capless: spec.surfaces.filter(s => capped(s))
+            .reduce((n, s) => n + gableCaps(s).filter(c => !c.box && c.wedges.length === 0).length, 0),
+          planes: spec.surfaces.filter(hipped).map(s => {
+            const caps = gableCaps(s)
+            // How high each column is DRAWN: its own standing cells, then its box, then
+            // its wedges. Held against the roof line at that column's higher edge.
+            const reach = caps.map(cap => {
+              let top = -1
+              for (let row = s.rows - 1; row >= 0; row -= 1) {
+                if (window.__arenaPieceState(s.off + row * s.cols + cap.col, id).material !== "void") { top = row; break }
+              }
+              return Math.max((top + 1) * s.h / s.rows, cap.box ? cap.box.y0 + cap.box.height : 0,
+                              ...cap.wedges.map(w => w.y0 + w.height), 0)
+            })
+            return {
+              cols: s.cols, rows: s.rows, h: s.h, mat: s.mat, reach,
+              lines: caps.map(cap => Math.max(lineAt(cap.col / s.cols, s.h), lineAt((cap.col + 1) / s.cols, s.h))),
+              // The column the apex falls INSIDE, which is a tent rather than a slope: its
+              // two half wedges rise to the point, above either of its own edges.
+              tents: caps.map(cap => cap.col / s.cols < 0.5 && (cap.col + 1) / s.cols > 0.5),
+              capless: caps.filter(cap => !cap.box && cap.wedges.length === 0).length,
+              apexWedges: caps.filter(cap => cap.wedges.some(w => Math.abs(w.y0 + w.height - s.h) < 1e-9)).length
+            }
+          })
+        }
+      })
+    JS
+    wait_for(timeout: 120, message: "the gables module never loaded") { page.evaluate_script("!!window.__hip") }
+    hip = page.evaluate_script("window.__hip")
+
+    assert_operator hip["planes"].length, :>=, 4, "geleen should carry at least one pyramid, which is four planes"
+    hip["planes"].each_with_index do |plane, i|
+      # Drawn right up to the hip over every column, and never past it. Short is a notch in
+      # the roof; past is the fault this replaced. The apex column is the exception and
+      # rises to the POINT, which is above both of its own edges -- asserted as the point
+      # rather than waived, since a tent capped to its edges is the flat notch the two-wedge
+      # path exists to prevent.
+      plane["reach"].each_with_index do |reach, col|
+        want = plane["tents"][col] ? plane["h"] : plane["lines"][col]
+        assert_in_delta want, reach, 1e-6, "plane #{i} column #{col} is not drawn to its hip"
+      end
+      assert_in_delta plane["h"], plane["reach"].max, 1e-6, "plane #{i} never comes to a point"
+      # And a plane Roof.clip really clipped comes to that point by WEDGES. A plane ONE ROW
+      # tall empties under the strict rule and falls back to the middle one, keeping a cell
+      # that reaches the apex by standing proud -- the documented lesser lie, and the reason
+      # this is asked of the multi-row planes rather than of all of them. Sint-Marcellinus
+      # has both: a 5x4 spire and a 3x1 cap over its porch.
+      next unless plane["rows"] > 1
+
+      assert_operator plane["apexWedges"], :>, 0, "plane #{i} reaches its apex with a cell rather than a cap"
+      assert_equal 0, plane["capless"], "plane #{i} has a column the caps never fill"
+    end
+    assert hip["planes"].any? { |plane| plane["rows"] > 1 }, "no strictly clipped plane to look at"
+    assert_equal [ "roof_tile" ], hip["planes"].map { |plane| plane["mat"] }.uniq, "a hipped roof is tiled"
+
+    # And really placed, in pools, not merely computed: the spire's tiles are roof_tile, so
+    # capping it asks for a `roof_tile#wedge` pool that a world of plain gables never needs.
+    readout = caps(hip["id"])
+    assert_equal hip["columns"], readout["columns"], "the readout should count a hipped plane's columns too"
+    # Every column that needs a cap has one. The shortfall is read off the module rather
+    # than written down: a column whose own cells already reach the roof needs nothing,
+    # which on this building is its two fallback-clipped pyramids and nothing else.
+    assert_operator hip["capless"], :>, 0, "this building should have fallback planes to discount"
+    assert_equal readout["columns"] - hip["capless"], readout["capped"],
+                 "a column that needed a cap did not get one"
+    assert_equal readout["boxes"] + readout["wedges"], readout["shown"], "a cap was placed and not shown"
+    assert_equal 2, readout["wedgePools"], "a brick gable and a tiled spire are two wedge pools, never one"
+  end
+
   # One new pool per gable MATERIAL, never one per building or per column. The total draw
   # count cannot say that here -- on a one-building world "a pool per material" and "a pool
   # per building" are the same number -- so the assertion is the number of distinct

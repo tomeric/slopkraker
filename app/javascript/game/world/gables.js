@@ -1,15 +1,22 @@
 import * as THREE from "three"
 import { materialAt } from "game/world/surface"
 
-// The gable ends meet the roof.
+// A clipped surface meets the roof.
 //
-// A gable is a stair of whole cells, clipped by Roof.clip against the roof line, and the
+// A gable end is a stair of whole cells, clipped by Roof.clip against the roof line, and the
 // stair IS the piece numbering -- Ruby and JavaScript count the same grid, and nothing here
 // may change that. What a player sees, though, is a wall that stops short of the roof in
 // teeth. So the client fills the tooth above every column's topmost standing cell with two
-// extra instances in the gable's own material and tint: a BOX up to the lower of the roof
+// extra instances in the surface's own material and tint: a BOX up to the lower of the roof
 // line's two heights across the column, and a WEDGE -- a unit right triangular prism, one
 // new shape pool per material -- from there to the higher, turned toward the apex.
+//
+// A HIPPED ROOF'S PLANES ARE CAPPED THE SAME WAY, which is why nothing here says `gable`
+// except the names. A pyramid plane is a rectangle carrying an isoceles triangle whose apex
+// is at (w / 2, h) in the plane's own frame -- exactly the line below -- so the arithmetic
+// generalises without a special case. What does NOT generalise is telling the two apart:
+// a pyramid plane is `kind: "roof"`, indistinguishable from the unclipped plane of an
+// ordinary gable roof, so the generator ships `caps` and this module never guesses.
 //
 // THE APEX COLUMN IS A TENT AND NOT A SLOPE. Roof.clip keeps only what is wholly under the
 // roof across the WHOLE of a column, so the column the ridge falls inside -- an odd column
@@ -22,7 +29,13 @@ import { materialAt } from "game/world/surface"
 //
 // Caps are drawing. They are placed at boot, counted into the pools like a heap's chunks,
 // hidden when the cell under them breaks and shown when it is restored. They have no
-// collider: the tooth was never something a car could hit.
+// collider -- for a gable's tooth because it was never something a car could hit, and for a
+// hipped plane's because a cap HAS NO PIECE INDEX. A collider on one would be solid and
+// unbreakable, hidden by a cell that on an eaves column is not even its own; a car would
+// land on a ledge nothing can address. The cost is real and measured: on Sint-Marcellinus's
+// spire the caps draw about half of each plane, some 17 m2, with nothing behind it -- but
+// that is 19 to 27 m up a church tower, and the 0.4 m eaves overhang already makes the same
+// bargain along every roof in the game.
 
 export const WEDGE_SUFFIX = "#wedge"
 
@@ -32,6 +45,14 @@ export function wedgePool(name) {
 
 export function isWedgePool(pool) {
   return pool.endsWith(WEDGE_SUFFIX)
+}
+
+// Whether this surface leaves a step for caps to fill. Ruby's word, never inferred: `kind`
+// cannot answer it, because a pyramid's clipped planes and a gable roof's plain ones are
+// both `roof`. Absent means no, which is every wall, floor, deck and unclipped plane --
+// the same shape of default as `outward`, and shipped only where it is true.
+export function capped(surface) {
+  return surface.caps === true
 }
 
 // The roof line Roof.clip judges by: a triangle over the gable's width, `1 - |2t - 1|` of

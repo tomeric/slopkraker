@@ -279,6 +279,45 @@ class ShotsTest < ApplicationSystemTestCase
     Dir.children(SHOTS).sort.each { |f| puts "      #{f}" }
   end
 
+  # The spire, which is the one hipped roof in the game and the only place the caps have
+  # to fill a step on a ROOF rather than on a wall under one. Judged from the driver's
+  # seat, close, because a wide shot of a church cannot show whether its tiles step out
+  # past their own hip.
+  test "photograph the spire" do
+    skip "set SHOTS=1 to take screenshots" unless ENV["SHOTS"]
+
+    FileUtils.mkdir_p(SHOTS)
+    visit_world("geleen", vehicle: "buggy", quality: "high", spawn: 1, match: "shots-geleen-spire")
+    wait_for(timeout: 120, message: "geleen never booted") { page.evaluate_script("!!(window.__arena && window.__arena.ready)") }
+    wait_for(timeout: 120, message: "the world never stepped") { page.evaluate_script("window.__arena.steps").positive? }
+    sleep 2.0
+    press("g")
+    press("h")
+    sleep 0.6
+
+    church = World.find_by!(slug: "geleen").world_objects.where(kind: "building").find do |o|
+      o.recipe["boxes"]&.any? { |b| b["roof"] == "pyramid" && b["ridge"].to_f > 20 }
+    end
+    assert church, "no church on geleen carries a spire"
+    puts "--- the spire is on #{church.name}"
+
+    spire = church.recipe["boxes"].find { |b| b["roof"] == "pyramid" && b["ridge"].to_f > 20 }
+
+    # Off the tower's own corner rather than square at it: the spire's hips run to the
+    # corners, so a face-on shot puts a hip at each edge of the frame and the fault --
+    # tiles stepping out past their own hip -- on the silhouette, where it cannot be read.
+    park_at_box(church, spire, out: 22.0, y: 18.0)
+    shot "30-geleen-spire"
+
+    # Close, level with the spire itself, which is the only distance at which a step of a
+    # metre and a half in the tiles is a thing you can see rather than a thing you measure.
+    park_at_box(church, spire, out: 11.0, y: 23.0)
+    shot "31-geleen-spire-apex"
+
+    puts "\n--- shots in #{SHOTS}"
+    Dir.children(SHOTS).sort.each { |f| puts "      #{f}" }
+  end
+
   private
     # A row is generated in a frame of its own -- local x along the terrace, local z
     # across it, the street at z = 0 -- and then set down at `o` and turned by `yaw`. So
@@ -307,6 +346,26 @@ class ShotsTest < ApplicationSystemTestCase
       ring = object.recipe.fetch("footprint")
       lx = ring.map(&:first).max + along
       lz = -back
+      ox, _, oz = spec.fetch("o")
+      yaw = spec.fetch("yaw")
+
+      park(ox + lx * Math.cos(yaw) - lz * Math.sin(yaw),
+           oz + lx * Math.sin(yaw) + lz * Math.cos(yaw),
+           yaw: -(yaw + Math::PI / 4), y: y, hold: true)
+    end
+
+    # Off the corner of ONE BOX of a row -- a tower, a wing -- rather than of the row's
+    # whole footprint. A church is a row of several parts and its spire stands on one of
+    # them at the far end of an irregular plot, so `back:` measured from the footprint's
+    # own z = 0 leaves the camera forty metres from the thing being photographed. Same
+    # diagonal convention as park_at_corner: out past the box's +x, back off its -z, and
+    # the local quarter turn negated into a world yaw.
+    def park_at_box(object, box, out:, y:)
+      spec = page.evaluate_script("window.__arenaBuildingSpec(arguments[0])", object.id)
+      xs = box.fetch("ring").map(&:first)
+      zs = box.fetch("ring").map(&:last)
+      lx = xs.max + out
+      lz = zs.min - out
       ox, _, oz = spec.fetch("o")
       yaw = spec.fetch("yaw")
 

@@ -231,6 +231,12 @@ class Game::Building::RowTest < ActiveSupport::TestCase
 
   # A church in miniature: a nave with a two-cell door and tall windows every third column,
   # a tower with one small window per storey, a chapel with windows every other column.
+  def tower_planes
+    tower = { "ring" => [ [ 0, 0 ], [ 8, 0 ], [ 8, 8 ], [ 0, 8 ] ], "eaves" => 24.0, "ridge" => 30.0, "storeys" => 6, "roof" => "pyramid", "bay" => 0 }
+    set = pair("dwellings" => [], "boxes" => [ tower ], "footprint" => tower["ring"], "storeys" => 6)
+    set.surfaces.select { |s| s.kind == :roof }
+  end
+
   def church(**overrides)
     nave = { "ring" => [ [ 0, 0 ], [ 24, 0 ], [ 24, 12 ], [ 0, 12 ] ], "eaves" => 10.0, "ridge" => 14.0, "storeys" => 2,
              "roof" => "gable", "door" => true, "solid" => false, "bay" => 0, "name" => "nave" }
@@ -400,16 +406,46 @@ class Game::Building::RowTest < ActiveSupport::TestCase
   end
 
   test "a pyramid roof is four triangles meeting at one apex" do
-    tower = { "ring" => [ [ 0, 0 ], [ 8, 0 ], [ 8, 8 ], [ 0, 8 ] ], "eaves" => 24.0, "ridge" => 30.0, "storeys" => 6, "roof" => "pyramid", "bay" => 0 }
-    set = pair("dwellings" => [], "boxes" => [ tower ], "footprint" => tower["ring"], "storeys" => 6)
-    planes = set.surfaces.select { |s| s.kind == :roof }
+    planes = tower_planes
 
     assert_equal 4, planes.length
     planes.each do |plane|
       assert_in_delta 24.0, plane.origin.y, 1e-9
       assert plane.patches.any? { |p| p.material == :void }, "the corners above the pitch should be void"
-      assert_equal :roof_tile, plane.material_at(plane.rows - 1, plane.cols / 2).name, "the apex column stays"
+      # The apex COLUMN stays -- but not its top cell, which reaches the point and so is
+      # wholly under nothing. The point itself is two half-width wedges the client grows
+      # there, exactly as it does over a gable's ridge.
+      assert_equal :roof_tile, plane.material_at(plane.rows - 2, plane.cols / 2).name, "the apex column stays"
+      assert_equal :void, plane.material_at(plane.rows - 1, plane.cols / 2).name, "the point is drawn, not stood up"
     end
+  end
+
+  # The fault a gable end had until 2026-09-19, and for the same reason: a cell is a
+  # rectangle spanning its whole column, so the hip line at the column's MIDDLE says nothing
+  # about what the cell does at its outer edge. Judged there, 14 of the 34 cells geleen's
+  # pyramids stand up were proud of their own hip, the worst by 1.708 m -- tiles jutting out
+  # of the church spire. Judged on the column's lower end, a kept cell is wholly beneath the
+  # hip everywhere across its width, and the step that leaves is capped.
+  test "no cell a pyramid plane stands up is proud of its own hip" do
+    tower_planes.each_with_index do |plane, i|
+      cell_h = plane.height / plane.rows
+      plane.rows.times do |row|
+        plane.cols.times do |col|
+          next if plane.material_at(row, col).name == :void
+
+          # The hip over this column, at whichever of its two edges is lower.
+          low = [ col, col + 1 ].map { |k| plane.height * (1.0 - (2.0 * k / plane.cols - 1.0).abs) }.min
+
+          assert_operator (row + 1) * cell_h, :<=, low + 1e-9,
+            "plane #{i} cell (#{row}, #{col}) stands proud of its hip"
+        end
+      end
+    end
+  end
+
+  test "a pyramid plane says it carries caps, so the client knows to fill its steps" do
+    assert tower_planes.all?(&:capped), "a pyramid plane leaves a step and nothing else can say so"
+    assert tower_planes.all? { |plane| plane.to_spec[:caps] }
   end
 
   test "a gable box roofs over its own box" do

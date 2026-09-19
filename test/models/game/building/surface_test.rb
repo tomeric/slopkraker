@@ -33,6 +33,20 @@ class Game::Building::SurfaceTest < ActiveSupport::TestCase
     assert_not wall.to_spec.key?(:between)
   end
 
+  test "a surface carries no caps unless it says so" do
+    assert_not wall.capped
+    assert_not wall.to_spec.key?(:caps)
+  end
+
+  test "a capped surface says so in the spec, and keeps saying it after an offset" do
+    surface = wall(capped: true)
+
+    assert surface.capped
+    assert_equal true, surface.to_spec[:caps]
+    assert surface.with_offset(40).capped
+    assert surface.rotated(0.5).capped
+  end
+
   test "a bay and a shared wall ride into the spec" do
     assert_equal 2, wall(bay: 2).to_spec[:bay]
     party = wall(between: [ 1, 2 ])

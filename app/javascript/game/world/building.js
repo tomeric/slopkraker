@@ -3,7 +3,7 @@ import { PROP_GROUPS, RUBBLE_GROUPS } from "game/physics/groups"
 import { eachBuildingCell, materialAt, cellMatrix, chunkMatrix, cellSize } from "game/world/surface"
 import { tileSurface } from "game/world/chunking"
 import { heapMatrix, heapFrame, heapFragments, fragmentMaterial, fragmentPool, shapeFor, pileOrder, SHAPES } from "game/world/rubble"
-import { gableCaps, wedgePool, isWedgePool } from "game/world/gables"
+import { gableCaps, wedgePool, isWedgePool, capped } from "game/world/gables"
 import { fittingsFor, eaves, gutters, downpipes, FITTING_MATERIAL } from "game/world/fittings"
 import { baseMaterial } from "game/render/piece_meshes"
 import { absorb } from "game/damage"
@@ -138,9 +138,12 @@ export class Building {
         }
       }
 
-      // The caps that fill a gable's teeth, counted exactly as buildGableCaps places them: a
-      // box goes into the material's own pool, a wedge into its wedge pool.
-      if (surface.kind === "gable") {
+      // The caps that fill a clipped surface's teeth, counted exactly as buildGableCaps
+      // places them: a box goes into the material's own pool, a wedge into its wedge pool.
+      // Gated on the SAME question the builder asks, so the two cannot drift -- a pyramid's
+      // planes are capped roof_tile, and counting only gables here would leave every wedge
+      // of a spire to be written past the end of a pool that does not bounds-check.
+      if (capped(surface)) {
         for (const cap of gableCaps(surface)) {
           if (cap.box) into.set(surface.mat, (into.get(surface.mat) || 0) + 1)
           const wedge = wedgePool(surface.mat)
@@ -280,12 +283,13 @@ export class Building {
     // After every cell, because an attachment is keyed to the cell it hangs on and has to
     // know which of them the generator left standing.
     for (const surface of this.spec.surfaces) {
-      if (surface.kind === "gable") this.buildGableCaps(surface)
+      if (capped(surface)) this.buildGableCaps(surface)
       this.buildFittings(surface)
     }
   }
 
-  // The caps that make a gable meet the roof: placed once, keyed by the cell they stand on.
+  // The caps that make a clipped surface meet the roof -- a gable end, a hipped roof's
+  // planes: placed once, keyed by the cell they stand on.
   buildGableCaps(surface) {
     const u = new THREE.Vector3().fromArray(surface.u)
     const v = new THREE.Vector3().fromArray(surface.v)
@@ -386,7 +390,8 @@ export class Building {
   }
 
   // For the tests: how many caps this building placed, how many are showing, and how many
-  // of the gable's columns received at least one -- and the same for the rainwater goods.
+  // of the capped surfaces' columns received at least one -- and the same for the rainwater
+  // goods.
   capReadout() {
     let boxes = 0
     let wedges = 0
@@ -401,12 +406,13 @@ export class Building {
     for (const entry of this.attachments) {
       if (!entry) continue
 
-      // Caps from the front of the entry, fittings from the back. No index carries both
-      // today -- a cap anchors inside its gable's range and a fitting inside a roof's or a
-      // wall's, and piece offsets partition those -- but nothing stops a later fitting
-      // hanging on a gable, and counting the whole entry as caps would then put a downpipe
-      // in the gable's box total and break the caps' own arithmetic. Hence the invariant
-      // buildFittings keeps: it pushes AFTER buildGableCaps, always.
+      // Caps from the front of the entry, fittings from the back -- and an index CAN carry
+      // both, now that a pyramid's planes are capped: a plane is a pitched roof, so it takes
+      // an eaves overhang and a gutter as well as its caps. What keeps the split right is
+      // the order, not a claim that the two never meet: piece offsets partition surfaces, so
+      // an entry only ever hears from one surface, and within that surface buildFittings
+      // pushes AFTER buildGableCaps, always. Counting the whole entry as caps would put a
+      // gutter in the box total and break the caps' own arithmetic.
       const caps = entry.pools.length - entry.fittings
       for (let k = 0; k < caps; k += 1) {
         if (isWedgePool(entry.pools[k])) {
@@ -434,20 +440,20 @@ export class Building {
     }
 
     let columns = 0
-    let capped = 0
+    let withCaps = 0
     for (const surface of this.spec.surfaces) {
-      if (surface.kind !== "gable") continue
+      if (!capped(surface)) continue
       columns += surface.cols
       // Recomputed from gableCaps rather than read off `this.caps`, which is keyed by the
       // ANCHOR cell a cap is drawn against -- an eaves column with no standing cell of its
       // own shares its neighbour's entry there, so counting entries would misattribute
       // columns that collapsed onto a shared anchor.
       for (const cap of gableCaps(surface)) {
-        if (cap.box || cap.wedges.length) capped += 1
+        if (cap.box || cap.wedges.length) withCaps += 1
       }
     }
     return {
-      columns, boxes, wedges, wedgePools: wedgeNames.size, shown, capped,
+      columns, boxes, wedges, wedgePools: wedgeNames.size, shown, capped: withCaps,
       eaves: eavesCount,
       gutters: gutterCount, downpipes: downpipeCount, fittingPools: fittingPools.size, shownFittings: fittingsShown
     }

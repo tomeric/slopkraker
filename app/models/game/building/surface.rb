@@ -21,11 +21,11 @@ module Game
 
       attr_reader :kind, :storey, :material, :origin, :u, :v, :normal,
                   :width, :height, :cols, :rows, :thickness, :patches, :piece_offset, :seed,
-                  :mix, :bay, :between, :bays, :fittings, :outward
+                  :mix, :bay, :between, :bays, :fittings, :outward, :capped
 
       def initialize(kind:, storey:, material:, origin:, u:, v:, width:, height:,
                      cols:, rows:, thickness:, patches: [], piece_offset: 0, seed: 0, mix: nil,
-                     bay: 0, between: nil, bays: nil, fittings: true, outward: -1)
+                     bay: 0, between: nil, bays: nil, fittings: true, outward: -1, capped: false)
         @kind = kind
         @storey = storey
         @material = material
@@ -61,6 +61,10 @@ module Game
         # Game::Building::Walls.outward for how a ring's own winding decides it, and #to_spec
         # for why -1 is the default that ships no key.
         @outward = outward
+        # Whether this surface's cells were clipped back to a slope, leaving a STEP that the
+        # client fills in by drawing. Set by the two places that call Roof.clip -- a gable
+        # end and a pyramid's planes -- because the clip is what causes it. See #to_spec.
+        @capped = capped
       end
 
       def piece_count = cols * rows
@@ -119,7 +123,7 @@ module Game
           kind: kind, storey: storey, material: material, origin: origin, u: u, v: v,
           width: width, height: height, cols: cols, rows: rows, thickness: thickness,
           patches: patches, piece_offset: offset, seed: seed, mix: mix,
-          bay: bay, between: between, bays: bays, fittings: fittings, outward: outward
+          bay: bay, between: between, bays: bays, fittings: fittings, outward: outward, capped: capped
         )
       end
 
@@ -140,7 +144,7 @@ module Game
           kind: kind, storey: storey, material: material, origin: turn.call(origin), u: turn.call(u), v: turn.call(v),
           width: width, height: height, cols: cols, rows: rows, thickness: thickness,
           patches: patches, piece_offset: piece_offset, seed: seed, mix: mix, bay: bay, between: between, bays: bays,
-          fittings: fittings, outward: outward
+          fittings: fittings, outward: outward, capped: capped
         )
       end
 
@@ -205,6 +209,16 @@ module Game
           # us. -1 is the default because every wall this codebase lays out by hand is wound
           # so that u x v points in; shipped only when a ring turned out the other way.
           spec[:out] = 1 if outward.positive?
+          # A clipped surface stops SHORT of the roof over it, in whole cells, and what is
+          # left between the stair and the slope is filled by the client with a box and a
+          # wedge -- drawing, hung on the cell below, costing no index. Which surfaces leave
+          # such a step is the generator's to say: a gable end always does, a pyramid's four
+          # planes do, and every other roof plane in the game is a plain rectangle that does
+          # not. The client can no more infer that from kind than it can infer #fittings --
+          # a pyramid's planes are `roof`, exactly as a dwelling's unclipped ones are.
+          # Shipped only where it is true, which is a few surfaces of the several hundred a
+          # world has.
+          spec[:caps] = true if capped
         end
       end
 
