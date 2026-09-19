@@ -192,14 +192,40 @@ class Game::Import::RowsTest < ActiveSupport::TestCase
 
   test "the same seed always flags the same dwellings" do
     # Pinned literally, because "the same seed flags the same dwellings" compared against
-    # itself cannot fail. Two of the eight dwellings of seed 227 get the detail with salt 1
+    # itself cannot fail. One of the eight dwellings of seed 227 gets the detail with salt 1
     # at a third; change the hash and this array moves, which is the point of pinning it.
-    assert_equal [ false, true, false, false, false, true, false, false ],
+    assert_equal [ false, false, false, true, false, false, false, false ],
                  (0...8).map { |i| Game::Import::Rows.detail?(227, i, 1, 33) }
     assert_equal true, (0...100).count { |i| Game::Import::Rows.detail?(5, i, 2, 50) }.between?(30, 70),
                  "a fifty percent share should flag about half"
     refute Game::Import::Rows.detail?(5, 0, 2, 0)
     assert Game::Import::Rows.detail?(5, 0, 2, 100)
+  end
+
+  # THE SALT HAS TO MIX. It used to be ADDED as `salt * 15_485_863`, and 15_485_863 is 63
+  # mod 100, so a salt only shifted one base value round the hundred: solar fired on base in
+  # [48, 78) and chimney on [85, 100) u [0, 40), disjoint windows over the same number, so
+  # no dwelling could carry both -- 0 of these 8,000 pairs -- and garage and glazing were
+  # mutually exclusive the same way. Two flags at 30% and 55% that never co-occur is not a
+  # coincidence a reader can see; it is a hash that does not mix, and only a measurement
+  # finds it. Each flag keeps its nominal share, and each pair lands on the product of the
+  # two, which is what independent means.
+  test "two flags on the same dwelling are independent, and each keeps its share" do
+    pairs = (1..1000).flat_map { |seed| (0...8).map { |i| [ seed, i ] } }
+    shares = { 1 => Game::Import::Rows::GARAGE_SHARE, 2 => Game::Import::Rows::GLAZING_SHARE,
+               3 => Game::Import::Rows::DORMER_SHARE, 4 => Game::Import::Rows::SOLAR_SHARE,
+               5 => Game::Import::Rows::CHIMNEY_SHARE }
+    hits = shares.to_h { |salt, share| [ salt, pairs.map { |seed, i| Game::Import::Rows.detail?(seed, i, salt, share) } ] }
+
+    shares.each do |salt, share|
+      realised = 100.0 * hits[salt].count(true) / pairs.length
+      assert_in_delta share, realised, 2.0, "salt #{salt} at #{share}% realised #{realised.round(2)}%"
+    end
+    shares.keys.combination(2) do |a, b|
+      both = 100.0 * pairs.each_index.count { |n| hits[a][n] && hits[b][n] } / pairs.length
+      expected = 100.0 * hits[a].count(true) * hits[b].count(true) / pairs.length**2
+      assert_in_delta expected, both, 2.0, "salts #{a} and #{b} co-occur at #{both.round(2)}%, not #{expected.round(2)}%"
+    end
   end
 
   test "every flagged recipe generates" do
@@ -267,7 +293,7 @@ class Game::Import::RowsTest < ActiveSupport::TestCase
       end
     end
 
-    assert_equal 18, flagged, "the two windows' solar flags"
-    assert_equal 16, arrays, "and the arrays that fit above a dakkapel or had none to clear"
+    assert_equal 14, flagged, "the two windows' solar flags"
+    assert_equal 11, arrays, "and the arrays that fit above a dakkapel or had none to clear"
   end
 end

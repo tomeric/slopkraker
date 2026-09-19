@@ -112,8 +112,23 @@ module Game
       # Whether dwelling `index` of a row with `seed` gets the detail with `salt`, at
       # `share` percent. A small integer hash rather than Random, so the same recipe is
       # produced by every import.
+      #
+      # THE SALT HAS TO BE MIXED, NOT ADDED. This was `(seed * 7919 + index * 104_729 +
+      # salt * 15_485_863) % 100`, and 15_485_863 is 63 mod 100 -- so changing the salt only
+      # SHIFTED one base value round the hundred, and every flag read the same number through
+      # a different window. Solar fired on base in [48, 78) and chimney on [85, 100) u
+      # [0, 40): disjoint, so no dwelling could ever have both (0 of 8,000 pairs, 0 of 49 in
+      # the fixture), and garage and glazing were mutually exclusive the same way. A modulus
+      # only ever sees the bottom of a number, so the top has to be folded down into it
+      # first: two rounds of xor-shift-multiply, exactly as looks.js's `noise` does, which
+      # was fixed for this same class of bug on the previous branch. 32-bit throughout, so
+      # the answer does not depend on Ruby's unbounded integers.
+      MIX = 0xFFFFFFFF
       def self.detail?(seed, index, salt, share)
-        ((seed * 7919 + index * 104_729 + salt * 15_485_863) % 100) < share
+        h = (seed * 0x9E3779B1 + index * 0x85EBCA77 + salt * 0xC2B2AE3D) & MIX
+        h = ((h ^ (h >> 15)) * 0x2545F491) & MIX
+        h = ((h ^ (h >> 13)) * 0x27220A95) & MIX
+        ((h ^ (h >> 16)) % 100) < share
       end
 
       private

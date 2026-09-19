@@ -19,7 +19,7 @@ geleen_estate_row_0:
   z: -2224.316
   yaw: -2.33358
   radius: 25.0
-  piece_count: 1245
+  piece_count: 1241
   storey_count: 2
   recipe:
     kind: row
@@ -35,8 +35,8 @@ geleen_estate_row_0:
       chimney: true
     - x0: 8.76
       x1: 14.74
-      garage: true
       dormer: true
+      chimney: true
     boxes:
     - ring:
       - [3.22, 11.19]
@@ -104,7 +104,7 @@ geleen_estate_row_1:
   z: -2236.877
   yaw: -2.3447
   radius: 24.7
-  piece_count: 1238
+  piece_count: 1246
   storey_count: 2
   recipe:
     kind: row
@@ -117,11 +117,12 @@ geleen_estate_row_1:
     - x0: 2.73
       x1: 8.95
       garage: true
-      dormer: true
-      solar: true
+      chimney: true
     - x0: 8.95
       x1: 14.72
-      glazing: true
+      garage: true
+      dormer: true
+      solar: true
     boxes:
     - ring:
       - [8.86, 12.03]
@@ -192,7 +193,7 @@ geleen_estate_row_2:
   z: -2203.855
   yaw: 0.80599
   radius: 24.5
-  piece_count: 1400
+  piece_count: 1392
   storey_count: 2
   recipe:
     kind: row
@@ -210,7 +211,6 @@ geleen_estate_row_2:
       x1: 14.46
       garage: true
       dormer: true
-      solar: true
     boxes:
     - ring:
       - [17.27, 4.85]
@@ -348,7 +348,7 @@ geleen_estate_row_4:
   z: -2239.443
   yaw: 7.10646
   radius: 25.1
-  piece_count: 1264
+  piece_count: 1228
   storey_count: 2
   recipe:
     kind: row
@@ -360,12 +360,10 @@ geleen_estate_row_4:
     dwellings:
     - x0: 2.81
       x1: 8.69
-      dormer: true
+      glazing: true
       chimney: true
     - x0: 8.69
       x1: 14.48
-      garage: true
-      solar: true
     boxes:
     - ring:
       - [17.56, 11.77]
@@ -430,7 +428,7 @@ geleen_estate_row_5:
   z: -2252.005
   yaw: 0.81474
   radius: 25.1
-  piece_count: 1118
+  piece_count: 1146
   storey_count: 2
   recipe:
     kind: row
@@ -442,10 +440,11 @@ geleen_estate_row_5:
     dwellings:
     - x0: 2.94
       x1: 8.82
-      solar: true
+      dormer: true
     - x0: 8.82
       x1: 14.95
-      glazing: true
+      garage: true
+      dormer: true
       chimney: true
     boxes:
     - ring:
@@ -561,7 +560,7 @@ geleen_estate_row_7:
   z: -2213.911
   yaw: 2.3942
   radius: 25.1
-  piece_count: 1481
+  piece_count: 1473
   storey_count: 2
   recipe:
     kind: row
@@ -573,12 +572,16 @@ geleen_estate_row_7:
     dwellings:
     - x0: 2.49
       x1: 8.73
-      dormer: true
+      garage: true
+      glazing: true
+      solar: true
       chimney: true
     - x0: 8.73
       x1: 14.46
       garage: true
+      dormer: true
       solar: true
+      chimney: true
     boxes:
     - ring:
       - [14.27, 4.4]
@@ -725,7 +728,7 @@ geleen_estate_row_9:
   z: -2251.281
   yaw: -2.3323
   radius: 31.8
-  piece_count: 1724
+  piece_count: 1696
   storey_count: 2
   recipe:
     kind: row
@@ -738,17 +741,14 @@ geleen_estate_row_9:
     - x0: 0.0
       x1: 5.51
       glazing: true
-      chimney: true
+      solar: true
     - x0: 5.51
       x1: 11.01
-      chimney: true
     - x0: 11.01
       x1: 16.53
-      garage: true
+      chimney: true
     - x0: 16.53
       x1: 22.29
-      glazing: true
-      solar: true
     boxes:
     - ring:
       - [21.88, 0.05]
@@ -895,7 +895,7 @@ geleen_estate_row_12:
   z: -2200.938
   yaw: -0.76574
   radius: 28.6
-  piece_count: 1718
+  piece_count: 1686
   storey_count: 2
   recipe:
     kind: row
@@ -907,19 +907,20 @@ geleen_estate_row_12:
     dwellings:
     - x0: 0.0
       x1: 5.56
-      garage: true
+      glazing: true
       dormer: true
     - x0: 5.56
       x1: 11.55
-      solar: true
-    - x0: 11.55
-      x1: 17.52
-      glazing: true
-      chimney: true
-    - x0: 17.52
-      x1: 23.04
       dormer: true
       chimney: true
+    - x0: 11.55
+      x1: 17.52
+      garage: true
+      glazing: true
+      solar: true
+    - x0: 17.52
+      x1: 23.04
+      glazing: true
     boxes: []
     palette: dark_brick
     band: [-0.0, 8.69]
@@ -1015,7 +1016,7 @@ geleen_estate_row_14:
   z: -2188.605
   yaw: -0.7612
   radius: 22.7
-  piece_count: 1051
+  piece_count: 985
   storey_count: 2
   recipe:
     kind: row
@@ -1027,12 +1028,12 @@ geleen_estate_row_14:
     dwellings:
     - x0: -0.01
       x1: 5.69
-      dormer: true
+      garage: true
+      solar: true
       chimney: true
     - x0: 5.69
       x1: 11.49
       garage: true
-      dormer: true
       solar: true
     boxes:
     - ring:
@@ -1081,7 +1082,7 @@ geleen_estate_row_15:
   z: -2261.062
   yaw: 0.80601
   radius: 20.7
-  piece_count: 979
+  piece_count: 999
   storey_count: 2
   recipe:
     kind: row
@@ -1093,11 +1094,13 @@ geleen_estate_row_15:
     dwellings:
     - x0: 3.04
       x1: 8.69
-      garage: true
+      glazing: true
       solar: true
+      chimney: true
     - x0: 8.69
       x1: 14.31
-      glazing: true
+      dormer: true
+      solar: true
       chimney: true
     boxes:
     - ring:
@@ -1144,7 +1147,7 @@ geleen_estate_row_16:
   z: -2273.647
   yaw: 0.80993
   radius: 24.7
-  piece_count: 1333
+  piece_count: 1297
   storey_count: 2
   recipe:
     kind: row
@@ -1157,10 +1160,11 @@ geleen_estate_row_16:
     - x0: 3.07
       x1: 8.7
       glazing: true
+      solar: true
       chimney: true
     - x0: 8.7
       x1: 14.37
-      dormer: true
+      garage: true
       chimney: true
     boxes:
     - ring:
@@ -1231,7 +1235,7 @@ geleen_estate_row_17:
   z: -2283.668
   yaw: 0.80801
   radius: 24.7
-  piece_count: 1198
+  piece_count: 1146
   storey_count: 2
   recipe:
     kind: row
@@ -1243,12 +1247,9 @@ geleen_estate_row_17:
     dwellings:
     - x0: 3.05
       x1: 8.76
-      chimney: true
     - x0: 8.76
       x1: 14.68
       garage: true
-      dormer: true
-      chimney: true
     boxes:
     - ring:
       - [14.63, 4.84]
@@ -1430,7 +1431,7 @@ geleen_estate_row_20:
   z: -2210.53
   yaw: 2.37933
   radius: 17.7
-  piece_count: 845
+  piece_count: 825
   storey_count: 2
   recipe:
     kind: row
@@ -1443,7 +1444,6 @@ geleen_estate_row_20:
     - x0: 3.17
       x1: 12.53
       glazing: true
-      chimney: true
     boxes:
     - ring:
       - [3.17, 0.01]
@@ -1974,7 +1974,7 @@ geleen_church_row_0:
     dwellings:
     - x0: 0.0
       x1: 18.04
-      garage: true
+      glazing: true
       solar: true
     boxes:
     - ring:
@@ -2017,7 +2017,7 @@ geleen_church_apartments_1:
   z: -1443.609
   yaw: -1.8151
   radius: 60.7
-  piece_count: 3046
+  piece_count: 3026
   storey_count: 2
   recipe:
     kind: row
@@ -2029,12 +2029,10 @@ geleen_church_apartments_1:
     dwellings:
     - x0: 0.0
       x1: 28.8
-      glazing: true
       chimney: true
     - x0: 28.8
       x1: 50.54
       dormer: true
-      chimney: true
     boxes:
     - ring:
       - [40.62, 0.17]
@@ -2118,7 +2116,7 @@ geleen_church_row_2:
   z: -1491.264
   yaw: 4.44763
   radius: 21.7
-  piece_count: 927
+  piece_count: 940
   storey_count: 2
   recipe:
     kind: row
@@ -2131,6 +2129,7 @@ geleen_church_row_2:
     - x0: 6.09
       x1: 15.56
       glazing: true
+      dormer: true
       solar: true
     boxes:
     - ring:
@@ -2191,7 +2190,7 @@ geleen_church_apartments_3:
   z: -1410.822
   yaw: -0.90264
   radius: 64.7
-  piece_count: 3579
+  piece_count: 3531
   storey_count: 2
   recipe:
     kind: row
@@ -2203,19 +2202,14 @@ geleen_church_apartments_3:
     dwellings:
     - x0: 0.45
       x1: 8.07
-      dormer: true
       chimney: true
     - x0: 8.07
       x1: 21.61
-      solar: true
+      chimney: true
     - x0: 21.61
       x1: 24.21
-      glazing: true
-      chimney: true
     - x0: 24.21
       x1: 53.14
-      dormer: true
-      chimney: true
     boxes:
     - ring:
       - [20.44, 21.07]
@@ -2353,7 +2347,7 @@ geleen_church_apartments_4:
     dwellings:
     - x0: 6.51
       x1: 18.99
-      solar: true
+      glazing: true
     boxes:
     - ring:
       - [16.04, 11.27]
@@ -2503,7 +2497,7 @@ geleen_church_row_6:
   z: -1450.333
   yaw: 2.01108
   radius: 42.5
-  piece_count: 3665
+  piece_count: 3597
   storey_count: 2
   recipe:
     kind: row
@@ -2515,20 +2509,16 @@ geleen_church_row_6:
     dwellings:
     - x0: -0.76
       x1: 10.63
-      garage: true
-      dormer: true
-      solar: true
+      chimney: true
     - x0: 10.63
       x1: 15.93
-      glazing: true
+      chimney: true
     - x0: 15.93
       x1: 25.12
-      dormer: true
-      chimney: true
+      garage: true
+      solar: true
     - x0: 25.12
       x1: 38.72
-      garage: true
-      dormer: true
     boxes:
     - ring:
       - [15.36, 2.12]
@@ -2775,7 +2765,7 @@ geleen_church_row_9:
   z: -1482.152
   yaw: -1.46799
   radius: 35.7
-  piece_count: 2482
+  piece_count: 2513
   storey_count: 2
   recipe:
     kind: row
@@ -2787,7 +2777,9 @@ geleen_church_row_9:
     dwellings:
     - x0: 6.41
       x1: 28.06
-      solar: true
+      garage: true
+      dormer: true
+      chimney: true
     boxes:
     - ring:
       - [22.15, 10.3]
@@ -2858,7 +2850,7 @@ geleen_church_row_10:
   z: -1399.917
   yaw: -1.18473
   radius: 37.1
-  piece_count: 3636
+  piece_count: 3612
   storey_count: 2
   recipe:
     kind: row
@@ -2870,16 +2862,16 @@ geleen_church_row_10:
     dwellings:
     - x0: -0.03
       x1: 13.89
-      dormer: true
       chimney: true
     - x0: 13.89
       x1: 24.09
-      garage: true
-      dormer: true
+      solar: true
+      chimney: true
     - x0: 24.09
       x1: 32.65
+      garage: true
       glazing: true
-      solar: true
+      dormer: true
     boxes:
     - ring:
       - [0.1, 12.61]
@@ -3576,7 +3568,7 @@ geleen_church_row_17:
   z: -1412.656
   yaw: 2.2203
   radius: 16.0
-  piece_count: 448
+  piece_count: 440
   storey_count: 2
   recipe:
     kind: row
@@ -3588,6 +3580,7 @@ geleen_church_row_17:
     dwellings:
     - x0: -0.04
       x1: 6.28
+      garage: true
       chimney: true
     boxes:
     - ring:
