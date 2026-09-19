@@ -455,6 +455,35 @@ class Game::Building::RowTest < ActiveSupport::TestCase
     assert_in_delta pair.surfaces.last.thickness, rubble.thickness, 1e-9, "nor how deep its wreckage lies"
   end
 
+  # A garaged front has a DRIVE as well as a path. The hedge is broken in front of the
+  # garage door too -- three cells of door with a hedge grown across them is a car walled
+  # in -- and the lawn is what is left between the openings.
+  test "a garaged dwelling's hedge opens in front of its garage door, and the lawn keeps off" do
+    overrides = { "dwellings" => [ { "x0" => 0.0, "x1" => 6.0, "garage" => true }, { "x0" => 6.0, "x1" => 12.0 } ],
+                  "gardens" => [ { "bay" => 0, "depth" => 5.0 } ] }
+    set = pair(**overrides)
+    hedge = set.surfaces.find { |s| s.kind == :hedge }
+    void = hedge.patches.select { |p| p.material == :void }.map(&:col0).sort
+    doors = set.surfaces.first.patches.select { |p| p.material == :door }.sort_by { |p| p.col1 - p.col0 }
+    front_door, garage = doors
+
+    assert_equal 3, garage.col1 - garage.col0 + 1, "the wide one is the garage door"
+    assert_empty (garage.col0..garage.col1).to_a - void, "the hedge still stands across the garage door"
+    assert_includes void, front_door.col0, "and it still opens at the front door"
+
+    # The lawn is the columns the hedge kept, and nothing else: no rectangle lies over the
+    # drive or the path.
+    lawns = Game::Building::Gardens.lawns(Game::Building::Row.from(pair_recipe(**overrides)))
+    fronts = lawns[0...-1]
+    cell = 6.0 / hedge.cols
+    assert_in_delta (hedge.cols - void.length) * cell, fronts.sum { |r| r.map(&:first).max - r.map(&:first).min }, 1e-9,
+                    "the lawn covers every column the hedge kept and no other"
+    void.each do |col|
+      assert fronts.none? { |r| r.map(&:first).min < (col + 1) * cell - 1e-9 && r.map(&:first).max > col * cell + 1e-9 },
+             "a lawn was laid over column #{col}, which the hedge leaves open"
+    end
+  end
+
   # Two rectangles per front garden either side of the path, and one strip behind the row.
   test "lawns are the front garden minus the path, and a strip behind" do
     row = Game::Building::Row.from(pair_recipe("gardens" => [ { "bay" => 0, "depth" => 5.0 }, { "bay" => 1, "depth" => 5.0 } ]))
@@ -513,6 +542,22 @@ class Game::Building::RowTest < ActiveSupport::TestCase
     # gives this one both.
     widths = walls[1].patches.map { |p| p.col1 - p.col0 + 1 }
     assert_equal 2, widths.uniq.length, "a run of only one width is the old rhythm in disguise: #{widths}"
+  end
+
+  # A MIX, not a second fixed rhythm. `draw`'s low bit used to flip on every run, so a face
+  # went 2, 1, 2, 1 as reliably as the every-other-column rhythm the runs replaced -- and a
+  # strict alternation never puts two runs of the same width side by side. Over forty seeds
+  # of the pair's front upstairs face, a good few should.
+  test "the run widths are mixed rather than alternating" do
+    faces = (1..40).map do |seed|
+      wall = pair("seed" => seed).surfaces.select { |s| s.kind == :wall }[1]
+      wall.patches.select { |p| p.material == :glass }.sort_by(&:col0).map { |p| p.col1 - p.col0 + 1 }
+    end
+    same = faces.count { |widths| widths.each_cons(2).any? { |a, b| a == b } }
+
+    assert_operator same, :>=, faces.length / 4,
+                    "only #{same} of #{faces.length} faces put two runs of the same width side by side, " \
+                    "which is what a strict 2, 1, 2, 1 rhythm looks like"
   end
 
   # The estate builds its garage INTO the house, under the first floor, with the door in

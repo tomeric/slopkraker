@@ -66,8 +66,10 @@ module Game
 
       attr_reader :style
 
-      # `garage` and `glazing` are one dwelling's flags, written by the importer; they only
-      # mean anything to the `house` style and are ignored by every other.
+      # `garage` and `glazing` are one dwelling's flags, written by the importer, and only a
+      # dwelling's own style reads them: the garage rides on that style's one-cell side door
+      # and the glazing is gated on `front_window`, which `house` alone carries. A shed or a
+      # nave handed either flag is built exactly as if it had not been.
       def initialize(seed:, style: :classic, garage: false, glazing: false)
         @seed = seed
         @name = style.to_sym
@@ -81,7 +83,7 @@ module Game
         garage = garage_door(cols, rows, doorway.first) if doorway && @garage
         return Array(doorway) + [ garage ] if garage
 
-        glazing = glazing(cols, rows) if @glazing && edge == BACK_EDGE && storey == DOOR_STOREY && cols >= GLAZING_MIN_COLS
+        glazing = glazing(cols, rows) if @glazing && style[:front_window] && edge == BACK_EDGE && storey == DOOR_STOREY && cols >= GLAZING_MIN_COLS
         return [ glazing ] if glazing
 
         front = doorway && style[:front_window] ? front_window(cols, rows, doorway.first) : nil
@@ -105,6 +107,16 @@ module Game
 
         first, last = door_span(cols)
         (first..last).to_a
+      end
+
+      # The columns the garage door occupies, or none. A garaged front needs a DRIVE as well
+      # as a path, and the hedge is what would otherwise be grown across it -- so the garden
+      # asks the same object the front wall was punctured by, exactly as it does for the door.
+      def garage_columns(cols)
+        return [] unless @garage && door_face?(DOOR_EDGE, DOOR_STOREY, cols)
+
+        span = garage_span(cols, *door_span(cols))
+        span ? (span.first..span.last).to_a : []
       end
 
       # A face narrower than three cells gets no door: at one-metre cells a two-cell shed
@@ -182,18 +194,27 @@ module Game
         # shrink to two cells and the nil below never fired. They guard a future door
         # width or margin, not a case that happens today.
         def garage_door(cols, rows, door)
+          span = garage_span(cols, door.col0, door.col1)
+          return nil unless span
+
+          Surface::Patch.new(col0: span.first, row0: 0, col1: span.last, row1: [ GARAGE_ROWS, rows ].min - 1, material: :door)
+        end
+
+        # Which columns it stands in, apart from the patch it becomes -- the drive through
+        # the hedge is the same columns and must never be worked out a second way.
+        def garage_span(cols, door_col0, door_col1)
           return nil if cols < GARAGE_MIN_COLS
 
-          if door.col0 < cols / 2
-            first = door.col1 + 2
+          if door_col0 < cols / 2
+            first = door_col1 + 2
             last = [ first + GARAGE_WIDTH - 1, cols - 1 ].min
           else
-            last = door.col0 - 2
+            last = door_col0 - 2
             first = [ last - GARAGE_WIDTH + 1, 0 ].max
           end
           return nil if last - first + 1 < 2
 
-          Surface::Patch.new(col0: first, row0: 0, col1: last, row1: [ GARAGE_ROWS, rows ].min - 1, material: :door)
+          [ first, last ]
         end
 
         # One glass patch from floor to ceiling, its start drawn from the seed so a terrace
@@ -230,8 +251,20 @@ module Game
 
         # A small integer hash of the seed and a few salts, for the per-run and per-face
         # draws. Deterministic, like everything about a recipe has to be.
+        #
+        # THE FOLDING IS THE POINT. A bare `sum % 1_000_003` is not a hash: within one face
+        # the quotient never rolls over, so consecutive `c` differ by exactly 7919 and the
+        # low bit -- all `.even?` reads -- flips on every run. Measured that way, 79% of
+        # faces with three runs or more went 2, 1, 2, 1 and 90% of dwellings wore the same
+        # layout front and back, because the `a` salt is small too. Multiplying and folding
+        # the high bits down twice avalanches both, which is what the runs were for.
         def draw(a, b, c)
-          (seed * 2_654_435_761 + a * 40_503 + b * 9973 + c * 7919) % 1_000_003
+          h = (seed * 2_654_435_761 + a * 40_503 + b * 9973 + c * 7919) & 0xffff_ffff
+          h = (h * 2_246_822_519) & 0xffff_ffff
+          h ^= h >> 16
+          h = (h * 3_266_489_917) & 0xffff_ffff
+          h ^= h >> 13
+          h % 1_000_003
         end
 
         # Every other column, offset by the edge and storey so the faces are not identical

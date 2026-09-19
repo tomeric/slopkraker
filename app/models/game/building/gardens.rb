@@ -48,20 +48,32 @@ module Game
       end
 
       # The path is the door's columns widened to PATH, extending away from the end the
-      # door stands near. Asked of the very Openings object the front wall was punctured by,
-      # which is how the path is guaranteed to meet the door.
+      # door stands near, PLUS the garage door's columns where the dwelling has one: a
+      # garaged front has a drive, and a hedge grown across a garage door is a car walled
+      # in. Asked of the very Openings object the front wall was punctured by, which is how
+      # both are guaranteed to meet what they are openings for.
       def self.path_columns(row, bay, cols)
-        openings = Openings.new(seed: row.seed + bay, style: :house)
+        d = row.dwellings.fetch(bay)
+        openings = Openings.new(seed: row.seed + bay, style: :house, garage: d.garage)
         door = openings.door_columns(cols)
         return [] if door.empty?
 
-        cell = row.dwellings.fetch(bay).width / cols
+        cell = d.width / cols
         wanted = [ (PATH / cell).ceil, 1 ].max
         extra = wanted - door.length
-        return door if extra <= 0
+        path =
+          if extra <= 0
+            door
+          else
+            door.first < cols / 2 ? door + (door.last + 1..door.last + extra).to_a : (door.first - extra...door.first).to_a + door
+          end
+        (path + openings.garage_columns(cols)).select { |c| c.between?(0, cols - 1) }.uniq.sort
+      end
 
-        columns = door.first < cols / 2 ? door + (door.last + 1..door.last + extra).to_a : (door.first - extra...door.first).to_a + door
-        columns.select { |c| c.between?(0, cols - 1) }
+      # Contiguous columns as `[first, last]` pairs. A garaged front's voids are two runs --
+      # the path and the drive, one pier apart -- and the lawn is what lies between them.
+      def self.runs(columns)
+        columns.chunk_while { |a, b| b == a + 1 }.map { |g| [ g.first, g.last ] }
       end
 
       # Rings in the row's own frame, closed, four points each: for each garden the lawn
@@ -74,16 +86,14 @@ module Game
           d = row.dwellings.fetch(garden.bay)
           cols = Walls.cells(d.width, row.cell)
           cell = d.width / cols
-          path = path_columns(row, garden.bay, cols)
           z0 = row.z0 - garden.depth
           z1 = row.z0
-          if path.empty?
-            [ rect(d.x0, z0, d.x1, z1) ]
-          else
-            px0 = d.x0 + path.min * cell
-            px1 = d.x0 + (path.max + 1) * cell
-            [ rect(d.x0, z0, px0, z1), rect(px1, z0, d.x1, z1) ].reject { |ring| ring.nil? }
-          end
+          # The lawn is what the hedge's voids leave: the strips between the ends of the
+          # dwelling, the path and -- on a garaged front -- the drive. The edges alternate
+          # lawn-start, lawn-end all the way across, so a garden with no voids is one rect
+          # and a garaged one is three.
+          edges = [ 0, *runs(path_columns(row, garden.bay, cols)).flat_map { |a, b| [ a, b + 1 ] }, cols ]
+          edges.each_slice(2).map { |a, b| rect(d.x0 + a * cell, z0, d.x0 + b * cell, z1) }.compact
         end
         back_z = row.footprint.map(&:last).max
         fronts + [ rect(row.x0, back_z, row.x1, back_z + BACK) ]
