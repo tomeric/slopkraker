@@ -9,9 +9,16 @@ import { materialAt } from "game/world/surface"
 // teeth. So the client fills the tooth above every column's topmost standing cell with two
 // extra instances in the gable's own material and tint: a BOX up to the lower of the roof
 // line's two heights across the column, and a WEDGE -- a unit right triangular prism, one
-// new shape pool per material -- from there to the higher, turned toward the apex. The apex
-// column of a gable with an odd number of columns is kept whole by Roof.clip -- its centre
-// sits exactly on the ridge, so the line clips nothing in that column -- and needs no cap.
+// new shape pool per material -- from there to the higher, turned toward the apex.
+//
+// THE APEX COLUMN IS A TENT AND NOT A SLOPE. Roof.clip keeps only what is wholly under the
+// roof across the WHOLE of a column, so the column the ridge falls inside -- an odd column
+// count, always -- is clipped to the lower of its two ends like any other: on a 9-column
+// gable both its ends are at 8/9 of the height while its middle is the ridge itself. One
+// wedge would fill it to 8/9 and stop, and the gable would lose its peak to a flat notch.
+// So that column gets TWO wedges of half its width, one rising to the apex and one falling
+// from it. While the clip judged a column by its MIDDLE this never came up: the apex column
+// was kept whole, needed no cap at all, and stood a ninth of the height proud of its roof.
 //
 // Caps are drawing. They are placed at boot, counted into the pools like a heap's chunks,
 // hidden when the cell under them breaks and shown when it is restored. They have no
@@ -60,16 +67,30 @@ export function gableCaps(surface) {
     const wedges = []
     let box = null
 
-    // The same two-height path for every column, apex included. A gable with an odd number
-    // of columns does have one whose centre fraction is exactly 0.5 -- the ridge -- but that
-    // is exactly the column where the stair reaches the ridge with nothing clipped: yK is
-    // already the full height, so `low > yK` and `high > base` both fail and this produces
-    // an empty box and no wedges, which is the right answer rather than a case to special-case.
+    // Whether the ridge falls strictly INSIDE this column rather than on one of its seams.
+    // `1 - |2t - 1|` peaks at t = 0.5, so a column that straddles it carries a tent: two
+    // slopes, not one. It can only happen with an odd column count, and then the column is
+    // centred on the ridge -- yL === yR, and the peak is over the column's own middle.
+    const tent = tL < 0.5 && tR > 0.5
+
     const low = Math.min(yL, yR)
     const high = Math.max(yL, yR)
+    // One box under the whole column either way: the box fills to the LOWER end, and under
+    // a tent both ends are the same height, so there is one level to fill to.
     if (low > yK) box = { x0, width: cellW, y0: yK, height: low - yK }
     const base = Math.max(yK, low)
-    if (high > base) wedges.push({ x0, width: cellW, y0: base, height: high - base, high: yR > yL ? 1 : -1 })
+    if (tent) {
+      // Two half-width wedges meeting over the middle at the full height: the left one
+      // rising to the peak, the right one falling from it. `high` on a tent equals `low`,
+      // so the single-wedge path below would draw nothing here and flatten the ridge.
+      if (surface.h > base) {
+        const half = cellW / 2
+        wedges.push({ x0, width: half, y0: base, height: surface.h - base, high: 1 })
+        wedges.push({ x0: x0 + half, width: half, y0: base, height: surface.h - base, high: -1 })
+      }
+    } else if (high > base) {
+      wedges.push({ x0, width: cellW, y0: base, height: high - base, high: yR > yL ? 1 : -1 })
+    }
 
     let anchorCol = col
     if (tops[col] < 0) {

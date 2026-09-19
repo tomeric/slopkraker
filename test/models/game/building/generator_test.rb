@@ -188,14 +188,20 @@ class Game::Building::GeneratorTest < ActiveSupport::TestCase
   # 1553-piece count pinned above are untouched, because a patch never changes a grid. The
   # material census is the cost, and it is re-measured rather than reasoned about -- here
   # and in `building_test`, which reads the same house out of the browser. It went glass 72
-  # -> 68 -> 64 and brick 445 -> 449 -> 453 over the two halves of this rule.
+  # -> 68 -> 64 and brick 445 -> 449 -> 453 over the two halves of this rule, and then
+  # brick 453 -> 445 with void 80 -> 88 when Roof.clip started judging a gable cell against
+  # the LOWEST roof line over its column: eight cells of these two gables were kept on the
+  # strength of their middles while standing proud of the tiles at one edge. They are void
+  # now and the client's caps draw what they used to draw badly. The total is still 1553,
+  # which is the point -- a cell that becomes void keeps its index.
   test "no pane of the worked example stands in a column another wall lands in" do
     set = house
     census = Hash.new(0)
     set.piece_count.times { |i| census[set.material_at(i).name] += 1 }
 
     assert_equal 64, census[:glass]
-    assert_equal 453, census[:brick]
+    assert_equal 445, census[:brick]
+    assert_equal 88, census[:void]
     assert_equal 1553, census.values.sum
 
     reach = Game::Building::Interior.partition_reach(recipe)

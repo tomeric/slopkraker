@@ -19,13 +19,17 @@ class BuildingTest < ApplicationSystemTestCase
 
   # Void cells -- the doorway, the clipped corners of the gables, and the squares of the
   # rubble grid that fall outside the footprint -- hold an index but are never standing. So
-  # do the heaps themselves until the house falls on them: 1553 indices, of which 1398 are
-  # the building, 75 are dormant wreckage and 80 are nothing at all. Every square of ground
+  # do the heaps themselves until the house falls on them: 1553 indices, of which 1390 are
+  # the building, 75 are dormant wreckage and 88 are nothing at all. Every square of ground
   # the house actually stood on holds debris, which is what stops the mound having holes;
   # the void is the doorway, the gables' clipped corners, and the thinned-out edge of the
   # rubble grid's ragged skirt.
+  #
+  # Standing went 1398 -> 1390 and void 80 -> 88 when Roof.clip started judging a gable
+  # cell against the lowest roof line over its whole column: eight cells of these two
+  # gables were standing proud of their own tiles at one edge, and are void now.
   test "void cells hold an index but nothing else" do
-    assert_equal 1398, telemetry["piecesStanding"]
+    assert_equal 1390, telemetry["piecesStanding"]
     assert_equal 0, telemetry["piecesBroken"]
   end
 
@@ -40,6 +44,11 @@ class BuildingTest < ApplicationSystemTestCase
   #
   # The total is unchanged at 1553 and every other material is unchanged, which is the
   # other half of the claim: a patch decides what a cell is MADE of and never renumbers one.
+  #
+  # Brick then went 453 -> 445 and void 80 -> 88 for the same reason in the gables: a cell
+  # kept because its MIDDLE was under the roof stood proud of it at one edge, and eight of
+  # this house's did. Re-measured here too, off the browser rather than off the generator,
+  # which is what makes the pair of censuses worth having.
   test "the materials Ruby generated are the materials the browser built" do
     materials = page.evaluate_script(<<~JS)
       (() => {
@@ -53,8 +62,8 @@ class BuildingTest < ApplicationSystemTestCase
     JS
 
     assert_equal({
-      "brick" => 453, "timber" => 366, "roof_tile" => 224, "concrete" => 180,
-      "plaster" => 108, "glass" => 64, "void" => 80, "steel" => 3, "rubble" => 75
+      "brick" => 445, "timber" => 366, "roof_tile" => 224, "concrete" => 180,
+      "plaster" => 108, "glass" => 64, "void" => 88, "steel" => 3, "rubble" => 75
     }, materials)
     assert_equal 1553, materials.values.sum
   end

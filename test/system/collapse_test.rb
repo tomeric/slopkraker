@@ -235,7 +235,7 @@ class CollapseTest < ApplicationSystemTestCase
   # whole house fits inside the budget with room to spare.
   #
   # And it falls as SLABS. A one metre cube tumbling is confetti; a storey-high wall
-  # section toppling is a building coming apart. Rectangles cover this house's 1398 cells
+  # section toppling is a building coming apart. Rectangles cover this house's 1390 cells
   # in roughly 356 units, so a factor of three is a floor to clear by a wide margin rather
   # than a target to hit -- cell-by-cell would sit at one, and the polyomino blocks that
   # already exist only reach 1.32.

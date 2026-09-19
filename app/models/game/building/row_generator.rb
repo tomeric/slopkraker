@@ -529,8 +529,9 @@ module Game
       end
 
       # Four triangular planes from the eaves of the ring's box to one apex. Each is a
-      # rectangle clipped to its triangle with void, exactly as a gable end is: Roof.clip
-      # already draws that triangle.
+      # rectangle clipped to its triangle with void, as a gable end is -- but by
+      # `Roof.clip_plane` rather than `Roof.clip`, because a plane here IS the roof and
+      # nothing caps the step a strict clip leaves. See clip_plane for the whole of it.
       def self.pyramid(box, cell)
         x0, z0, x1, z1 = box.bounds
         cx = (x0 + x1) / 2.0
@@ -542,18 +543,20 @@ module Game
           along = Vector3.new(to[0] - from[0], 0.0, to[1] - from[1])
           mid = [ (from[0] + to[0]) / 2.0, (from[1] + to[1]) / 2.0 ]
           inward = Vector3.new(cx - mid[0], rise, cz - mid[1])
-          # ODD, ALWAYS. Roof.clip judges a cell by its top edge, so the only cell of the
-          # top row it keeps is one whose middle is exactly the apex -- and an even column
-          # count puts the apex on a seam between two columns instead, which clips the whole
-          # top row of all four planes away and leaves a square hole where the point should
-          # be. A gable never showed it: its own last step is hidden under the overhang.
+          # ODD, ALWAYS. Roof.clip_plane judges a cell by its top edge against the line at
+          # the column's middle, so the only cell of the top row it keeps is one whose
+          # middle is exactly the apex -- and an even column count puts the apex on a seam
+          # between two columns instead, which clips the whole top row of all four planes
+          # away and leaves a square hole where the point should be. A gable never showed
+          # it: its own last step is hidden under the overhang, and since the caps arrived
+          # it is drawn rather than left open.
           cols = Walls.cells(along.length, cell)
           cols += 1 if cols.even?
           rows = [ Walls.cells(inward.length, cell), 1 ].max
           Surface.new(kind: :roof, storey: box.storeys, material: Materials.fetch(:roof_tile),
                       origin: Vector3.new(from[0], box.eaves, from[1]), u: along.normalised, v: inward.normalised,
                       width: along.length, height: inward.length, cols: cols, rows: rows, thickness: Roof::THICKNESS,
-                      patches: Roof.clip(cols, rows), bay: box.bay)
+                      patches: Roof.clip_plane(cols, rows), bay: box.bay)
         end
       end
 
