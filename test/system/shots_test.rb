@@ -163,7 +163,7 @@ class ShotsTest < ApplicationSystemTestCase
 
     # From above the kerb, where a roof is actually visible: the panels, the chimneys and
     # the gutter line all live up there and none of them shows from the driver's seat.
-    park_in_front_of(row, back: 14, y: 9.0)
+    park_in_front_of(row, back: 14, y: 9.0, hold: true)
     shot "27-geleen-roofs"
 
     # The back of a glazed dwelling, from its back garden. Finds the WALL, not just the
@@ -224,7 +224,7 @@ class ShotsTest < ApplicationSystemTestCase
     # "stand in front of it" is a point in THAT frame carried out to the world, and the
     # car has to be turned back down the local +z axis or it photographs the far side of
     # the road.
-    def park_in_front_of(id, back:, y: 2.0)
+    def park_in_front_of(id, back:, y: 2.0, hold: false)
       spec = page.evaluate_script("window.__arenaBuildingSpec(arguments[0])", id)
       ring = WorldObject.find(id).recipe.fetch("footprint")
       lx = (ring.map(&:first).min + ring.map(&:first).max) / 2.0
@@ -234,7 +234,7 @@ class ShotsTest < ApplicationSystemTestCase
 
       park(ox + lx * Math.cos(yaw) - lz * Math.sin(yaw),
            oz + lx * Math.sin(yaw) + lz * Math.cos(yaw),
-           yaw: Math.atan2(-Math.sin(yaw), Math.cos(yaw)), y: y)
+           yaw: Math.atan2(-Math.sin(yaw), Math.cos(yaw)), y: y, hold: hold)
     end
 
     # Beside a row, off one end, looking along it at its gable end.
@@ -300,10 +300,24 @@ class ShotsTest < ApplicationSystemTestCase
     # `y` is a height above the GROUND, not above zero: on a world with terrain, parking
     # at a fixed 2.0 puts the car underneath the hill it was meant to be photographing
     # from. Flat worlds answer null and keep the height they always had.
-    def park(x, z, yaw: 0, y: 2.0)
+    # `hold` is for a pose ABOVE the ground, which is not a pose a car keeps. __arenaPlace is
+    # a one-shot, so a car put nine metres up is in free fall by the time the shutter opens:
+    # 1.2 s is about seven metres of it, and the frame then depends on whether the fall had
+    # ended, bounced or rolled. Re-placing it ten times a second instead zeroes its velocity
+    # each time (Vehicle#placeAt) and gives the chase camera a stationary car to settle
+    # behind, so the same run takes the same picture.
+    def park(x, z, yaw: 0, y: 2.0, hold: false)
       ground = page.evaluate_script("window.__arenaTerrainHeight(arguments[0], arguments[1])", x, z) || 0.0
-      page.execute_script("window.__arenaPlace = { x: #{x}, y: #{ground + y}, z: #{z}, yaw: #{yaw} }")
-      sleep 1.2
+      pose = "window.__arenaPlace = { x: #{x}, y: #{ground + y}, z: #{z}, yaw: #{yaw} }"
+      unless hold
+        page.execute_script(pose)
+        return sleep 1.2
+      end
+
+      16.times do
+        page.execute_script(pose)
+        sleep 0.1
+      end
     end
 
     # Twice, because one good hit opens a hole and the second one widens it into

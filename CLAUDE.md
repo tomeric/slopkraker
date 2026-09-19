@@ -38,12 +38,12 @@ Currently:
   buildings — an estate of terraces 50 m around RD (186330, 332234), and the church with
   its hall and apartments 60 m around RD (187006, 331447), a kilometre apart with nothing
   in between — on nine 500 m heightfield tiles resampled from the DEM, with 266 roads
-  drawn on the ground as ribbons. Those forty-eight rows are **44,855 pieces in 712 KB of
-  building spec and 38 KB of roads** — measured fresh off `to_spec`, not scaled from the
-  pre-chimney count — against `street`'s twelve houses at 7205 pieces and 94 KB: six times
-  the world for eight times the bytes — a row's spec carries more surfaces per piece than
-  a hand-made house does, because a terrace is walls cut at every party line, a dormer is
-  four surfaces of a few cells each, and a chimney is four more.
+  drawn on the ground as ribbons. Those forty-eight rows are **44,497 pieces in 705 KB of
+  building spec and 38 KB of roads** — measured fresh off `to_spec`, never scaled from an
+  older count — against `street`'s twelve houses at 7205 pieces and 94 KB: six times the
+  world for seven and a half times the bytes — a row's spec carries more surfaces per
+  piece than a hand-made house does, because a terrace is walls cut at every party line, a
+  dormer is four surfaces of a few cells each, and a chimney is four more.
   The spec still carries SURFACES rather than pieces, which is the only reason forty-eight
   buildings fit in a `<script>` tag at all, and still the reason the next window wants
   streaming rather than a third island. The importer also gives each row a palette, a
@@ -52,8 +52,14 @@ Currently:
   and thirty-one gardens, twenty-nine of them on the estate's thirty-one dwellings and two
   more on the church island. The same importer flags dwellings for the details below from
   the seed, where the geometry allows and only where people live — a shed sliced into
-  dwellings is still a shed from the kerb: fourteen integrated garages, thirteen glazed
-  backs, twenty-one dakkapellen, sixteen panelled roofs and twenty-four chimneys.
+  dwellings is still a shed from the kerb — and each flag is drawn independently of the
+  others: of forty-nine dwellings, fifteen integrated garages, thirteen glazed backs,
+  fifteen dakkapellen, fourteen flagged for panels and twenty-four for chimneys. Seven
+  dwellings carry panels AND a chimney and four a dakkapel AND panels, which no seed could
+  produce until the flag hash MIXED its salt instead of adding a multiple of it: every
+  salt shifted one base value by the same 63, so each pair of flags read the same number
+  through two windows and some pairs were disjoint by construction. Three of the fourteen
+  panelled dwellings get no array after all, their dakkapel having taken the plane.
   `?spawn=1` starts beside the church instead of on the estate. Every
   building is a `row` rather than a house, and a terrace comes down one dwelling at a
   time. **A church or a hall is a row of ZERO dwellings and one bay per part**, decided by
@@ -442,20 +448,43 @@ how the pool's ONE material is dressed and how each instance is coloured.
   order**, so an unflagged row keeps its numbering. Windows elsewhere come in runs of one
   or two cells **in the `house` and `annex` styles**; `classic` and the church's rhythms are
   untouched. A dwelling with a dakkapel puts `steel` (its top) and more `plaster` and
-  `glass` into its rubble mix, so `steel#rubble` is a pool geleen now allocates.
+  `glass` into its rubble mix, so `steel#rubble` is a pool geleen now allocates — and a
+  panelled roof puts `solar` in, so `solar#rubble` is another: nine of geleen's
+  forty-eight rows carry it.
 - **Three mechanisms for three kinds of fitting, chosen by what breaking one should do.**
   A solar array is a PATCH of `solar` cells on the sun-facing roof plane — it breaks with
-  the roof cell it replaces and moves no index at all. A chimney is PIECES: four brick
-  walls from the eaves to the ridge plus its rise, at the dwelling's party line, **step 5c
-  of the order**. A gutter and a downpipe are DRAWING, instanced boxes in `steel`'s pool
+  the roof cell it replaces and moves no index at all. A chimney is PIECES: four
+  single-leaf brick walls at the dwelling's party line, **step 5c of the order**, standing
+  from the roof's own height under the stack's near edge (`ridge − half × rise / run`) to
+  the ridge plus its rise. Both halves of that are WEIGHT, and weight on a roof is what
+  condemns the storeys below it: run from the eaves at a cavity wall's thickness, as it
+  first was, the stack weighed 7,192.8 kg on the worked example — 2.5 m of buried brick
+  that does not exist — and under identical damage a flagged dwelling lost all 18 of its
+  ground-floor partition cells to the pancake where its unflagged neighbour lost none. It
+  weighs 1,409.4 kg now. The same trap `DORMER_TOP_THICKNESS` is calibrated against, and
+  the measured figures are at the constants in both places.
+  **Panels and a dakkapel share a plane half the time.** A dormer is always on the front,
+  and the sun is on the front whenever `cos(yaw)` is not positive, so the array starts
+  above the dormer's up-slope reach — and is dropped, not shrunk, when fewer than three
+  clear rows are left above it. Drawn without that rule, estate-row-1 bay 0 had 72 % of
+  its array under its dakkapel. The LAST dwelling's stack goes to its x0 end rather than
+  being pulled inward from x1, which is where an end terrace's flue runs and also the only
+  position that keeps it out of the array's columns. A gutter and a downpipe are DRAWING, instanced boxes in `steel`'s pool
   keyed to the cell they hang on and hidden with it, through the same attachment store the
   gable caps use (`Building#buildFittings`) — 120 mm of folded zinc is not worth an index.
   Which slope faces the sun comes from the row's yaw and never from the plane's own normal:
   game +z is south, and `roof_section` builds both planes with `u = EAST`, so the front
-  plane's `u × v` points into the roof. Neither a dakkapel nor a chimney gets rainwater
-  goods: `Surface#fittings` is false only on the dormer's four surfaces and the chimney's
-  four walls, because no rule keyed on kind or material can tell a chimney's plain brick
-  from any other wall — only the generator that built the surface knows which one it is.
+  plane's `u × v` points into the roof.
+  **Three things get no rainwater goods, and two of them are Ruby's call.** `Surface#fittings`
+  is false on a dakkapel's four surfaces, a chimney's four walls and a PARTY WALL — a party
+  wall stands between two dwellings and has no outside, so its downpipe ran the full height
+  of the terrace indoors (52 of geleen's 911). The generator decides all three because no
+  rule keyed on kind or material can tell a chimney's plain brick from any other wall. The
+  third is the client's, because it is geometry: a gutter goes only on a PITCHED plane, and
+  a roof surface's `v` runs up the slope, so `|v.y|` above a small epsilon is the test. A
+  deck has no eaves, and a 12 cm bar along whichever edge the grid called row 0 is a kerb
+  round part of a bounding box — 507 of geleen's 1,529 gutter boxes were exactly that.
+  Downpipes are untouched by it: a flat-roofed annexe still drains down its own wall.
   Which way is "out" for a WALL is Ruby's call too, never the client's: a hand-laid ring
   always winds so `u × v` points in, but an imported one makes no such promise — 58 of
   geleen's 93 box rings wind the other way — so `Game::Building::Walls.outward` reads each
@@ -464,7 +493,7 @@ how the pool's ONE material is dressed and how each instance is coloured.
   means 0.
 - **Gable ends meet the roof by drawing, not by pieces.** The stair is the index space;
   the client fills each column's tooth with a box in the material's pool and a wedge in a
-  `<material>#wedge` shape pool, keyed to the cell they stand on (`Building#buildCaps`),
+  `<material>#wedge` shape pool, keyed to the cell they stand on (`Building#buildGableCaps`),
   hidden and restored with it. One pool per gable material, no collider.
 - **A hedge is pieces, a lawn is a picture.** A `row` with `gardens` appends one
   `kind: :hedge` surface per garden (storey −1, one row of cells, the path void) after
