@@ -27,7 +27,11 @@ class Game::MatchNameTest < ActiveSupport::TestCase
   # review on 2026-09-19 -- 499 unique out of 500 -- and a suite that cries wolf once a
   # fortnight is worse than one that does not check this at all.
   test "there are enough names that a collision is an accident rather than a matter of time" do
-    space = Game::MatchName::ADJECTIVES.length * Game::MatchName::NOUNS.length * 16**4
+    # The tag's width is READ off a generated name rather than written down as 16**4. The
+    # whole claim here is that the space is big enough, so a literal that went on asserting
+    # the old size after the tag shrank would pass while being exactly wrong.
+    tag = Game::MatchName.generate.split("-").last
+    space = Game::MatchName::ADJECTIVES.length * Game::MatchName::NOUNS.length * 16**tag.length
 
     assert_operator space, :>, 20_000_000, "the tag is what keeps two words apart"
   end
