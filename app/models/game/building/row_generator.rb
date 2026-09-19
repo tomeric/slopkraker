@@ -96,19 +96,56 @@ module Game
         slope = Math.hypot(run, row.rise)
         start = d.x0 - (first ? OVERHANG : 0.0)
         span = d.width + (first ? OVERHANG : 0.0) + (last ? OVERHANG : 0.0)
+        sun = sun_facing_side(row.yaw)
         planes = [ 1, -1 ].map do |side|
           origin = Vector3.new(start, row.eaves, side.positive? ? row.z0 : row.z1)
           up_slope = Vector3.new(0.0, row.rise, side * run)
+          cols = Walls.cells(span, row.cell)
+          rows = Walls.cells(slope, row.cell)
+          # Panels on the sun-facing slope of a flagged dwelling, and on nothing else.
+          panels = d.solar && side == sun ? Array(solar_patch(cols, rows)) : []
           Surface.new(
             kind: :roof, storey: row.storeys, material: Materials.fetch(:roof_tile),
             origin: origin, u: EAST, v: up_slope.normalised, width: span, height: slope,
-            cols: Walls.cells(span, row.cell), rows: Walls.cells(slope, row.cell), thickness: Roof::THICKNESS, bay: i
+            cols: cols, rows: rows, thickness: Roof::THICKNESS, patches: panels, bay: i
           )
         end
         ends = []
         ends << gable_end(row, d.x0, i) if first
         ends << gable_end(row, d.x1, i) if last
         planes + ends
+      end
+
+      # Which of the two roof planes faces the sun, as the `side` roof_section builds them
+      # with. Game +z is SOUTH -- Terrain::Frame#to_game negates RD north -- and in the
+      # row's own frame the back plane (side -1) faces +z while the front (side +1) faces
+      # -z; a rotation by yaw sends local +z to a world z of cos(yaw). So the back plane
+      # is the sun-facing one exactly when cos(yaw) is positive.
+      #
+      # Derived from the yaw and never from `surface.normal`: both planes are built with
+      # u = EAST, so the front plane's u x v points INTO the roof and the two normals do
+      # not mean the same thing.
+      def self.sun_facing_side(yaw)
+        Math.cos(yaw).positive? ? -1 : 1
+      end
+
+      # The panels, as a patch of `solar` cells centred on the plane and inset from its
+      # edges. A patch, so a roof of panels is the same surfaces and the same indices as a
+      # roof of tiles -- and a broken panel is a broken roof cell, which is what it is.
+      def self.solar_patch(cols, rows)
+        across = cols - 2 * SOLAR_INSET
+        up = rows - 2 * SOLAR_INSET
+        # Below three clear cells in either direction the array would be a sliver -- one
+        # or two panels rather than a rectangle -- so a plane that narrow gets none, not a
+        # shrunk one. (Design doc §2: "none at all if the plane has fewer than three
+        # columns or three rows after the inset.")
+        return nil if across < 3 || up < 3
+
+        width = [ SOLAR_COLS, across ].min
+        height = [ SOLAR_ROWS, up ].min
+        col0 = SOLAR_INSET + (across - width) / 2
+        row0 = SOLAR_INSET + (up - height) / 2
+        Surface::Patch.new(col0: col0, row0: row0, col1: col0 + width - 1, row1: row0 + height - 1, material: :solar)
       end
 
       def self.gable_end(row, x, bay)
@@ -138,6 +175,12 @@ module Game
       # house -- it would condemn a flagged dwelling earlier than its neighbour and fall as
       # one eight-tonne body.
       DORMER_TOP_THICKNESS = 0.05
+
+      # A solar array: at most this many cells across and up, inset this far from every edge
+      # of the plane so the array never runs into the ridge, the eaves or the verge.
+      SOLAR_COLS = 4
+      SOLAR_ROWS = 2
+      SOLAR_INSET = 1
 
       # 5b. Four surfaces, or none: the front (glass, a plaster return at each end column),
       # two cheeks (plaster, rectangles whose lower rear corner lies inside the roof and is

@@ -14,7 +14,7 @@ module Game
       # garage door in its front, glass from floor to ceiling at its back, a dakkapel on
       # its roof. Decided from the seed by the importer and written here, never guessed by
       # the generator, so two players and the server see the same house.
-      Dwelling = Struct.new(:x0, :x1, :garage, :glazing, :dormer, keyword_init: true) do
+      Dwelling = Struct.new(:x0, :x1, :garage, :glazing, :dormer, :solar, :chimney, keyword_init: true) do
         def width = x1 - x0
       end
 
@@ -49,7 +49,8 @@ module Game
           dwellings: Array(a["dwellings"]).map do |d|
             d = d.transform_keys(&:to_s)
             Dwelling.new(x0: d.fetch("x0").to_f, x1: d.fetch("x1").to_f,
-                         garage: d.fetch("garage", false), glazing: d.fetch("glazing", false), dormer: d.fetch("dormer", false))
+                         garage: d.fetch("garage", false), glazing: d.fetch("glazing", false), dormer: d.fetch("dormer", false),
+                         solar: d.fetch("solar", false), chimney: d.fetch("chimney", false))
           end,
           boxes: Array(a["boxes"]).map.with_index { |b, i| box_from(b, i) },
           footprint: Array(a.fetch("footprint")).map { |x, z| [ x.to_f, z.to_f ] },
@@ -106,8 +107,8 @@ module Game
           raise Invalid, "a gable needs a ridge above its eaves" if roof == "gable" && ridge <= eaves
           dwellings.each do |d|
             raise Invalid, "a dwelling must have width" unless d.x1 > d.x0
-            [ d.garage, d.glazing, d.dormer ].each do |flag|
-              raise Invalid, "a dwelling's garage, glazing and dormer are true or false" unless [ true, false ].include?(flag)
+            [ d.garage, d.glazing, d.dormer, d.solar, d.chimney ].each do |flag|
+              raise Invalid, "a dwelling's garage, glazing, dormer, solar and chimney are true or false" unless [ true, false ].include?(flag)
             end
           end
           # Attached means attached, in both directions. Half a metre of slack absorbs the

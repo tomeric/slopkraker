@@ -718,4 +718,55 @@ class Game::Building::RowTest < ActiveSupport::TestCase
     assert_equal [ 0 ], flat.for_bay(0)[:own].select { |s| s.material.name == :steel }.map(&:bay)
     assert_empty flat.for_bay(1)[:own].select { |s| s.material.name == :steel }
   end
+
+  # Game +z is SOUTH: Frame#to_game negates RD north. In the row's own frame the back plane
+  # (side -1, standing at z1) faces +z and the front plane (side +1, at z0) faces -z, and a
+  # rotation by yaw sends local +z to a world z of cos(yaw). So the back plane is the
+  # sun-facing one exactly when cos(yaw) is positive.
+  test "the sun-facing plane is the one the yaw points south" do
+    assert_equal(-1, Game::Building::RowGenerator.sun_facing_side(0.0), "a row facing north puts them on its back")
+    assert_equal(-1, Game::Building::RowGenerator.sun_facing_side(1.0))
+    assert_equal 1, Game::Building::RowGenerator.sun_facing_side(Math::PI), "a row facing south puts them on its front"
+    assert_equal 1, Game::Building::RowGenerator.sun_facing_side(2.5)
+  end
+
+  # A patch, not a surface: the panels replace roof cells and move no index at all.
+  test "a flagged dwelling gets one rectangle of panels on its sun-facing plane" do
+    set = pair("dwellings" => [ { "x0" => 0.0, "x1" => 6.0, "solar" => true }, { "x0" => 6.0, "x1" => 12.0 } ])
+
+    assert_equal 29, set.surfaces.length, "a patch adds no surface"
+    assert_equal 840, set.piece_count, "and no piece"
+    planes = set.surfaces.select { |s| s.kind == :roof }
+    front, back = planes[0], planes[1]
+    assert_empty front.patches, "yaw 0 faces north, so the front plane keeps its tiles"
+    panels = back.patches.select { |p| p.material == :solar }
+    assert_equal 1, panels.length
+    patch = panels.first
+    # The plane is 6.4 x 5.148 m at 1 m cells -> 6 columns, 5 rows. Inset one cell leaves
+    # columns 1..4 and rows 1..3; four wide fills the columns exactly, two tall is centred
+    # on the three rows, which puts it on rows 1..2.
+    assert_equal [ 1, 4 ], [ patch.col0, patch.col1 ]
+    assert_equal [ 1, 2 ], [ patch.row0, patch.row1 ]
+    # The neighbour is unflagged and keeps a bare roof.
+    assert_empty planes[3].patches
+  end
+
+  test "a flagged dwelling with no room gets no panels, and a flat roof never does" do
+    # A 3 m dwelling: the plane is 3.4 m -> 3 columns, and the inset leaves one.
+    narrow = pair("dwellings" => [ { "x0" => 0.0, "x1" => 3.0, "solar" => true }, { "x0" => 3.0, "x1" => 12.0 } ])
+    assert_empty narrow.surfaces.select { |s| s.kind == :roof }[1].patches
+
+    flat = pair("roof" => "flat", "ridge" => 6.0, "dwellings" => [ { "x0" => 0.0, "x1" => 6.0, "solar" => true }, { "x0" => 6.0, "x1" => 12.0 } ])
+    assert_empty flat.surfaces.select { |s| s.kind == :roof }.flat_map(&:patches)
+  end
+
+  test "panels turn with the row rather than following it" do
+    # At yaw pi the row faces south, so the panels move to the front plane -- the same
+    # dwelling, the other slope.
+    turned = pair("yaw" => Math::PI, "dwellings" => [ { "x0" => 0.0, "x1" => 6.0, "solar" => true }, { "x0" => 6.0, "x1" => 12.0 } ])
+    planes = turned.surfaces.select { |s| s.kind == :roof }
+
+    assert_equal 1, planes[0].patches.count { |p| p.material == :solar }
+    assert_empty planes[1].patches
+  end
 end
