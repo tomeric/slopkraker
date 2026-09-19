@@ -20,10 +20,14 @@ Four faults, named from the driver's seat and then measured:
    "outside and below the eaves line" hangs over that ledge rather than clear of the wall.
    There is an `OVERHANG` constant (0.4 m) and it is spent entirely along the ridge, past
    the gables; down the slope there is none.
-3. **A dakkapel is one third window.** Measured: 18 dormer fronts on geleen, every one of
-   them 3 columns by 2 rows with a plaster return in the first and last column -- 2 glass
-   cells out of 6. A dakkapel is a window with a roof over it; that is the whole point of
-   cutting one into a roof.
+3. **A dakkapel is one third window.** Measured: 15 dormer fronts on geleen, 14 of them 3
+   columns by 2 rows with a plaster return in the first and last column -- 2 glass cells out
+   of 6 -- and the fifteenth 2 by 1 on 1.5 m cells, which already had none. 56 of the 86
+   front cells on the island were wall. A dakkapel is a window with a roof over it; that is
+   the whole point of cutting one into a roof.
+
+   *(This said 18 when it was written, counted before `3eef78a` mixed the salt through the
+   detail-flag hash and re-imported. The shape of the fault was unchanged by that.)*
 4. **Walls run through windows**, in two distinct ways and one of them is the common case:
    - **An interior partition lands mid-window on 63 of geleen's 94 end walls.** A partition
      crosses the middle of its dwelling, so it meets the end wall at that wall's middle
