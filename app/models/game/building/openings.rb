@@ -274,8 +274,11 @@ module Game
         #
         # A partition landing in the middle of the back is the one thing that can stand in
         # its way -- the piers already keep it out of both corners -- so it slides along the
-        # face from the seeded start until it clears, and a face where nothing clears gets
-        # no glazing at all rather than a shopfront with a wall down the middle of it.
+        # face from the seeded start until it clears. A face where nothing clears returns
+        # nil, and `for_wall` then falls through to the ORDINARY windows for that face:
+        # runs of one or two cells, which can dodge a reserved column where a patch three
+        # wide cannot. So the dwelling loses its glazed back and keeps its windows, rather
+        # than getting a shopfront with a wall down the middle of it.
         def glazing(cols, rows, reserved = [])
           width = cols >= 5 ? GLAZING_WIDTH : GLAZING_NARROW
           room = cols - 2 - width
