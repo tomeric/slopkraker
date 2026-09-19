@@ -92,7 +92,20 @@ export function cellMatrix(surface, row, col, target, origin, depth = 1) {
 // normal. Callers rely on that to place things inside the slab, which is how a landing
 // slab throws one cell's worth of shards per cell it covered rather than one enormous
 // fragment per slab.
-export function chunkMatrix(surface, row, col, rows, cols, target, origin) {
+//
+// `depth` is the material's, exactly as cellMatrix takes it, and a slab may take ONE
+// because a slab is one material by construction: tileSurface refuses to grow a rectangle
+// across a material boundary, so every cell under this matrix was drawn at the same
+// fraction of the surface's thickness. Without it a pane that stood as 105 mm of glass
+// fell as 300 mm and fattened in the frame the house was condemned -- the one frame in
+// which a collapse is being watched closely.
+//
+// The collider and the landing shards are both struck off this matrix and both stay right
+// at any depth. The cuboid is half its scale, so it is the pane rather than the wall. And
+// a burst is offset within the slab along u and v only, at one cell's width by one cell's
+// height, so a thinner slab throws the same number of shards in the same places and they
+// are as thin as the cells they came out of, which is what a pane breaking looks like.
+export function chunkMatrix(surface, row, col, rows, cols, target, origin, depth = 1) {
   const width = surface.w / surface.cols
   const height = surface.h / surface.rows
 
@@ -108,7 +121,7 @@ export function chunkMatrix(surface, row, col, rows, cols, target, origin) {
   if (origin) position.add(origin)
 
   target.makeBasis(u, v, n)
-  target.scale(scale.set(cols * width, rows * height, surface.t))
+  target.scale(scale.set(cols * width, rows * height, surface.t * depth))
   target.setPosition(position)
   return target
 }

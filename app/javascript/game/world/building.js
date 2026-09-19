@@ -220,9 +220,23 @@ export class Building {
 
       // A pane is thinner than the wall that holds it. Every cell of a surface arrives at
       // the surface's own thickness, which made a window 300 mm of glass flush with the
-      // brick; the material's `depth` re-composes the few that are drawn in a reveal --
-      // glass, doors, panels -- and leaves everything else exactly where it was. The
-      // number is Ruby's (Material#depth); this side holds none of it.
+      // brick; the material's `depth` re-composes the two that are drawn in a reveal --
+      // glass and doors -- and leaves everything else exactly where it was. The number is
+      // Ruby's (Material#depth); this side holds none of it, and a panel carries none at
+      // all, because a depth can only sink a cell and a solar panel stands proud.
+      //
+      // Re-composed HERE rather than threaded through eachCell, and that is the decision
+      // worth defending. eachCell is the ported half of Surface: parity.js walks it with no
+      // building around it and rubble.js asks it for a cell's plain footprint, and neither
+      // of them holds a material table. Teaching the shared half to look a material up, to
+      // save this side one call on the handful of cells that want it, would put a lookup on
+      // the one function whose two languages have to go on giving the same answer.
+      //
+      // And `!rubble` is not the redundancy it reads as. Nothing in the material table
+      // gives rubble a depth today, so the guard looks dead and deleting it looks free --
+      // but heapMatrix has ALREADY written this matrix on the line above, and re-composing
+      // would throw a heap's placement away and drop it back on its grid square. The guard
+      // is what keeps the day somebody gives rubble a depth from being a silent one.
       const depth = this.materials[name]?.depth ?? 1
       if (!rubble && depth !== 1) cellMatrix(surface, row, col, matrix, this.origin, depth)
 
@@ -820,8 +834,13 @@ export class Building {
 
     for (let n = 0; n < falling; n += stride) {
       const slab = slabs[n]
+      // At the depth its cells were standing at. A slab is one material -- tileSurface
+      // will not grow a rectangle across a boundary -- so there is exactly one depth to
+      // take, and taking it is what stops a window fattening from 105 mm to 300 mm in the
+      // frame the house is condemned.
       const matrix = chunkMatrix(
-        slab.surface, slab.row, slab.col, slab.rows, slab.cols, SLAB_MATRIX, this.origin
+        slab.surface, slab.row, slab.col, slab.rows, slab.cols, SLAB_MATRIX, this.origin,
+        this.materials[slab.material]?.depth ?? 1
       )
       slab.owner = this
       // Whose wreckage this slab is carrying down. It comes back on landing, so the heaps
