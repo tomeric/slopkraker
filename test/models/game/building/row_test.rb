@@ -580,4 +580,69 @@ class Game::Building::RowTest < ActiveSupport::TestCase
     refute row.dwellings[1].garage
     assert_raises(Game::Building::Row::Invalid) { pair("dwellings" => [ { "x0" => 0.0, "x1" => 6.0, "garage" => "yes" }, { "x0" => 6.0, "x1" => 12.0 } ]) }
   end
+
+  # STEP 5b OF THE CONTRACT. A dormer is four surfaces generated right after its dwelling's
+  # roof section: the front, the two cheeks, the top. Worked by hand from the pair with a
+  # dormer on the first dwelling: depth 9 so the run is 4.5, rise 2.5; width min(3, 6 - 2)
+  # = 3; the top runs back 1.5 x 4.5 / 2.5 = 2.7 m from a setback of 1.0, and 3.7 <= 4.5 -
+  # 0.5 leaves room under the ridge. Front 3 x 2 = 6 cells (1.5 m is two rows), cheeks
+  # round(2.7) = 3 x 2 = 6 each, top 3 x 3 = 9: 27 cells in four surfaces after the first
+  # gable end ends at 681, so the second dwelling's roof starts at 708 rather than 681
+  # and the rubble at 795 rather than 768; 840 -> 867 pieces, 29 -> 33 surfaces.
+  test "a dormer is four surfaces right after its dwelling's roof section" do
+    set = pair("dwellings" => [ { "x0" => 0.0, "x1" => 6.0, "dormer" => true }, { "x0" => 6.0, "x1" => 12.0 } ])
+
+    assert_equal 33, set.surfaces.length
+    assert_equal 867, set.piece_count
+    assert_equal %i[wall] * 14 + %i[floor floor partition partition floor floor partition partition
+                                    roof roof gable wall wall wall roof roof roof gable rubble],
+                 set.surfaces.map(&:kind)
+    assert_equal [ 0, 18, 36, 54, 72, 90, 108, 126, 144, 171, 198, 225, 252, 279,
+                   306, 360, 414, 432, 450, 504, 558, 576, 594, 624, 654, 681,
+                   687, 693, 699, 708, 738, 768, 795 ],
+                 set.surfaces.map(&:piece_offset)
+
+    front, left, right, top = set.surfaces[25, 4]
+    assert_equal [ 2, 2, 2, 2 ], [ front.storey, left.storey, right.storey, top.storey ], "a dormer is above every storey, like a roof"
+    assert_equal [ 0 ] * 4, [ front.bay, left.bay, right.bay, top.bay ]
+    assert_equal :glass, front.material.name
+    assert_equal %i[plaster plaster], front.patches.map(&:material), "a plaster return at each end"
+    assert_equal [ 0, 2 ], front.patches.map(&:col0), "the returns are the outer columns"
+    assert_in_delta 1.5, front.origin.x, 1e-9, "centred on the six-metre dwelling"
+    assert_in_delta 1.0, front.origin.z, 1e-9, "a metre in from the eaves line"
+    assert_in_delta 6.0 + 2.5 * 1.0 / 4.5, front.origin.y, 1e-9, "standing on the roof plane"
+    assert_equal :plaster, left.material.name
+    assert_in_delta 2.7, left.width, 1e-9, "the cheek runs back to where the top meets the roof"
+    assert_in_delta 1.5, left.height, 1e-9
+    assert_in_delta 4.5, right.origin.x, 1e-9
+    assert_equal :steel, top.material.name
+    assert_in_delta front.origin.y + 1.5, top.origin.y, 1e-9
+    assert_equal [ 3, 3 ], [ top.cols, top.rows ]
+  end
+
+  test "a dormer needs a roof with room under the ridge, and an unflagged dwelling gets none" do
+    # A shallow roof: rise 1.0 on a 4.5 m run puts the top 6.75 m back, past the ridge, so
+    # no dormer is added. The count is 804, not the pair's usual 840, because dropping the
+    # ridge to 7.0 also drops the rise to 1.0 and with it each gable's rows from
+    # round(2.5) = 3 to round(1.0) = 1 -- 18 fewer cells per gable, two gables, 840 - 36.
+    shallow = pair("ridge" => 7.0, "dwellings" => [ { "x0" => 0.0, "x1" => 6.0, "dormer" => true }, { "x0" => 6.0, "x1" => 12.0 } ])
+    assert_equal 804, shallow.piece_count, "no room, no dormer"
+    assert_equal 804, pair("ridge" => 7.0).piece_count, "the same shallow roof without the flag costs nothing extra"
+    assert_equal 840, pair.piece_count
+    # A flat roof has nothing to stand a dormer on.
+    flat = pair("roof" => "flat", "ridge" => 6.0, "dwellings" => [ { "x0" => 0.0, "x1" => 6.0, "dormer" => true }, { "x0" => 6.0, "x1" => 12.0 } ])
+    assert_empty flat.surfaces.select { |s| s.material.name == :steel }
+  end
+
+  test "a dormer turns with the row and falls with its bay" do
+    flat = pair("dwellings" => [ { "x0" => 0.0, "x1" => 6.0, "dormer" => true }, { "x0" => 6.0, "x1" => 12.0 } ])
+    turned = pair("yaw" => Math::PI / 2, "dwellings" => [ { "x0" => 0.0, "x1" => 6.0, "dormer" => true }, { "x0" => 6.0, "x1" => 12.0 } ])
+    assert_equal flat.surfaces.map(&:piece_offset), turned.surfaces.map(&:piece_offset), "a rotation is a picture"
+    front = turned.surfaces[25]
+    assert_equal :glass, front.material.name, "index 25 is the front, not a cheek that happens to share its origin"
+    assert_in_delta(-1.0, front.origin.x, 1e-9)
+    assert_in_delta 1.5, front.origin.z, 1e-9
+    assert_equal [ 0 ], flat.for_bay(0)[:own].select { |s| s.material.name == :steel }.map(&:bay)
+    assert_empty flat.for_bay(1)[:own].select { |s| s.material.name == :steel }
+  end
 end

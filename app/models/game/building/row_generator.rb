@@ -31,8 +31,8 @@ module Game
         Gardens.lawns(row).map { |ring| ring.map { |x, z| [ (x * c - z * s).round(3), (x * s + z * c).round(3) ] } }
       end
 
-      # 1 fronts and backs, 2 ends, 3 party walls, 4 interiors, 5 roof sections, 6 boxes,
-      # 7 hedges, then rubble LAST.
+      # 1 fronts and backs, 2 ends, 3 party walls, 4 interiors, 5 roof sections, 5b dormers,
+      # 6 boxes, 7 hedges, rubble LAST.
       def self.dwellings(row)
         return [] if row.dwellings.empty?
 
@@ -49,7 +49,7 @@ module Game
           row.storeys.times { |s| built << wall(row, [ x, row.z0 ], [ x, row.z1 ], storey: s, openings: nil, edge: 5, between: [ i, i + 1 ]) }
         end
         row.dwellings.each_with_index { |d, i| built.concat Interior.build(rectangle(row, d.x0, d.x1)).map { |s| tagged(s, i) } }
-        row.dwellings.each_with_index { |d, i| built.concat roof_section(row, d, i) }
+        row.dwellings.each_with_index { |d, i| built.concat roof_section(row, d, i); built.concat dormer(row, d, i) }
         built
       end
 
@@ -119,6 +119,59 @@ module Game
           origin: Vector3.new(x, row.eaves, row.z0), u: SOUTH, v: UP, width: row.depth, height: row.rise,
           cols: cols, rows: rows, thickness: Roof::GABLE_THICKNESS, patches: Roof.clip(cols, rows), seed: row.seed, bay: bay
         )
+      end
+
+      # A dakkapel: a box standing on the front roof plane with a window the width of the
+      # box, white cheeks and a zinc top. Everything here is metres in the row's frame and
+      # decided by four constants, so a dormer on a 1987 terrace is the size a 1987 dormer
+      # is and never a random one.
+      DORMER_WIDTH = 3.0
+      DORMER_HEIGHT = 1.5
+      # How far in from the eaves line the front face stands.
+      DORMER_SETBACK = 1.0
+      # The top has to meet the roof this far below the ridge, or the dormer is a second
+      # ridge. The importer checks the same sum before it flags a dwelling.
+      DORMER_CLEARANCE = 0.5
+      DORMER_MIN_WIDTH = 1.5
+
+      # 5b. Four surfaces, or none: the front (glass, a plaster return at each end column),
+      # two cheeks (plaster, rectangles whose lower rear corner lies inside the roof and is
+      # never seen) and the flat top (steel). The front's foot is ON the roof plane, at
+      # `eaves + rise * setback / run`; the top is DORMER_HEIGHT above it, and the roof
+      # reaches that height `height * run / rise` further back, which is where the cheeks
+      # and the top end. Above every storey and in the dwelling's bay, like its roof, so
+      # it falls with the dwelling.
+      def self.dormer(row, d, i)
+        return [] unless d.dormer && row.roof == "gable" && row.rise.positive?
+
+        run = row.depth / 2.0
+        width = [ DORMER_WIDTH, d.width - 2.0 ].min
+        return [] if width < DORMER_MIN_WIDTH
+
+        depth = DORMER_HEIGHT * run / row.rise
+        return [] if DORMER_SETBACK + depth > run - DORMER_CLEARANCE
+
+        x0 = d.x0 + (d.width - width) / 2.0
+        x1 = x0 + width
+        z_front = row.z0 + DORMER_SETBACK
+        y_base = row.eaves + row.rise * DORMER_SETBACK / run
+        y_top = y_base + DORMER_HEIGHT
+        cols = Walls.cells(width, row.cell)
+        rows = [ Walls.cells(DORMER_HEIGHT, row.cell), 1 ].max
+        deep = Walls.cells(depth, row.cell)
+        returns = cols >= 3 ? [ 0, cols - 1 ].map { |c| Surface::Patch.new(col0: c, row0: 0, col1: c, row1: rows - 1, material: :plaster) } : []
+
+        front = Surface.new(kind: :wall, storey: row.storeys, material: Materials.fetch(:glass), origin: Vector3.new(x0, y_base, z_front),
+                            u: EAST, v: UP, width: width, height: DORMER_HEIGHT, cols: cols, rows: rows, thickness: Walls::THICKNESS,
+                            patches: returns, seed: row.seed + 300 + i, bay: i)
+        cheeks = [ x0, x1 ].map do |x|
+          Surface.new(kind: :wall, storey: row.storeys, material: Materials.fetch(:plaster), origin: Vector3.new(x, y_base, z_front),
+                      u: SOUTH, v: UP, width: depth, height: DORMER_HEIGHT, cols: deep, rows: rows, thickness: Interior::PARTITION_THICKNESS,
+                      seed: row.seed + 300 + i, bay: i)
+        end
+        top = Surface.new(kind: :roof, storey: row.storeys, material: Materials.fetch(:steel), origin: Vector3.new(x0, y_top, z_front),
+                          u: EAST, v: SOUTH, width: width, height: depth, cols: cols, rows: deep, thickness: Roof::THICKNESS, bay: i)
+        [ front, *cheeks, top ]
       end
 
       # How close to the row's rectangle an edge has to run before it counts as standing
