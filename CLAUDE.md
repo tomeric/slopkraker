@@ -435,17 +435,29 @@ how the pool's ONE material is dressed and how each instance is coloured.
   always had); a material names a `role`. Palettes carry `brick`, `roof_tile` and `door`
   only — one instance colour cannot colour a joint differently from its face. `low`
   quality paints nothing and keeps flat materials; palettes still apply.
-- **Openings are styles** (`Openings::STYLES`): `classic` is byte for byte what the
-  `building` recipe always had; a dwelling's front is a one-cell `door` with a two-cell
-  window beside it; a box with `door: "garage"` gets a two-row door across its first
-  edge; a church's nave, tower and chapel have rhythms of their own. Styles change
-  patches, never grids, so nothing renumbers.
+- **Openings are styles** (`Openings::STYLES`): `classic` is the rhythm the `building`
+  recipe always had; a dwelling's front is a one-cell `door` with a two-cell window beside
+  it; a box with `door: "garage"` gets a two-row door across its first edge; a church's
+  nave, tower and chapel have rhythms of their own. Styles change patches, never grids, so
+  nothing renumbers. **`classic` is no longer byte-identical to its pre-styles self**, and
+  the rule that it must be is retired: the fault the `reserved` columns below fix was in it
+  too, four panes of the targets house were buried in their own corners, and a rule that
+  freezes a known fault has stopped paying. The STYLE still answers what it always did; the
+  hand-made worlds moved because their walls now say which columns are spoken for.
 - **A dwelling carries its details as flags** — `garage`, `glazing`, `dormer` — decided by
   the importer from the seed (`Rows.detail?`) and realised by the generator: a garage door
   three cells wide beside the front door and no front window; one glass patch floor to
-  ceiling at the back; four dormer surfaces (glass front with plaster returns, plaster
+  ceiling at the back; four dormer surfaces (a front of glass in EVERY cell, plaster
   cheeks, steel top) generated right after the dwelling's roof section, **step 5b of the
-  order**, so an unflagged row keeps its numbering. Windows elsewhere come in runs of one
+  order**, so an unflagged row keeps its numbering. A dakkapel is a WINDOW with a roof over
+  it: the front carried a plaster return in its first and last column until 2026-09-19,
+  which on a face three columns wide left two glass cells out of six, and cutting a box
+  into a roof to put a third of a window in it is not worth the roof it costs. **The roof
+  behind it is void**, or the window looks at tiles. A cell is opened only when it lies
+  ENTIRELY under the dakkapel — 33 cells over geleen's fifteen — because a void cell is a
+  hole in the roof, and one half under the box leaves the other half open in front of the
+  glass or beside a cheek; taking any cell whose middle fell under one opens 117 and does
+  exactly that. The void never reaches row 0, so the eaves and their gutter are untouched. Windows elsewhere come in runs of one
   or two cells **in the `house` and `annex` styles**; `classic` and the church's rhythms are
   untouched. A dwelling with a dakkapel puts `steel` (its top) and more `plaster` and
   `glass` into its rubble mix, so `steel#rubble` is a pool geleen now allocates — and a
@@ -495,6 +507,51 @@ how the pool's ONE material is dressed and how each instance is coloured.
   the client fills each column's tooth with a box in the material's pool and a wedge in a
   `<material>#wedge` shape pool, keyed to the cell they stand on (`Building#buildGableCaps`),
   hidden and restored with it. One pool per gable material, no collider.
+- **The tiles reach past the wall, and that is drawing too.** A roof plane starts on the
+  wall's OWN plane and a wall straddles its plane, so the outer 150 mm of every wall top
+  had open sky above it and the gutter hung over the gap rather than clear of the wall.
+  `Roof::EAVES_OVERHANG` (0.4 m) is how far the tiles carry on DOWN the slope, as one
+  instanced box per column of a pitched plane's bottom row, drawn from the roof's own pool
+  and keyed to that cell. It is **not** `Roof::OVERHANG`, which is the other direction —
+  along the ridge, past the gables — and they are not the same number just because they are
+  the same size today. What has to clear half a wall is the HORIZONTAL component,
+  `EAVES_OVERHANG × cos(pitch)`, so `__arenaEavesReach` measures that off the boxes actually
+  built rather than off the constant: a sign error that put the tiles up by the ridge then
+  reports a reach of zero instead of passing on the constant's magnitude. Every pitched
+  plane in every world clears it — 0.339 m against 0.150 m on the targets house, and 0.162 m
+  at the tightest, which is Sint-Marcellinus's 66° roof clearing by 12 mm. That church is
+  why `spec_test` pins the flat-out length rather than a pitched one. The gutter hangs off
+  the overhang's outer edge and reads the same number out of the spec, so the two cannot
+  drift apart.
+- **A pane is thinner than the wall that holds it.** `Material#depth` is the fraction of its
+  surface's thickness a cell of that material occupies, centred on the plane — glass 0.35,
+  a door 0.7, everything else 1.0 and absent from the spec. There is ONE matrix per cell and
+  it feeds the instance, the collider and the falling slab alike, so all three thin together:
+  a recessed pane is met after the brick around it, and a pane that stood at 105 mm falls at
+  105 mm rather than fattening to 300 in the frame the house is condemned. A thinner slab is
+  also a lighter one, because `drop` takes mass from the collider's volume, which is what a
+  pane should weigh. What the SERVER reasons about is untouched: `health_for`, structural
+  mass and the rubble mix all come from the surface, because what holds a wall up is the wall
+  and not the pane in it. **A patch cannot stand proud**, which is why `solar` carries no
+  depth: a depth is centred, so it can only ever sink a cell — at 0.25 a panel was a 50 mm
+  sheet 75 mm below the tiles, a dark rectangle in a well — and a panel that genuinely lay on
+  a roof would be the DRAWING mechanism the gutters and the caps use.
+- **No opening stands in a column another wall lands in.** Two walls meeting at a corner each
+  straddle their own plane, so the perpendicular one eats half a thickness into the end cell;
+  an interior partition does the same in the middle of the wall it meets. Both put a wall a
+  hand's breadth behind the glass. `Openings#for_wall` takes **`reserved:`**, the columns its
+  CALLER knows are crossed, and keeps every window run, front window and glazed back out of
+  them — shortening a run to its longest clear stretch rather than dropping it where it can.
+  The caller works the list out because the caller is the only thing that knows the building:
+  `Walls` always adds `[0, cols - 1]`, `RowGenerator` adds the column its dwelling's partition
+  lands in, and `Interior.partition_reach` intersects the partition's own segment with every
+  footprint edge so an L-shaped ring is answered as generally as a rectangle. **A DOOR is
+  never reserved away** — a door in a corner is a detail, a door that vanishes is a house you
+  cannot enter — so thirteen corner doors stand and no corner glass does. Measured across the
+  five worlds: 44 row end walls and 26 dwelling faces had a partition behind their glass and
+  now none do, 102 corner panes became 0, and 25 walls of about a thousand lost their last
+  window, nearly all of them faces two or three cells wide where every column is a corner. A
+  blank brick face there is honest in a way a pane with a wall behind it is not.
 - **A hedge is pieces, a lawn is a picture.** A `row` with `gardens` appends one
   `kind: :hedge` surface per garden (storey −1, one row of cells, the path void) after
   the boxes and before the rubble; it is skipped by the collapse rule by storey, by name
