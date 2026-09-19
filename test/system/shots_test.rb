@@ -157,6 +157,22 @@ class ShotsTest < ApplicationSystemTestCase
     park_in_front_of(row, back: 3)
     shot "22-geleen-wall-at-three-metres"
 
+    # THE EAVES, which is the one junction a shot from the kerb cannot settle. A roof plane
+    # starts on the wall's own plane and a wall straddles that plane, so before the overhang
+    # the outer 150 mm of every wall top had open sky above it and the gutter hung over the
+    # gap. Whether tiles now cover the wall is a question about a 40 cm lip seen edge-on: it
+    # needs the camera near eaves height, not on the ground looking up at a roof's underside
+    # from so far back that the lip is three pixels.
+    park_in_front_of(row, back: 7, y: 4.5)
+    shot "22b-geleen-eaves-from-under-the-gutter"
+
+    # And obliquely off the corner, where the lip reads in PROFILE against the sky rather
+    # than end-on. Square off the end does not work on this estate -- the plots are
+    # irregular and the frame comes out as the return wall of the house next door -- which
+    # is why this borrows park_at_corner rather than park_beside.
+    park_at_corner(WorldObject.find(row), back: 9, along: 6, y: 6.0)
+    shot "22c-geleen-eaves-in-profile"
+
     # A gable end from the side, where the stair used to show.
     park_beside(row, side: 1, out: 9)
     shot "25-geleen-gable-end"
