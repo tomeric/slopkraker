@@ -157,6 +157,43 @@ class ShotsTest < ApplicationSystemTestCase
     park_in_front_of(row, back: 3)
     shot "22-geleen-wall-at-three-metres"
 
+    # A gable end from the side, where the stair used to show.
+    park_beside(row, side: 1, out: 9)
+    shot "25-geleen-gable-end"
+
+    # The back of a glazed dwelling, from its back garden. Finds the WALL, not just the
+    # building: without the category check this found estate-shed-18 first -- a shed with
+    # its own, unrelated floor-to-ceiling glass patch -- because a shed's name also starts
+    # with "estate-" and `find` takes whichever comes first (confirmed by dumping the
+    # resolved id from inside the actual test run: category was "shed", not "house").
+    #
+    # `park_behind`'s bounding-box heuristic does not work here even once the right
+    # dwelling is found: this estate's plots are irregular L-shapes with rear extensions,
+    # so "past the footprint's deepest point" can stand hard against a RETURN wall at a
+    # right angle to the glazing rather than in the garden it looks onto -- confirmed live,
+    # the camera grazing a wall a hand's width away with the glazing out of frame, at a
+    # position that was nonetheless outside every building's footprint. So this parks off
+    # the glazed WALL's own normal instead. `o`/`n`/`u` on a surface are already rotated
+    # into world orientation server-side (Surface#rotated); only the building's own
+    # translation remains to add. Which sign of `n` points into the garden rather than back
+    # through the house is not documented anywhere and is not safe to assume -- confirmed
+    # live the OTHER way round too, standing inside the dwelling's own footprint -- so both
+    # signs are tried against the dwelling's own footprint (the same recipe/o/yaw every
+    # other helper here uses) and whichever lands outside it is the one used.
+    wall = page.evaluate_script(<<~JS)
+      (() => {
+        for (const i of window.__arenaBuildingIds()) {
+          const s = window.__arenaBuildingSpec(i)
+          if (s.category !== "house" || !s.name.startsWith("estate-")) continue
+          const surf = s.surfaces.find(x => x.kind === "wall" && x.patches.some(p => p[4] === "glass" && p[1] === 0 && p[3] === x.rows - 1))
+          if (surf) return { id: i, o: s.o, yaw: s.yaw, surf }
+        }
+        return null
+      })()
+    JS
+    park_off_wall(wall, back: 8) if wall
+    shot "26-geleen-glass-back" if wall
+
     # A garage, if the import found one on the estate.
     garage = page.evaluate_script("window.__arenaBuildingIds().find(i => window.__arenaBuildingSpec(i).lawns && window.__arenaBuildingSpec(i).lawns.length > 0 && window.__arenaBuildingSpec(i).name.startsWith('estate-'))")
     park_in_front_of(garage, back: 10) if garage
@@ -193,6 +230,72 @@ class ShotsTest < ApplicationSystemTestCase
       park(ox + lx * Math.cos(yaw) - lz * Math.sin(yaw),
            oz + lx * Math.sin(yaw) + lz * Math.cos(yaw),
            yaw: Math.atan2(-Math.sin(yaw), Math.cos(yaw)))
+    end
+
+    # Beside a row, off one end, looking along it at its gable end.
+    def park_beside(id, side:, out:)
+      spec = page.evaluate_script("window.__arenaBuildingSpec(arguments[0])", id)
+      ring = WorldObject.find(id).recipe.fetch("footprint")
+      lx = side.positive? ? ring.map(&:first).max + out : ring.map(&:first).min - out
+      lz = (ring.map(&:last).min + ring.map(&:last).max) / 2.0
+      ox, _, oz = spec.fetch("o")
+      yaw = spec.fetch("yaw")
+      # The first guess (`yaw + facing + Math::PI`) faced along the row instead of at its
+      # end -- confirmed live on estate-row-9 (yaw -2.3323 rad), which put the camera
+      # looking down the street with the terrace off to one side. Negating the whole sum
+      # instead -- `-(yaw + facing)` -- is what `park_in_front_of` already does to turn a
+      # LOCAL direction into a world yaw (its `atan2(-sin, cos)` is the same negation for
+      # facing local +z); the gable end only swaps which local axis the camera faces.
+      facing = side.positive? ? Math::PI / 2 : -Math::PI / 2
+      park(ox + lx * Math.cos(yaw) - lz * Math.sin(yaw), oz + lx * Math.sin(yaw) + lz * Math.cos(yaw), yaw: -(yaw + facing))
+    end
+
+    # Behind a row, looking at its back.
+    def park_behind(id, back:)
+      spec = page.evaluate_script("window.__arenaBuildingSpec(arguments[0])", id)
+      ring = WorldObject.find(id).recipe.fetch("footprint")
+      lx = (ring.map(&:first).min + ring.map(&:first).max) / 2.0
+      lz = ring.map(&:last).max + back
+      ox, _, oz = spec.fetch("o")
+      yaw = spec.fetch("yaw")
+      park(ox + lx * Math.cos(yaw) - lz * Math.sin(yaw), oz + lx * Math.sin(yaw) + lz * Math.cos(yaw), yaw: Math.atan2(-Math.sin(yaw), Math.cos(yaw)) + Math::PI)
+    end
+
+    # Off a specific WALL's own normal rather than the building's bounding box -- see the
+    # comment at the call site for why `park_behind` cannot stand in for this on a plot
+    # this irregular. `wall` is `{ id, o: <building o>, surf: <surface spec> }`; `surf.o`,
+    # `.n` and `.u` are already rotated into world orientation (Surface#rotated), so only
+    # the building's own translation is added, never its yaw.
+    def park_off_wall(wall, back:)
+      bx, _, bz = wall.fetch("o")
+      surf = wall.fetch("surf")
+      ox, _, oz = surf.fetch("o")
+      nx, _, nz = surf.fetch("n")
+      ux, _, uz = surf.fetch("u")
+      width = surf.fetch("w")
+      cx = bx + ox + ux * width / 2
+      cz = bz + oz + uz * width / 2
+
+      ring = WorldObject.find(wall.fetch("id")).recipe.fetch("footprint")
+      byaw = wall.fetch("yaw")
+      footprint = ring.map { |x, z| [ bx + x * Math.cos(byaw) - z * Math.sin(byaw), bz + x * Math.sin(byaw) + z * Math.cos(byaw) ] }
+      sign = inside_ring?(footprint, cx + nx * back, cz + nz * back) ? -1 : 1
+
+      park(cx + sign * nx * back, cz + sign * nz * back, yaw: Math.atan2(-sign * nx, -sign * nz))
+    end
+
+    # Even-odd ray casting, `ring` in the same (x, z) frame as the point.
+    def inside_ring?(ring, x, z)
+      inside = false
+      j = ring.length - 1
+      ring.each_with_index do |(xi, zi), i|
+        xj, zj = ring[j]
+        if (zi > z) != (zj > z) && x < (xj - xi) * (z - zi) / (zj - zi) + xi
+          inside = !inside
+        end
+        j = i
+      end
+      inside
     end
 
     def press(key)

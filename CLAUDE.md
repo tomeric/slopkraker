@@ -38,7 +38,7 @@ Currently:
   buildings — an estate of terraces 50 m around RD (186330, 332234), and the church with
   its hall and apartments 60 m around RD (187006, 331447), a kilometre apart with nothing
   in between — on nine 500 m heightfield tiles resampled from the DEM, with 266 roads
-  drawn on the ground as ribbons. Those forty-eight rows are **44,052 pieces in 659 KB of
+  drawn on the ground as ribbons. Those forty-eight rows are **44,483 pieces in 659 KB of
   building spec and 38 KB of roads**, against `street`'s twelve houses at 6692 pieces and
   103 KB: six and a half times the world for six times the bytes, which is the row recipe
   paying for itself and still the reason the next window wants streaming rather than a
@@ -46,7 +46,9 @@ Currently:
   boxes faces the street at a car's width, and a front garden where a road runs across a
   dwelling's own front — measured on this town: three garages, and thirty-one gardens,
   twenty-nine of them on the estate's thirty-one dwellings and two more on the church
-  island. `?spawn=1` starts beside the church instead of on the estate. Every
+  island. The same importer flags dwellings for the details below from the seed, where
+  the geometry allows: fourteen integrated garages, fourteen glazed backs and twenty-two
+  dakkapellen. `?spawn=1` starts beside the church instead of on the estate. Every
   building is a `row` rather than a house, and a terrace comes down one dwelling at a
   time. **A church or a hall is a row of ZERO dwellings and one bay per part**, decided by
   its category and never by how tall its parts are: Sint-Marcellinus's nave is one main
@@ -177,10 +179,11 @@ and generating them separately draws every shared wall twice and gables the ends
 - **The order is pinned, seven steps deep**, for exactly the reason a single house's
   `Walls → Interior → Roof` is: `RowGenerator` hands out offsets by walking the surfaces in
   sequence, so the order *is* the piece numbering. It is (1) every dwelling's front and back,
-  (2) the two ends, (3) the party walls, (4) the interiors, (5) the roof sections, then
-  (6) the boxes and (7) the rubble grid, appended last as it is for any building. Reorder any
-  of it and damage recorded against a front wall comes back applied to a roof. `row_test.rb`
-  pins the order, the offsets and the count.
+  (2) the two ends, (3) the party walls, (4) the interiors, (5) each dwelling's roof section
+  then, where it is flagged for one, **(5b) its dormer**, (6) the boxes and (7) the hedges,
+  with the rubble grid appended last as it is for any building. Reorder any of it and damage
+  recorded against a front wall comes back applied to a roof. `row_test.rb` pins the order,
+  the offsets and the count.
 - **Every surface carries a `bay`; a party wall carries `between` as well, and that is what is
   read.** A shared wall belongs to neither neighbour exclusively, so it is `between: [i, i + 1]`
   and is weighed into both bays' support at **half** (`Collapse::SHARED_WEIGHT`). Counted in full, a mid-terrace
@@ -425,6 +428,17 @@ how the pool's ONE material is dressed and how each instance is coloured.
   window beside it; a box with `door: "garage"` gets a two-row door across its first
   edge; a church's nave, tower and chapel have rhythms of their own. Styles change
   patches, never grids, so nothing renumbers.
+- **A dwelling carries its details as flags** — `garage`, `glazing`, `dormer` — decided by
+  the importer from the seed (`Rows.detail?`) and realised by the generator: a garage door
+  three cells wide beside the front door and no front window; one glass patch floor to
+  ceiling at the back; four dormer surfaces (glass front with plaster returns, plaster
+  cheeks, steel top) generated right after the dwelling's roof section, **step 5b of the
+  order**, so an unflagged row keeps its numbering. Windows elsewhere come in runs of one
+  or two cells; `classic` is untouched.
+- **Gable ends meet the roof by drawing, not by pieces.** The stair is the index space;
+  the client fills each column's tooth with a box in the material's pool and a wedge in a
+  `<material>#wedge` shape pool, keyed to the cell they stand on (`Building#buildCaps`),
+  hidden and restored with it. One pool per gable material, no collider.
 - **A hedge is pieces, a lawn is a picture.** A `row` with `gardens` appends one
   `kind: :hedge` surface per garden (storey −1, one row of cells, the path void) after
   the boxes and before the rubble; it is skipped by the collapse rule by storey, by name
@@ -678,6 +692,7 @@ The engine exposes debug/test hooks on `window`:
 | `__arenaBuildingLabels` | The debug overlay's plate for every building — `{ id, name, category, ids, shown }` — so "which building is that" is a name rather than a pointer, and a test can assert on the words |
 | `__arenaQuality` | Which tier the engine actually settled on |
 | `__arenaLooks` | What the client painted at boot — which materials got a texture, the tile size, whether the environment map and which sky are live — so the surface detail is an assertion, not a screenshot |
+| `__arenaGableCaps` | `(buildingId)` → `{ columns, boxes, wedges, shown, capped }`: how many gable columns a building has, how many box/wedge caps it placed and how many are showing, and how many columns are capped at all — recomputed from `gableCaps` rather than the anchor-keyed cap list, so an eaves column sharing its neighbour's anchor still counts once. `shown` dropping on a break and returning on its restore is the proof a cap goes with the cell it stands on |
 | `__arenaDebugVisible`, `__arenaMasterGain` | Overlay / audio assertions |
 | `__arenaTerrainProbe` | `(x, z)` — `{ physics, render, sampled, other, delta }`: a downward raycast against the heightfield, barycentric interpolation over the drawn triangles, the client sampler, and what the *opposite* diagonal would say |
 | `__arenaTerrainHeight` | `(x, z)` — `Terrain#heightAt`, the ported sampler; `null` on a flat world |
