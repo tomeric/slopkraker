@@ -673,11 +673,69 @@ class Game::Building::RowTest < ActiveSupport::TestCase
     # to keep a window.
   end
 
-  # The one style the hand-made worlds are built from does not move.
+  # The RHYTHM of the one style the hand-made worlds are built from does not move -- asked
+  # of a bare face, with nothing reserved, this is byte for byte what it always answered.
+  # What the hand-made worlds draw DOES move: Walls now reserves every wall's first and last
+  # column, so column 11 below is brick on a real building. See generator_test.
   test "the classic rhythm is what it always was" do
     patches = Game::Building::Openings.new(seed: 7).for_wall(edge: 0, storey: 1, cols: 12, rows: 3)
     assert_equal [ 1, 3, 5, 7, 9, 11 ], patches.map(&:col0)
     assert patches.all? { |p| p.col0 == p.col1 && p.row0 == 1 && p.material == :glass }
+  end
+
+  # An interior partition crosses the middle of its dwelling, so where the dwelling is
+  # deeper than it is wide -- the usual terrace, and the worked example -- the partition
+  # runs along the row and meets the END wall at that wall's middle column. From the end of
+  # a terrace you looked through the glass at a plaster wall a hand's breadth behind it, on
+  # 44 of the 60 end walls on geleen a partition actually reaches.
+  test "an end wall keeps its glass out of the column the partition lands in" do
+    set = pair
+    walls = set.surfaces.select { |s| s.kind == :wall }
+    # Two dwellings, a front and a back each, two storeys: eight. Then the two ends.
+    ends = walls[8, 4]
+
+    assert_equal [ 9 ] * 4, ends.map(&:cols), "an end wall is the row's 9 m depth at 1 m cells"
+    assert ends.all? { |w| (w.origin.x - 12.0).abs < 1e-9 || w.origin.x.abs < 1e-9 }, "walls 8..11 should be the ends"
+    ends.each do |wall|
+      wall.rows.times do |row|
+        assert_not_equal :glass, wall.material_at(row, 4).name,
+                         "the partition down the middle of the dwelling lands in column 4"
+      end
+    end
+  end
+
+  # And where a dwelling is WIDER than it is deep the partition turns and meets that
+  # dwelling's own front and back instead. Both readings come from `across_depth?`, which
+  # has to keep agreeing with `Recipe#ridge_along_z?` -- the thing Interior actually asks.
+  test "a dwelling wider than it is deep keeps its glass out of its own middle column" do
+    shallow = pair_recipe("band" => [ 0.0, 4.0 ], "footprint" => [ [ 0, 0 ], [ 12, 0 ], [ 12, 4 ], [ 0, 4 ] ])
+    row = Game::Building::Row.from(shallow)
+
+    assert_not Game::Building::RowGenerator.across_depth?(row, row.dwellings.first),
+               "a 6 m dwelling in a 4 m band is wider than it is deep, so its partition turns"
+    assert_equal 3, Game::Building::RowGenerator.partition_column(row.dwellings.first.width, row.cell)
+
+    front = Game::Building::Generator.call(shallow).surfaces.first
+    assert_equal 6, front.cols
+    front.rows.times do |r|
+      assert_not_equal :glass, front.material_at(r, 3).name, "the partition lands in column 3 of a 6 m front"
+    end
+  end
+
+  test "no pane on a row stands in a corner column" do
+    [ pair, terrace, pair("boxes" => [ annex ]), pair("dwellings" => [ { "x0" => 0.0, "x1" => 6.0, "garage" => true, "glazing" => true }, { "x0" => 6.0, "x1" => 12.0, "dormer" => true } ]) ].each do |set|
+      # Only the brick walls: a dormer front is a surface MADE of glass, and its own first
+      # and last column are where its cheeks stand -- a dakkapel is a window with a roof
+      # over it and the returns were dropped on purpose.
+      set.surfaces.select { |s| s.kind == :wall && s.material.name == :brick }.each do |wall|
+        [ 0, wall.cols - 1 ].each do |col|
+          wall.rows.times do |row|
+            assert_not_equal :glass, wall.material_at(row, col).name,
+                             "glass in column #{col} of #{wall.cols}, which another wall lands in"
+          end
+        end
+      end
+    end
   end
 
   test "the flags parse and are booleans" do

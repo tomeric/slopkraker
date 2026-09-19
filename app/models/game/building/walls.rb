@@ -36,7 +36,11 @@ module Game
           cols: cols,
           rows: rows,
           thickness: THICKNESS,
-          patches: openings.for_wall(edge: edge, storey: storey, cols: cols, rows: rows),
+          # The first and last column of every wall of every recipe: a footprint is a closed
+          # ring, so both ends of every edge meet another edge, and two walls at a corner
+          # each straddle their own plane -- the perpendicular one eats half of THICKNESS
+          # into the end cell whatever the building is. No caller can opt out of this one.
+          patches: openings.for_wall(edge: edge, storey: storey, cols: cols, rows: rows, reserved: [ 0, cols - 1 ]),
           seed: recipe.seed,
           outward: outward
         )

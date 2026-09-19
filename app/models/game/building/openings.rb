@@ -78,15 +78,31 @@ module Game
         @glazing = glazing
       end
 
-      def for_wall(edge:, storey:, cols:, rows:)
+      # `reserved` is the columns another wall lands in. Two walls meeting at a corner each
+      # straddle their own plane, so the perpendicular one eats half a thickness -- 150 mm --
+      # into the end cell; an interior partition does the same in the middle of the wall it
+      # meets. Glass in one of those columns is a pane with a wall a hand's breadth behind
+      # it. Measured over the five worlds before this: 102 panes stood in a corner column,
+      # and 70 walls had a partition through a window -- 44 of the 60 row ends a partition
+      # reaches ALONG the row, and 26 of the 50 dwelling fronts and backs one reaches
+      # ACROSS it. The CALLER works the list out, because the caller is the only thing that
+      # knows the building: Walls and RowGenerator both know where their corners are, and
+      # only RowGenerator knows which way a dwelling's partition runs.
+      #
+      # A DOOR is never reserved away. A door in a corner is a detail; a door that vanishes
+      # is a house you cannot enter -- and the garage door is a door here for one more
+      # reason: Gardens asks this same object for `garage_columns` so the drive through the
+      # hedge lines up with it, and a door moved here but not there is a drive to a wall.
+      def for_wall(edge:, storey:, cols:, rows:, reserved: [])
+        reserved = reserved.select { |col| col.between?(0, cols - 1) }
         doorway = door(cols, rows) if door_face?(edge, storey, cols)
         garage = garage_door(cols, rows, doorway.first) if doorway && @garage
         return Array(doorway) + [ garage ] if garage
 
-        glazing = glazing(cols, rows) if @glazing && style[:front_window] && edge == BACK_EDGE && storey == DOOR_STOREY && cols >= GLAZING_MIN_COLS
+        glazing = glazing(cols, rows, reserved) if @glazing && style[:front_window] && edge == BACK_EDGE && storey == DOOR_STOREY && cols >= GLAZING_MIN_COLS
         return [ glazing ] if glazing
 
-        front = doorway && style[:front_window] ? front_window(cols, rows, doorway.first) : nil
+        front = doorway && style[:front_window] ? front_window(cols, rows, doorway.first, reserved) : nil
         windows =
           if front
             # The ground floor of a dwelling's front is the door and its window and nothing
@@ -94,6 +110,10 @@ module Game
             Array(front)
           else
             window_runs(edge, storey, cols)
+              # Shortened where a run can give up a cell and still be a window, dropped
+              # where it cannot. A face whose every window lands on a wall gets none, which
+              # is a blank wall rather than a pane looking into plaster.
+              .filter_map { |col0, col1| clear_run(col0, col1, reserved) }
               .reject { |col0, col1| doorway && doorway.any? { |p| (col0..col1).any? { |col| p.covers?(0, col) } } }
               .map { |col0, col1| window_patch(col0, col1, rows) }
           end
@@ -142,16 +162,48 @@ module Game
           Surface::Patch.new(col0: col0, row0: row, col1: col1, row1: row + height - 1, material: :glass)
         end
 
+        # The longest stretch of `col0..col1` that no other wall lands in, or nil when every
+        # column of it does. Leftmost on a tie, so a run that gives up a cell gives up the
+        # one the wall is in and keeps the rest.
+        def clear_run(col0, col1, reserved)
+          best = nil
+          run = nil
+          (col0..col1).each do |col|
+            if reserved.include?(col)
+              run = nil
+              next
+            end
+
+            run = run ? [ run.first, col ] : [ col, col ]
+            best = run if best.nil? || run.last - run.first > best.last - best.first
+          end
+          best
+        end
+
         # The two-cell window beside a dwelling's door, on the side away from the end the
         # door stands near, with one pier between. None if the face has no room for it.
-        def front_window(cols, rows, door)
-          left = door.col0 + 2
-          right = door.col0 - 3
-          col0 = door.col0 < cols / 2 ? left : right
-          return nil unless col0 >= 0 && col0 + style[:front_window] - 1 <= cols - 1
+        #
+        # Where a wall lands on it, the far side of the door is tried and then both sides
+        # are allowed to give up a cell -- widest wins, near side on a tie. There are only
+        # ever two places this window can be, and on a five-column front with the door three
+        # columns along, one cell at column 1 is the whole of what is left: a front with a
+        # narrow window still reads as a front, and dropping it falls through to runs that
+        # the door has already eaten, which is a blank wall with a door in it.
+        def front_window(cols, rows, door, reserved = [])
+          width = style[:front_window]
+          near = door.col0 < cols / 2 ? door.col0 + 2 : door.col0 - 3
+          far = door.col0 < cols / 2 ? door.col0 - 3 : door.col0 + 2
+          span = nil
+          [ near, far ].each do |candidate|
+            next unless candidate >= 0 && candidate + width - 1 <= cols - 1
+
+            run = clear_run(candidate, candidate + width - 1, reserved)
+            span = run if run && (span.nil? || run.last - run.first > span.last - span.first)
+          end
+          return nil unless span
 
           row = sill(rows)
-          Surface::Patch.new(col0: col0, row0: row, col1: col0 + style[:front_window] - 1, row1: row, material: :glass)
+          Surface::Patch.new(col0: span.first, row0: row, col1: span.last, row1: row, material: :glass)
         end
 
         def door(cols, rows)
@@ -219,10 +271,22 @@ module Game
 
         # One glass patch from floor to ceiling, its start drawn from the seed so a terrace
         # of glazed backs is not a row of identical ones, a pier kept at each end.
-        def glazing(cols, rows)
+        #
+        # A partition landing in the middle of the back is the one thing that can stand in
+        # its way -- the piers already keep it out of both corners -- so it slides along the
+        # face from the seeded start until it clears, and a face where nothing clears gets
+        # no glazing at all rather than a shopfront with a wall down the middle of it.
+        def glazing(cols, rows, reserved = [])
           width = cols >= 5 ? GLAZING_WIDTH : GLAZING_NARROW
           room = cols - 2 - width
-          first = 1 + (room.positive? ? draw(BACK_EDGE, 0, 0) % (room + 1) : 0)
+          start = room.positive? ? draw(BACK_EDGE, 0, 0) % (room + 1) : 0
+          offset = (0..[ room, 0 ].max).find do |slide|
+            first = 1 + (start + slide) % ([ room, 0 ].max + 1)
+            (first..first + width - 1).none? { |col| reserved.include?(col) }
+          end
+          return nil unless offset
+
+          first = 1 + (start + offset) % ([ room, 0 ].max + 1)
           Surface::Patch.new(col0: first, row0: 0, col1: first + width - 1, row1: rows - 1, material: :glass)
         end
 

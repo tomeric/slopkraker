@@ -169,6 +169,34 @@ class Game::Building::GeneratorTest < ActiveSupport::TestCase
     assert narrow.none? { |p| p.material == :timber }
   end
 
+  # A footprint is a closed ring, so both ends of every edge meet another edge, and two
+  # walls at a corner each straddle their own plane -- the perpendicular one eats half of
+  # Walls::THICKNESS, 150 mm, into the end cell. On a 1 m cell that is a sixth of the pane
+  # buried in brick, and four panes of this house were.
+  #
+  # This is where `classic` moves for the first time since the styles arrived, and only in
+  # which cells are glass: the offsets and the 1553-piece count pinned above are untouched,
+  # because a patch never changes a grid. The material census is the cost, and it is
+  # re-measured rather than reasoned about -- here and in `building_test`, which reads the
+  # same house out of the browser.
+  test "no pane of the worked example stands in a column another wall lands in" do
+    set = house
+    census = Hash.new(0)
+    set.piece_count.times { |i| census[set.material_at(i).name] += 1 }
+
+    assert_equal 68, census[:glass]
+    assert_equal 449, census[:brick]
+
+    set.surfaces.select { |s| s.kind == :wall }.each do |wall|
+      [ 0, wall.cols - 1 ].each do |col|
+        wall.rows.times do |row|
+          assert_not_equal :glass, wall.material_at(row, col).name,
+                           "a pane in column #{col} of #{wall.cols} has a wall through it"
+        end
+      end
+    end
+  end
+
   # A window on the floor is what a two-row storey forces. Three rows is what buys it a
   # sill to stand on, and is the reason the grid got finer.
   test "windows sit a course above the floor" do

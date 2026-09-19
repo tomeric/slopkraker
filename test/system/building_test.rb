@@ -29,6 +29,15 @@ class BuildingTest < ApplicationSystemTestCase
     assert_equal 0, telemetry["piecesBroken"]
   end
 
+  # Re-measured, never reasoned about. glass went 72 -> 68 and brick 445 -> 449 when
+  # openings stopped standing in the columns other walls land in: four panes of this house
+  # were in a corner column, where the perpendicular wall straddles its own plane and eats
+  # 150 mm -- a sixth of a 1 m pane -- into the end cell. That is `classic` moving for the
+  # first time since the styles arrived, deliberately: the fault was in it too, and a rule
+  # that freezes a known fault has stopped paying.
+  #
+  # The total is unchanged at 1553 and every other material is unchanged, which is the
+  # other half of the claim: a patch decides what a cell is MADE of and never renumbers one.
   test "the materials Ruby generated are the materials the browser built" do
     materials = page.evaluate_script(<<~JS)
       (() => {
@@ -42,9 +51,10 @@ class BuildingTest < ApplicationSystemTestCase
     JS
 
     assert_equal({
-      "brick" => 445, "timber" => 366, "roof_tile" => 224, "concrete" => 180,
-      "plaster" => 108, "glass" => 72, "void" => 80, "steel" => 3, "rubble" => 75
+      "brick" => 449, "timber" => 366, "roof_tile" => 224, "concrete" => 180,
+      "plaster" => 108, "glass" => 68, "void" => 80, "steel" => 3, "rubble" => 75
     }, materials)
+    assert_equal 1553, materials.values.sum
   end
 
   # A hit takes the whole block, not the cell it landed on -- which is what makes a hole

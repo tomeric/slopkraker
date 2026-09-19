@@ -40,11 +40,17 @@ module Game
         built = []
         row.dwellings.each_with_index do |d, i|
           openings = Openings.new(seed: row.seed + i, style: :house, garage: d.garage, glazing: d.glazing)
-          row.storeys.times { |s| built << wall(row, [ d.x0, row.z0 ], [ d.x1, row.z0 ], storey: s, openings: openings, edge: 0, bay: i, outward: -1) }
-          row.storeys.times { |s| built << wall(row, [ d.x1, row.z1 ], [ d.x0, row.z1 ], storey: s, openings: openings, edge: 2, bay: i, outward: -1) }
+          # The dwelling's own partition, where it runs ACROSS the row: it then meets this
+          # dwelling's front and back at their middle column rather than the row's ends.
+          crossing = across_depth?(row, d) ? [] : [ partition_column(d.width, row.cell) ]
+          row.storeys.times { |s| built << wall(row, [ d.x0, row.z0 ], [ d.x1, row.z0 ], storey: s, openings: openings, edge: 0, bay: i, outward: -1, reserved: crossing) }
+          row.storeys.times { |s| built << wall(row, [ d.x1, row.z1 ], [ d.x0, row.z1 ], storey: s, openings: openings, edge: 2, bay: i, outward: -1, reserved: crossing) }
         end
-        row.storeys.times { |s| built << wall(row, [ row.x1, row.z0 ], [ row.x1, row.z1 ], storey: s, openings: Openings.new(seed: row.seed + 7, style: :annex), edge: 1, bay: n - 1, outward: -1) }
-        row.storeys.times { |s| built << wall(row, [ row.x0, row.z1 ], [ row.x0, row.z0 ], storey: s, openings: Openings.new(seed: row.seed + 11, style: :annex), edge: 3, bay: 0, outward: -1) }
+        # And where a partition runs ALONG the row it reaches the end wall instead, at that
+        # wall's middle column -- the first dwelling's at x0, the last dwelling's at x1.
+        along = [ row.dwellings.first, row.dwellings.last ].map { |d| across_depth?(row, d) ? [ partition_column(row.depth, row.cell) ] : [] }
+        row.storeys.times { |s| built << wall(row, [ row.x1, row.z0 ], [ row.x1, row.z1 ], storey: s, openings: Openings.new(seed: row.seed + 7, style: :annex), edge: 1, bay: n - 1, outward: -1, reserved: along.last) }
+        row.storeys.times { |s| built << wall(row, [ row.x0, row.z1 ], [ row.x0, row.z0 ], storey: s, openings: Openings.new(seed: row.seed + 11, style: :annex), edge: 3, bay: 0, outward: -1, reserved: along.first) }
         row.party_lines.each_with_index do |x, i|
           # A party wall has no outside at all -- it stands between two dwellings -- so it
           # gets no rainwater goods (a downpipe here runs full storey height INSIDE the
@@ -58,7 +64,30 @@ module Game
         built
       end
 
-      def self.wall(row, from, to, storey:, openings:, edge:, bay: 0, between: nil, storeys: row.storeys, storey_height: row.storey_height, seed: row.seed, outward: -1, fittings: true)
+      # WHICH WAY A DWELLING'S PARTITION RUNS, AND WHERE IT LANDS. These two and step 4's
+      # `Interior.build` must move together: Interior lays one partition down the middle of
+      # the SHORT axis of the rectangle it is handed (`Recipe#ridge_along_z?`), and these
+      # say which wall that partition meets and in which column, so the glass can be kept
+      # out of it. Worked out here rather than read back off Interior because a partition
+      # surface is a plane in the row's frame, not a column of some other wall's grid --
+      # and asking the grid the same question twice is how the two drift apart.
+      #
+      # `rectangle(row, d.x0, d.x1)` is what Interior is handed, so its depth is the row's
+      # and its width is the dwelling's. Deeper than it is wide -- the usual terrace -- and
+      # the partition runs ALONG the row at mid-depth, reaching the row's end walls; wider
+      # than it is deep and it runs ACROSS at mid-width, reaching that dwelling's own front
+      # and back. Measured on geleen: 37 dwellings the first way and 12 the second.
+      def self.across_depth?(row, dwelling) = row.depth >= dwelling.width
+
+      # The column the partition lands in: it stands at half the extent, a column is
+      # `extent / cols` wide, so it is `((extent / 2) / (extent / cols)).floor` -- the
+      # middle column. Clamped, because a one-column wall has only column zero to offer.
+      def self.partition_column(extent, cell)
+        cols = Walls.cells(extent, cell)
+        [ cols / 2, cols - 1 ].min
+      end
+
+      def self.wall(row, from, to, storey:, openings:, edge:, bay: 0, between: nil, storeys: row.storeys, storey_height: row.storey_height, seed: row.seed, outward: -1, fittings: true, reserved: [])
         along = Vector3.new(to[0] - from[0], 0.0, to[1] - from[1])
         cols = Walls.cells(along.length, row.cell)
         rows = Walls.cells(storey_height, row.cell)
@@ -66,7 +95,9 @@ module Game
           kind: :wall, storey: storey, material: Materials.fetch(:brick),
           origin: Vector3.new(from[0], storey * storey_height, from[1]), u: along.normalised, v: UP,
           width: along.length, height: storey_height, cols: cols, rows: rows, thickness: Walls::THICKNESS,
-          patches: openings ? openings.for_wall(edge: edge, storey: storey, cols: cols, rows: rows) : [],
+          # The corners always, because a ring closes and every edge meets another at both
+          # ends; whatever the caller knows crosses this wall on top of that.
+          patches: openings ? openings.for_wall(edge: edge, storey: storey, cols: cols, rows: rows, reserved: [ 0, cols - 1 ] + reserved) : [],
           seed: seed, bay: bay, between: between, outward: outward, fittings: fittings
         )
       end
