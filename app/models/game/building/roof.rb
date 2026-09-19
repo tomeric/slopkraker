@@ -145,21 +145,56 @@ module Game
       # height and a cell's top edge is `(row + 1) / rows` of it, so the whole test clears
       # its denominators.
       #
-      # THE DEGENERATE GRID IS A KNOWN HOLE. Two shapes have no cell wholly under the roof
-      # anywhere and come out entirely void: a gable one or two COLUMNS wide, where the
-      # roof line is at zero at both ends of every column, and a gable one ROW tall, whose
-      # only row reaches the ridge. The caps cannot stand in for it either -- a cap hangs on
-      # a standing cell and there is none -- so such a gable end is simply open. Over the
-      # seeded worlds that is four ends, all on the church: two of 2 x 1 that the old rule
-      # already voided, and two of 2 x 2 (4.76 m by 3.52 m) that had two cells each. Every
-      # other gable in every world keeps its wall. Closing them wants the caps to be able to
-      # hang on something other than a cell of their own surface.
+      # A GABLE IS NEVER CLIPPED TO NOTHING, and the fallbacks are ranked by how big a lie
+      # each one tells. A cap hangs on a STANDING cell -- that is how it is hidden and
+      # restored with the wall it fills -- so a gable with nothing standing is not a clean
+      # triangle of caps, it is a hole where a wall was.
+      #
+      # Two shapes empty under the strict rule: one ONE ROW tall, whose only row reaches the
+      # ridge and so is wholly under nothing; and one TWO COLUMNS wide, where the roof line
+      # is zero at the outer edge of both. Such a gable keeps what the MIDDLE rule kept,
+      # standing a little proud -- which is the very fault this method exists to fix, and is
+      # still a far smaller lie than a missing gable.
+      #
+      # A gable that is BOTH at once -- two columns and one row -- empties under the middle
+      # rule too, and that is two of Sint-Marcellinus's ends. They keep their bottom course
+      # under the ridge: a rectangle where a very shallow triangle belongs, proud by at most
+      # the rise, which on these is under one cell. What was there before anyone looked was
+      # a 4.76 m hole in the side of a church.
       def self.clip(cols, rows)
+        strict = void_cells(cols, rows) { |col| [ col, col + 1 ].map { |k| cols - (2 * k - cols).abs }.min }
+        return strict unless strict.length == cols * rows
+
+        middle = void_cells(cols, rows) { |col| midline(cols, col) }
+        return middle unless middle.length == cols * rows
+
+        ridge = (0...cols).max_by { |col| midline(cols, col) }
+        under = (0...cols).select { |col| midline(cols, col) == midline(cols, ridge) }
         cols.times.flat_map do |col|
-          low = [ col, col + 1 ].map { |k| cols - (2 * k - cols).abs }.min
+          rows.times.filter_map do |row|
+            next if row.zero? && under.include?(col)
+
+            Surface::Patch.new(col0: col, row0: row, col1: col, row1: row, material: :void)
+          end
+        end
+      end
+
+      # The roof line at a column's MIDDLE, as a numerator over `cols`. The rule every gable
+      # was clipped by until 2026-09-19, kept because the degenerate shapes above still fall
+      # back to it.
+      def self.midline(cols, col)
+        cols - (2 * col + 1 - cols).abs
+      end
+
+      # The cells above a per-column line, as void patches. `line` is in the same units the
+      # callers use: numerator over `cols`, so the comparison stays in integers and a cell
+      # landing exactly on the line is KEPT rather than lost to a float.
+      def self.void_cells(cols, rows)
+        cols.times.flat_map do |col|
+          line = yield(col)
 
           rows.times.filter_map do |row|
-            next if (row + 1) * cols <= rows * low
+            next if (row + 1) * cols <= rows * line
 
             Surface::Patch.new(col0: col, row0: row, col1: col, row1: row, material: :void)
           end
