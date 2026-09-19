@@ -560,11 +560,13 @@ how the pool's ONE material is dressed and how each instance is coloured.
   lands in, and `Interior.partition_reach` intersects the partition's own segment with every
   footprint edge so an L-shaped ring is answered as generally as a rectangle. **A DOOR is
   never reserved away** — a door in a corner is a detail, a door that vanishes is a house you
-  cannot enter — so thirteen corner doors stand and no corner glass does. Measured across the
-  five worlds: 44 row end walls and 26 dwelling faces had a partition behind their glass and
-  now none do, 102 corner panes became 0, and 25 walls of about a thousand lost their last
-  window, nearly all of them faces two or three cells wide where every column is a corner. A
-  blank brick face there is honest in a way a pane with a wall behind it is not.
+  cannot enter — so thirteen corner doors stand, and the only corner GLASS left is the 58
+  cells of geleen's dakkapel fronts, which never pass through `Openings` at all and whose end
+  columns are the window. Measured across the five worlds: 102 corner panes from the opening
+  rules became 0, 44 row end walls and 26 dwelling faces had a partition behind their glass
+  and now none do, and a couple of dozen walls of about a thousand lost their last window —
+  nearly all of them faces two or three cells wide where every column is a corner. A blank
+  brick face there is honest in a way a pane with a wall behind it is not.
 - **A hedge is pieces, a lawn is a picture.** A `row` with `gardens` appends one
   `kind: :hedge` surface per garden (storey −1, one row of cells, the path void) after
   the boxes and before the rubble; it is skipped by the collapse rule by storey, by name
