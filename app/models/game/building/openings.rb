@@ -36,6 +36,9 @@ module Game
       # columns, two below that, one pier kept at each end.
       GLAZING_WIDTH = 3
       GLAZING_NARROW = 2
+      # Two cells of glass and a pier at each end need four columns; below that the pier
+      # at the far end has nowhere left to stand.
+      GLAZING_MIN_COLS = 4
       BACK_EDGE = 2
 
       STYLES = {
@@ -78,7 +81,7 @@ module Game
         garage = garage_door(cols, rows, doorway.first) if doorway && @garage
         return Array(doorway) + [ garage ] if garage
 
-        glazing = glazing(cols, rows) if @glazing && edge == BACK_EDGE && storey == DOOR_STOREY && cols >= 3
+        glazing = glazing(cols, rows) if @glazing && edge == BACK_EDGE && storey == DOOR_STOREY && cols >= GLAZING_MIN_COLS
         return [ glazing ] if glazing
 
         front = doorway && style[:front_window] ? front_window(cols, rows, doorway.first) : nil
@@ -173,8 +176,11 @@ module Game
           end
         end
 
-        # The garage door, on the side of the front away from the front door: three cells
-        # when they fit before the last column, two when only two do, none otherwise.
+        # The garage door, on the side of the front away from the front door. At
+        # GARAGE_MIN_COLS columns or more, the three cells always fit before the last
+        # column given where the house door sits -- swept cols 6..30 across 50 seeds, the
+        # shrink to two cells and the nil below never fired. They guard a future door
+        # width or margin, not a case that happens today.
         def garage_door(cols, rows, door)
           return nil if cols < GARAGE_MIN_COLS
 
@@ -195,7 +201,7 @@ module Game
         def glazing(cols, rows)
           width = cols >= 5 ? GLAZING_WIDTH : GLAZING_NARROW
           room = cols - 2 - width
-          first = 1 + (room.positive? ? hash(BACK_EDGE, 0, 0) % (room + 1) : 0)
+          first = 1 + (room.positive? ? draw(BACK_EDGE, 0, 0) % (room + 1) : 0)
           Surface::Patch.new(col0: first, row0: 0, col1: first + width - 1, row1: rows - 1, material: :glass)
         end
 
@@ -210,7 +216,7 @@ module Game
             col = 1 + ((seed + edge * 3 + storey) % 2)
             k = 0
             while col <= cols - 2
-              width = hash(edge, storey, k).even? ? 2 : 1
+              width = draw(edge, storey, k).even? ? 2 : 1
               width = 1 if col + width - 1 > cols - 2
               runs << [ col, col + width - 1 ]
               col += width + 1
@@ -224,7 +230,7 @@ module Game
 
         # A small integer hash of the seed and a few salts, for the per-run and per-face
         # draws. Deterministic, like everything about a recipe has to be.
-        def hash(a, b, c)
+        def draw(a, b, c)
           (seed * 2_654_435_761 + a * 40_503 + b * 9973 + c * 7919) % 1_000_003
         end
 

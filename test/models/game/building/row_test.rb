@@ -109,7 +109,8 @@ class Game::Building::RowTest < ActiveSupport::TestCase
   end
 
   # A three-metre door is a garage. A dwelling's front is a one-cell door with a two-cell
-  # window beside it, a pier between; upstairs the windows go every other column as before.
+  # window beside it, a pier between; upstairs the windows come in runs of one or two
+  # cells, asserted in full by "upstairs windows come in runs..." below.
   test "a dwelling's front is a one-cell door with a two-cell window beside it, and no lintel" do
     set = pair
     walls = set.surfaces.select { |s| s.kind == :wall }
@@ -562,6 +563,22 @@ class Game::Building::RowTest < ActiveSupport::TestCase
     assert_operator walls[7].patches.count { |p| p.material == :glass }, :>=, 1
     # The unflagged neighbour's back keeps its runs.
     assert_operator walls[2].patches.count { |p| p.material == :glass }, :>=, 1
+  end
+
+  # "Glass floor to ceiling, a pier kept at each end" needs four columns: two for the
+  # glass, one for each pier. A 3 m dwelling at 1 m cells is a 3-column back, too narrow
+  # for that pier at the far end, so it gets no glazing at all.
+  test "a glazed dwelling too narrow for a pier at each end gets no glazing" do
+    set = pair("dwellings" => [ { "x0" => 0.0, "x1" => 3.0, "glazing" => true }, { "x0" => 3.0, "x1" => 12.0 } ])
+    back = set.surfaces.select { |s| s.kind == :wall }[2]
+
+    assert_equal 3, back.cols, "a 3 m dwelling at 1 m cells is a 3-column back wall"
+    assert back.patches.none? { |p| p.row1 == back.rows - 1 && p.row0 == 0 },
+           "no floor-to-ceiling glazing on a face too narrow to keep a pier at each end"
+    # At this seed a plain 3-column face draws no run either -- a run has to start at
+    # column 1 or 2 and end by cols - 2 = 1, and this face's seed starts it at 2, so there
+    # is nothing left to assert beyond the invariant above: the face is bare, not proven
+    # to keep a window.
   end
 
   # The one style the hand-made worlds are built from does not move.
