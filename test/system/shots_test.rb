@@ -167,7 +167,7 @@ class ShotsTest < ApplicationSystemTestCase
     # with "estate-" and `find` takes whichever comes first (confirmed by dumping the
     # resolved id from inside the actual test run: category was "shed", not "house").
     #
-    # `park_behind`'s bounding-box heuristic does not work here even once the right
+    # Parking off the footprint's bounding box does not work here even once the right
     # dwelling is found: this estate's plots are irregular L-shapes with rear extensions,
     # so "past the footprint's deepest point" can stand hard against a RETURN wall at a
     # right angle to the glazing rather than in the garden it looks onto -- confirmed live,
@@ -250,19 +250,8 @@ class ShotsTest < ApplicationSystemTestCase
       park(ox + lx * Math.cos(yaw) - lz * Math.sin(yaw), oz + lx * Math.sin(yaw) + lz * Math.cos(yaw), yaw: -(yaw + facing))
     end
 
-    # Behind a row, looking at its back.
-    def park_behind(id, back:)
-      spec = page.evaluate_script("window.__arenaBuildingSpec(arguments[0])", id)
-      ring = WorldObject.find(id).recipe.fetch("footprint")
-      lx = (ring.map(&:first).min + ring.map(&:first).max) / 2.0
-      lz = ring.map(&:last).max + back
-      ox, _, oz = spec.fetch("o")
-      yaw = spec.fetch("yaw")
-      park(ox + lx * Math.cos(yaw) - lz * Math.sin(yaw), oz + lx * Math.sin(yaw) + lz * Math.cos(yaw), yaw: Math.atan2(-Math.sin(yaw), Math.cos(yaw)) + Math::PI)
-    end
-
     # Off a specific WALL's own normal rather than the building's bounding box -- see the
-    # comment at the call site for why `park_behind` cannot stand in for this on a plot
+    # comment at the call site for why a bounding box cannot stand in for this on a plot
     # this irregular. `wall` is `{ id, o: <building o>, surf: <surface spec> }`; `surf.o`,
     # `.n` and `.u` are already rotated into world orientation (Surface#rotated), so only
     # the building's own translation is added, never its yaw.
