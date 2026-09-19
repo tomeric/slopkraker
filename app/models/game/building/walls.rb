@@ -61,9 +61,14 @@ module Game
       # imported ring makes no such promise: PostGIS hands Import::Rows#ring whichever way
       # the source geometry wound, and 58 of geleen's 93 box rings run the other way, where
       # u x v already points out and this returns +1.
+      # A degenerate ring -- fewer than three distinct points, or three collinear ones --
+      # sums to zero and has no inside to point away from. It falls to -1 rather than +1 so
+      # that "no information" agrees with every other default in the codebase (Surface's own
+      # `outward:`, the hand-laid winding, a party wall), which keeps a broken ring drawing
+      # what an unwound one draws instead of mirroring its pipes on its own.
       def self.outward(ring)
         area = ring.each_with_index.sum { |(x1, z1), i| x2, z2 = ring[(i + 1) % ring.length]; x1 * z2 - x2 * z1 }
-        area.positive? ? -1 : 1
+        area.negative? ? 1 : -1
       end
     end
   end

@@ -46,17 +46,19 @@ module Game
         row.storeys.times { |s| built << wall(row, [ row.x1, row.z0 ], [ row.x1, row.z1 ], storey: s, openings: Openings.new(seed: row.seed + 7, style: :annex), edge: 1, bay: n - 1, outward: -1) }
         row.storeys.times { |s| built << wall(row, [ row.x0, row.z1 ], [ row.x0, row.z0 ], storey: s, openings: Openings.new(seed: row.seed + 11, style: :annex), edge: 3, bay: 0, outward: -1) }
         row.party_lines.each_with_index do |x, i|
-          # A party wall has no outside at all -- it stands between two dwellings -- so
-          # outward is moot here rather than meaningful; -1 because every wall needs some
-          # value, and this is the one every hand-laid ring already uses.
-          row.storeys.times { |s| built << wall(row, [ x, row.z0 ], [ x, row.z1 ], storey: s, openings: nil, edge: 5, between: [ i, i + 1 ], outward: -1) }
+          # A party wall has no outside at all -- it stands between two dwellings -- so it
+          # gets no rainwater goods (a downpipe here runs full storey height INSIDE the
+          # terrace, which is 52 of geleen's 911) and `outward` is moot rather than
+          # meaningful: -1 because every wall needs some value, and this is the one every
+          # hand-laid ring already uses.
+          row.storeys.times { |s| built << wall(row, [ x, row.z0 ], [ x, row.z1 ], storey: s, openings: nil, edge: 5, between: [ i, i + 1 ], outward: -1, fittings: false) }
         end
         row.dwellings.each_with_index { |d, i| built.concat Interior.build(rectangle(row, d.x0, d.x1)).map { |s| tagged(s, i) } }
         row.dwellings.each_with_index { |d, i| built.concat roof_section(row, d, i); built.concat dormer(row, d, i); built.concat chimney(row, d, i) }
         built
       end
 
-      def self.wall(row, from, to, storey:, openings:, edge:, bay: 0, between: nil, storeys: row.storeys, storey_height: row.storey_height, seed: row.seed, outward: -1)
+      def self.wall(row, from, to, storey:, openings:, edge:, bay: 0, between: nil, storeys: row.storeys, storey_height: row.storey_height, seed: row.seed, outward: -1, fittings: true)
         along = Vector3.new(to[0] - from[0], 0.0, to[1] - from[1])
         cols = Walls.cells(along.length, row.cell)
         rows = Walls.cells(storey_height, row.cell)
@@ -65,7 +67,7 @@ module Game
           origin: Vector3.new(from[0], storey * storey_height, from[1]), u: along.normalised, v: UP,
           width: along.length, height: storey_height, cols: cols, rows: rows, thickness: Walls::THICKNESS,
           patches: openings ? openings.for_wall(edge: edge, storey: storey, cols: cols, rows: rows) : [],
-          seed: seed, bay: bay, between: between, outward: outward
+          seed: seed, bay: bay, between: between, outward: outward, fittings: fittings
         )
       end
 
@@ -79,11 +81,16 @@ module Game
         )
       end
 
+      # Rebuilds a surface with a bay on it. EVERY keyword Surface takes has to be carried
+      # here or it silently reverts to its default: today only floors, partitions, roofs and
+      # gables come through, all of them at the defaults, so a dropped keyword changes
+      # nothing -- which is exactly the long fuse this codebase keeps finding. Carry them.
       def self.tagged(surface, bay)
         Surface.new(
           kind: surface.kind, storey: surface.storey, material: surface.material, origin: surface.origin, u: surface.u, v: surface.v,
           width: surface.width, height: surface.height, cols: surface.cols, rows: surface.rows, thickness: surface.thickness,
-          patches: surface.patches, seed: surface.seed, mix: surface.mix, bay: bay
+          patches: surface.patches, seed: surface.seed, mix: surface.mix, bay: bay,
+          between: surface.between, bays: surface.bays, fittings: surface.fittings, outward: surface.outward
         )
       end
 

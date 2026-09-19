@@ -95,6 +95,28 @@ class Game::Building::RowTest < ActiveSupport::TestCase
     assert walls.none? { |s| s.to_spec.key?(:out) }, "-1 is the default and ships no key"
     assert_equal [ 1 ] * 3, reversed_walls.map(&:outward), "wound the other way, u x v already points out"
     assert_equal [ 1 ] * 3, reversed_walls.map { |s| s.to_spec[:out] }
+
+    # The two assertions above are RELATIONAL -- a ring and its reverse disagree -- and would
+    # pass just as happily with the whole convention inverted, both windings pushing their
+    # pipes indoors. This one is geometric: push half a metre along outward * n from the
+    # middle of each wall of a KNOWN ring, and land outside it; push the other way and land
+    # inside. It fails the moment the sign means the opposite of what it is named.
+    (walls + reversed_walls).each do |wall|
+      mid = [ wall.origin.x + wall.u.x * wall.width / 2, wall.origin.z + wall.u.z * wall.width / 2 ]
+      step = [ wall.normal.x * wall.outward * 0.5, wall.normal.z * wall.outward * 0.5 ]
+
+      refute inside?(annex["ring"], [ mid[0] + step[0], mid[1] + step[1] ]), "outward pushes out of the ring"
+      assert inside?(annex["ring"], [ mid[0] - step[0], mid[1] - step[1] ]), "and the other way is the room"
+    end
+  end
+
+  # Ray casting, so the geometric assertion above does not depend on the ring being a box.
+  def inside?(ring, point)
+    x, z = point
+    ring.each_with_index.count { |(x1, z1), i|
+      x2, z2 = ring[(i + 1) % ring.length]
+      (z1 > z) != (z2 > z) && x < (x2 - x1) * (z - z1) / (z2 - z1) + x1
+    }.odd?
   end
 
   test "a dwelling's own walls are always outward -1, and ship no key" do
@@ -841,10 +863,10 @@ class Game::Building::RowTest < ActiveSupport::TestCase
     assert_equal 0, set.for_bay(1)[:own].count { |s| s.storey == 2 && s.kind == :wall }
   end
 
-  # A dakkapel and a chimney are the exception, not the rule: everything else on a row --
-  # including a dwelling's own front wall, which is exactly where a real downpipe belongs --
-  # keeps the generator's default and ships no key for it.
-  test "fittings is the generator's default everywhere except a dakkapel and a chimney" do
+  # A dakkapel, a chimney and a party wall are the exception, not the rule: everything else
+  # on a row -- including a dwelling's own front wall, which is exactly where a real downpipe
+  # belongs -- keeps the generator's default and ships no key for it.
+  test "fittings is the generator's default everywhere except a dakkapel, a chimney and a party wall" do
     set = pair
     plane = set.surfaces.find { |s| s.kind == :roof }
     gable = set.surfaces.find { |s| s.kind == :gable }
@@ -852,5 +874,20 @@ class Game::Building::RowTest < ActiveSupport::TestCase
 
     assert [ plane, gable, front ].all?(&:fittings)
     assert [ plane, gable, front ].none? { |s| s.to_spec.key?(:fittings) }, "true is the default and ships no key"
+  end
+
+  # A party wall stands BETWEEN two dwellings, so a downpipe on it runs the full height of
+  # the terrace indoors -- 52 of geleen's 911 before this. Its front wall, one surface
+  # earlier in the same list, is exactly where a pipe belongs and keeps one.
+  test "a party wall carries no rainwater goods and a front wall does" do
+    walls = pair.surfaces.select { |s| s.kind == :wall }
+    party = walls[12, 2]
+    fronts = walls.first(4)
+
+    assert_equal [ [ 0, 1 ] ] * 2, party.map(&:between), "the two party walls, one per storey"
+    assert_equal [ false ] * 2, party.map(&:fittings), "no downpipe inside the terrace"
+    assert_equal [ false ] * 2, party.map { |s| s.to_spec[:fittings] }
+    assert fronts.all?(&:fittings), "the dwellings' own walls still drain"
+    assert fronts.none? { |s| s.to_spec.key?(:fittings) }
   end
 end

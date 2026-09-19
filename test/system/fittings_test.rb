@@ -76,7 +76,40 @@ class FittingsTest < ApplicationSystemTestCase
 
     assert target, "no surface shipped fittings: false -- has geleen lost its dormers and chimneys?"
     indices = page.evaluate_script("window.__arenaFittingIndices(arguments[0])", target["id"])
+    # The POSITIVE CONTROL. The refute below passes on an empty list, and an empty list is
+    # what a renamed hook, a building that failed to build or a boot that got this far and
+    # no further all return -- so the one browser check of the user's own instruction would
+    # have gone green on a broken client. That building has walls and a roof, so it has
+    # fittings.
+    refute_empty indices, "this building carries no fitting at all -- the refute below would pass on nothing"
+
     hit = target["ranges"].any? { |off, last| indices.any? { |index| index.between?(off, last) } }
     refute hit, "a fitting was keyed to a piece of a dakkapel's or a chimney's own surface"
+  end
+
+  # A deck has no eaves. Before the pitch guard, a flat roof got a 12 cm bar along whichever
+  # edge its grid called row 0 -- 507 of geleen's 1,529 gutter boxes -- which reads as a kerb
+  # round part of a bounding box. targets is all gable, so this goes to the street, which has
+  # five flat-roofed houses among its twelve.
+  test "a flat roof has no gutter, and its walls keep their downpipes" do
+    visit_world("street", match: "fittings-flat")
+    wait_for(timeout: 40, message: "street never booted") { page.evaluate_script("!!(window.__arena && window.__arena.ready)") }
+
+    flat = page.evaluate_script(<<~JS)
+      (() => {
+        for (const id of window.__arenaBuildingIds()) {
+          const spec = window.__arenaBuildingSpec(id)
+          // A roof plane's v runs up the slope, so a deck's is level.
+          if (spec.surfaces.some((s) => s.kind === "roof" && Math.abs(s.v[1]) < 0.02)) {
+            return { id, readout: window.__arenaFittings(id) }
+          }
+        }
+        return null
+      })()
+    JS
+
+    assert flat, "the street has no flat roof to test the guard on"
+    assert_equal 0, flat["readout"]["gutters"], "a deck is not an eaves"
+    assert_operator flat["readout"]["downpipes"], :>, 0, "but it still drains down its own walls"
   end
 end

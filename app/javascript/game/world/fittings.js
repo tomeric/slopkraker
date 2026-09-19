@@ -51,10 +51,25 @@ export function outward(surface) {
 // same as every other flag omitted at its default, so both guards below check `=== false`
 // rather than treating a merely falsy value as a no.
 
+// How much of a roof plane's up-slope direction has to be vertical before the plane counts
+// as PITCHED. A roof surface's v runs up the slope, so v.y is the sine of the pitch: about
+// 0.49 on the worked terrace, and exactly zero on anything that is really a deck -- a flat
+// box roof, a flat-roofed dwelling's section, a dakkapel's top, a gable row whose ridge sits
+// at its eaves. 0.02 is a pitch of just over one degree, which no roof in any world has and
+// no float error reaches.
+export const PITCHED = 0.02
+
 // One gutter box per column of a roof plane's bottom row, hung just below the eaves edge
 // and just outside it, so it sits under the tiles' lip rather than in them.
+//
+// ONLY on a pitched plane. A deck has no eaves: water does not run off one edge of it, and
+// a 12 cm bar laid along whichever edge the grid happened to call row 0 is a kerb round part
+// of a bounding box rather than a gutter -- 507 of geleen's 1,529 gutter boxes were exactly
+// that. Nothing here touches DOWNPIPES: those hang on walls, and a flat-roofed annexe still
+// drains down its own wall like every other box, so its pipes stay.
 export function gutters(surface) {
   if (surface.kind !== "roof" || surface.fittings === false) return []
+  if (Math.abs(surface.v[1]) < PITCHED) return []
 
   const width = surface.w / surface.cols
   const out = []
