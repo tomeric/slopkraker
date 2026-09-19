@@ -18,9 +18,9 @@ class LooksTest < ApplicationSystemTestCase
 
     assert readout["enabled"]
     assert_equal 2, readout["tile"], "one texture covers two metres of surface"
-    # `door` and `hedge` are the two materials this branch added, so they are the two worth
-    # naming: everything else was painted before either existed.
-    %w[brick roof_tile timber glass plaster concrete door hedge].each do |name|
+    # `door`, `hedge` and `solar` are the materials added since the others, so they are the
+    # ones worth naming: everything else was painted before any of them existed.
+    %w[brick roof_tile timber glass plaster concrete door hedge solar].each do |name|
       assert_includes readout["textured"], name
     end
     refute_includes readout["textured"], "steel", "steel is flat and reflective"

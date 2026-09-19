@@ -135,11 +135,12 @@ class Game::Building::GeneratorTest < ActiveSupport::TestCase
   #
   # door and hedge are excluded on purpose: this is the plain `building` recipe, which
   # keeps its original timber door and never carries a garden. Only a row's Openings and
-  # gardens ever place those two.
+  # gardens ever place those two. solar is excluded for the same reason: the material and
+  # its look exist, but nothing places a panel yet -- that is a later task's patch.
   test "one house carries every material" do
     set = house
     used = set.piece_count.times.map { |i| set.material_at(i).name }.uniq
-    placed_here = Game::Materials.names - %i[door hedge]
+    placed_here = Game::Materials.names - %i[door hedge solar]
 
     assert_equal placed_here.sort, used.sort
   end

@@ -265,4 +265,18 @@ class Game::MaterialsTest < ActiveSupport::TestCase
     assert_operator hedge.toll, :<=, 0.1, "leaves should not slow a car"
     assert_equal "leaves", hedge.look[:pattern]
   end
+
+  # A photovoltaic panel: a sheet of glass on an aluminium frame. As easy to break as a
+  # window, heavier, holds nothing up, and the same colour on every house -- so it takes no
+  # palette role, exactly as glass and steel do not.
+  test "a solar panel is glass on a frame and takes no palette" do
+    solar = Game::Materials.fetch(:solar)
+
+    assert_nil solar.role
+    refute_predicate solar, :structural?
+    assert_operator solar.health_per_m2, :<, Game::Materials.fetch(:roof_tile).health_per_m2
+    assert_operator solar.density, :>, Game::Materials.fetch(:glass).density * 0.5
+    assert_equal "panels", solar.look[:pattern]
+    assert_equal 0.0, solar.hardness
+  end
 end

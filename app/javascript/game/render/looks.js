@@ -26,7 +26,7 @@ export const SIZE = 512
 const PX = SIZE / TILE
 // Patterns this file paints. Ruby's Material::PATTERNS is the same list, and
 // materials_test holds every material's look to it.
-export const PATTERNS = [ "brick", "tiles", "planks", "plaster", "concrete", "glass", "leaves" ]
+export const PATTERNS = [ "brick", "tiles", "planks", "plaster", "concrete", "glass", "leaves", "panels" ]
 
 export class Looks {
   constructor(materials, quality, renderer = null) {
@@ -336,6 +336,37 @@ function tiles(ctx, hctx, rctx, look, spec) {
   }
 }
 
+// Photovoltaic cells: a dark field divided into small squares by light busbars, with a
+// brighter frame at each module's edge. `unit` is [cell, module] in metres; the module
+// frame is what stops a roof of panels reading as one black rectangle.
+function panels(ctx, hctx, rctx, look, spec) {
+  const cells = perTile(look.unit[0])
+  const modules = perTile(look.unit[1])
+  const cw = SIZE / cells
+  const mw = SIZE / modules
+  const line = Math.max(1, look.joint * PX)
+  // The field is the dark one here: the base is the LIGHT busbar colour and the cells are
+  // it multiplied down, which is the opposite way round from brick and is why joint_shade
+  // is above one rather than below.
+  fill(ctx, shade(look.base, 1 / look.joint_shade))
+  fill(hctx, grey(0.9))
+  fill(rctx, grey(spec.roughness ?? 0.25))
+  for (let r = 0; r < cells; r += 1) {
+    for (let c = 0; c < cells; c += 1) {
+      const value = 1 + (noise(r, c, 10) - 0.5) * 2 * look.variation
+      box(ctx, shade(look.base, value / look.joint_shade), c * cw + line, r * cw + line, cw - 2 * line, cw - 2 * line)
+      box(hctx, grey(0.55), c * cw + line, r * cw + line, cw - 2 * line, cw - 2 * line)
+    }
+  }
+  // The module frame, over the cells: two bands per module edge, in the base colour.
+  for (let m = 0; m <= modules; m += 1) {
+    box(ctx, look.base, m * mw - line, 0, 2 * line, SIZE)
+    box(ctx, look.base, 0, m * mw - line, SIZE, 2 * line)
+    box(hctx, grey(1.0), m * mw - line, 0, 2 * line, SIZE)
+    box(hctx, grey(1.0), 0, m * mw - line, SIZE, 2 * line)
+  }
+}
+
 // Boards `unit[0]` wide running up the surface's v axis -- up a door, along a deck -- with
 // a dark seam between and a little grain along them.
 function planks(ctx, hctx, rctx, look, spec) {
@@ -449,7 +480,7 @@ function blot(ctx, colour, x, y, r, alpha) {
   ctx.globalAlpha = 1
 }
 
-const PAINTERS = { brick, tiles, planks, plaster, concrete, glass, leaves }
+const PAINTERS = { brick, tiles, planks, plaster, concrete, glass, leaves, panels }
 
 // A tangent-space normal map from a height canvas by central differences, wrapping at
 // the edges so the tile stays seamless. Canvas y grows downward and texture v upward, so

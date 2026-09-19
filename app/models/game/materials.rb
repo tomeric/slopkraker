@@ -111,6 +111,25 @@ module Game
         role: :roof_tile
       ),
 
+      # A photovoltaic panel: a sheet of glass on an aluminium frame, lying on the tiles.
+      # As easy to break as a window and rather heavier, holding nothing up. No palette
+      # role -- a panel is the same near-black on every house, and a red-brick terrace with
+      # red panels would be a strange sight.
+      solar: Material.new(
+        name: :solar, colour: "#1b2530",
+        health_per_m2: 0.6, density: 1600.0,
+        structural_weight: 0.0,
+        multipliers: { impact: 2.4, blast: 2.2, blade: 1.8, bull_bar: 1.8, slam: 1.8 },
+        fracture: { method: "voronoi", mode: "2.5D", fragments: 14, project_along_normal: true },
+        friction: 0.4, restitution: 0.08,
+        metalness: 0.3, roughness: 0.25,
+        chunk: { size: [ 0.45, 0.04, 0.35 ], vary: 0.40, jitter: 0.35 },
+        # A near-black field divided into cells, with a lighter frame round each module.
+        # `unit` is the cell and the module: 0.16 m cells inside a 1 m module.
+        look: { pattern: "panels", unit: [ 0.16, 1.0 ], joint: 0.008, joint_shade: 1.6,
+                variation: 0.05, relief: 0.25, base: "#e8ecf2" }
+      ),
+
       # Dents rather than fragments. Present so there is something that simply will not
       # break, which makes everything that does feel like a choice.
       steel: Material.new(

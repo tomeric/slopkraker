@@ -15,7 +15,7 @@ module Game
 
     # What the client knows how to paint. Ruby's list and looks.js's PATTERNS are the same
     # list, and materials_test holds every material's look to this one.
-    PATTERNS = %w[brick tiles planks plaster concrete glass leaves].freeze
+    PATTERNS = %w[brick tiles planks plaster concrete glass leaves panels].freeze
 
     attr_reader :name, :health_per_m2, :density, :hardness, :structural_weight,
                 :multipliers, :fracture, :colour, :friction, :restitution,
