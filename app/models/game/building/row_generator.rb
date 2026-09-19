@@ -38,19 +38,23 @@ module Game
 
         n = row.dwellings.length
         built = []
+        # WHERE EVERY DWELLING'S PARTITION LANDS, asked of the module that decides where it
+        # stands. `rectangle(row, d.x0, d.x1)` is exactly what step 4 hands `Interior`, so
+        # the columns kept clear of glass are worked out from the same line the slab is
+        # drawn on -- and a row now gets the one answer a free-standing house's `Walls`
+        # gets, by the same arithmetic, rather than a second and blunter one of its own.
+        # A fraction range per EDGE of that rectangle, in its own order: 0 is the
+        # dwelling's front, 2 its back, 1 the wall at x1 and 3 the wall at x0.
+        reaches = row.dwellings.map { |d| Interior.partition_reach(rectangle(row, d.x0, d.x1)) }
         row.dwellings.each_with_index do |d, i|
           openings = Openings.new(seed: row.seed + i, style: :house, garage: d.garage, glazing: d.glazing)
-          # The dwelling's own partition, where it runs ACROSS the row: it then meets this
-          # dwelling's front and back at their middle column rather than the row's ends.
-          crossing = across_depth?(row, d) ? [] : [ partition_column(d.width, row.cell) ]
-          row.storeys.times { |s| built << wall(row, [ d.x0, row.z0 ], [ d.x1, row.z0 ], storey: s, openings: openings, edge: 0, bay: i, outward: -1, reserved: crossing) }
-          row.storeys.times { |s| built << wall(row, [ d.x1, row.z1 ], [ d.x0, row.z1 ], storey: s, openings: openings, edge: 2, bay: i, outward: -1, reserved: crossing) }
+          row.storeys.times { |s| built << wall(row, [ d.x0, row.z0 ], [ d.x1, row.z0 ], storey: s, openings: openings, edge: 0, bay: i, outward: -1, crossed: [ reaches[i][0] ]) }
+          row.storeys.times { |s| built << wall(row, [ d.x1, row.z1 ], [ d.x0, row.z1 ], storey: s, openings: openings, edge: 2, bay: i, outward: -1, crossed: [ reaches[i][2] ]) }
         end
-        # And where a partition runs ALONG the row it reaches the end wall instead, at that
-        # wall's middle column -- the first dwelling's at x0, the last dwelling's at x1.
-        along = [ row.dwellings.first, row.dwellings.last ].map { |d| across_depth?(row, d) ? [ partition_column(row.depth, row.cell) ] : [] }
-        row.storeys.times { |s| built << wall(row, [ row.x1, row.z0 ], [ row.x1, row.z1 ], storey: s, openings: Openings.new(seed: row.seed + 7, style: :annex), edge: 1, bay: n - 1, outward: -1, reserved: along.last) }
-        row.storeys.times { |s| built << wall(row, [ row.x0, row.z1 ], [ row.x0, row.z0 ], storey: s, openings: Openings.new(seed: row.seed + 11, style: :annex), edge: 3, bay: 0, outward: -1, reserved: along.first) }
+        # The two end walls are edges of the first and the last dwelling's rectangle, and
+        # run the same way round: the partition that reaches ALONG the row lands on them.
+        row.storeys.times { |s| built << wall(row, [ row.x1, row.z0 ], [ row.x1, row.z1 ], storey: s, openings: Openings.new(seed: row.seed + 7, style: :annex), edge: 1, bay: n - 1, outward: -1, crossed: [ reaches.last[1] ]) }
+        row.storeys.times { |s| built << wall(row, [ row.x0, row.z1 ], [ row.x0, row.z0 ], storey: s, openings: Openings.new(seed: row.seed + 11, style: :annex), edge: 3, bay: 0, outward: -1, crossed: [ reaches.first[3] ]) }
         row.party_lines.each_with_index do |x, i|
           # A party wall has no outside at all -- it stands between two dwellings -- so it
           # gets no rainwater goods (a downpipe here runs full storey height INSIDE the
@@ -64,42 +68,130 @@ module Game
         built
       end
 
-      # WHICH WAY A DWELLING'S PARTITION RUNS, AND WHERE IT LANDS. These two and step 4's
-      # `Interior.build` must move together: Interior lays one partition down the middle of
-      # the SHORT axis of the rectangle it is handed (`Recipe#ridge_along_z?`), and these
-      # say which wall that partition meets and in which column, so the glass can be kept
-      # out of it. Worked out here rather than read back off Interior because a partition
-      # surface is a plane in the row's frame, not a column of some other wall's grid --
-      # and asking the grid the same question twice is how the two drift apart.
-      #
-      # `rectangle(row, d.x0, d.x1)` is what Interior is handed, so its depth is the row's
-      # and its width is the dwelling's. Deeper than it is wide -- the usual terrace -- and
-      # the partition runs ALONG the row at mid-depth, reaching the row's end walls; wider
-      # than it is deep and it runs ACROSS at mid-width, reaching that dwelling's own front
-      # and back. Measured on geleen: 37 dwellings the first way and 12 the second.
-      def self.across_depth?(row, dwelling) = row.depth >= dwelling.width
-
-      # The column the partition lands in: it stands at half the extent, a column is
-      # `extent / cols` wide, so it is `((extent / 2) / (extent / cols)).floor` -- the
-      # middle column. Clamped, because a one-column wall has only column zero to offer.
-      def self.partition_column(extent, cell)
-        cols = Walls.cells(extent, cell)
-        [ cols / 2, cols - 1 ].min
-      end
-
-      def self.wall(row, from, to, storey:, openings:, edge:, bay: 0, between: nil, storeys: row.storeys, storey_height: row.storey_height, seed: row.seed, outward: -1, fittings: true, reserved: [])
+      def self.wall(row, from, to, storey:, openings:, edge:, bay: 0, between: nil, storeys: row.storeys, storey_height: row.storey_height, seed: row.seed, outward: -1, fittings: true, crossed: [], except: nil)
         along = Vector3.new(to[0] - from[0], 0.0, to[1] - from[1])
         cols = Walls.cells(along.length, row.cell)
         rows = Walls.cells(storey_height, row.cell)
+        # The corners always, because a ring closes and every edge meets another at both
+        # ends. Then every other stretch of this wall something lands on: the partition the
+        # caller hands down, and the boxes, which are asked for here rather than passed in
+        # because a box is a fact about the ROW and every wall the row builds is behind the
+        # same ones. Both arrive as fraction ranges and `Walls.columns` turns them into
+        # columns against THIS grid -- `cols` is rounded off the wall's own length, and a
+        # second place rounding a second length is how two answers to one question start
+        # disagreeing by a cell.
+        reserved = [ 0, cols - 1 ]
+        if openings
+          spans = crossed + annexes(row, from, to, storey: storey, storey_height: storey_height, rows: rows, outward: outward, except: except)
+          spans.each { |span| reserved |= Walls.columns(span, cols) }
+        end
         Surface.new(
           kind: :wall, storey: storey, material: Materials.fetch(:brick),
           origin: Vector3.new(from[0], storey * storey_height, from[1]), u: along.normalised, v: UP,
           width: along.length, height: storey_height, cols: cols, rows: rows, thickness: Walls::THICKNESS,
-          # The corners always, because a ring closes and every edge meets another at both
-          # ends; whatever the caller knows crosses this wall on top of that.
-          patches: openings ? openings.for_wall(edge: edge, storey: storey, cols: cols, rows: rows, reserved: [ 0, cols - 1 ] + reserved) : [],
+          patches: openings ? openings.for_wall(edge: edge, storey: storey, cols: cols, rows: rows, reserved: reserved) : [],
           seed: seed, bay: bay, between: between, outward: outward, fittings: fittings
         )
+      end
+
+      # How far past a wall's own outer face a box has to reach to be standing against it:
+      # half the wall, and a centimetre more so that a ring laid flush with the wall's line
+      # -- which is how the importer writes an annexe that touches the house -- comes out
+      # inside the ring rather than exactly on its boundary.
+      AGAINST = Walls::THICKNESS / 2 + 0.01
+      # Two rings grazing each other at a corner is not a box in front of a window, and a
+      # crossing of a few microns rounds down into a column all the same. Shorter than this
+      # and the box is not standing against anything.
+      GRAZE = 0.05
+
+      # WHICH STRETCHES OF THIS WALL A BOX STANDS AGAINST, as fraction ranges along it --
+      # the same currency `Interior.partition_reach` answers in, so `wall` turns the two
+      # into columns the one way. An annexe, a shed or a church wing built against a row's
+      # front, back or end covers that part of the face, and a window there glazes into its
+      # brick. Measured over every world before this: 228 panes on a row's own faces had a
+      # box behind them, 153 of them wholly behind one, over 22 of the 48 rows -- worst
+      # church-row-10 at 31 and church-row-6 at 28. The hand-made worlds have no boxes and
+      # no row recipes, so none of this reaches them.
+      #
+      # BUILT AGAINST THE FACE, never merely overlapping the footprint. The question asked
+      # is whether the box occupies the space immediately OUTSIDE this wall, so the wall's
+      # own line is pushed out by AGAINST before the ring is asked. A shed that laps over
+      # the row's outline and stops short of its outer skin is inside the building rather
+      # than in front of it and hides no window -- two panes on geleen are exactly that,
+      # and they keep their glass.
+      #
+      # ONLY THE STOREYS THE BOX REACHES, and the bar is the SILL rather than the floor or
+      # the ceiling. A one-storey shed hides the ground floor of the two-storey house
+      # behind it and nothing above it; the bedroom window over the shed roof is a window,
+      # not a fault, and a shed 3 cm taller than the storey below it must not blank that
+      # bedroom. But a box whose wall rises into the course the glass sits on IS behind that
+      # glass, however little of it -- which is the same bar the partition is held to, where
+      # a slab touching any part of a column reserves the whole column. A box's walls stop
+      # at its eaves, and `Openings#sill` puts the glass one course above the floor, so that
+      # course is the line and not the middle of the storey: measured with the middle, four
+      # panes of geleen kept their glass with a flat annexe roof across the bottom third of
+      # them.
+      def self.annexes(row, from, to, storey:, storey_height:, rows:, outward:, except: nil)
+        return [] if row.boxes.empty?
+
+        dx, dz = to[0] - from[0], to[1] - from[1]
+        length = Math.hypot(dx, dz)
+        return [] if length < 1e-6
+
+        # A wall's own normal is u x v = (-u.z, 0, u.x) with v = UP, and `outward` is the
+        # sign that turns that into the direction pointing away from the building: see
+        # Walls.outward, which is where a box's own ring winding is read off.
+        push = AGAINST * outward
+        nx = -dz / length * push
+        nz = dx / length * push
+        a = [ from[0] + nx, from[1] + nz ]
+        b = [ to[0] + nx, to[1] + nz ]
+        sill = (storey + [ Openings::SILL_ROW, rows - 1 ].min.fdiv(rows)) * storey_height
+
+        row.boxes.flat_map do |box|
+          next [] if box.equal?(except) || box.eaves <= sill
+
+          x0, z0, x1, z1 = box.bounds
+          next [] if [ a[0], b[0] ].min > x1 || [ a[0], b[0] ].max < x0
+          next [] if [ a[1], b[1] ].min > z1 || [ a[1], b[1] ].max < z0
+
+          spans_inside(a, b, box.ring, length)
+        end
+      end
+
+      # The stretches of the segment a -> b that lie inside the ring, as fraction ranges.
+      # Cut the segment wherever it crosses an edge of the ring and keep the pieces whose
+      # middle is inside: exact for a ring of any shape, where sampling the wall at some
+      # spacing would step over a thin wing and a per-column centre test would miss a box
+      # that covers most of a column without covering the middle of it.
+      def self.spans_inside(a, b, ring, length)
+        dx, dz = b[0] - a[0], b[1] - a[1]
+        cuts = [ 0.0, 1.0 ]
+        edges(ring).each do |p, q|
+          t = crossing(a, dx, dz, p, q)
+          cuts << t if t
+        end
+        cuts.sort.each_cons(2).filter_map do |t0, t1|
+          next if (t1 - t0) * length < GRAZE
+
+          middle = (t0 + t1) / 2
+          next unless Rubble.contains?(ring, a[0] + dx * middle, a[1] + dz * middle)
+
+          [ t0, t1 ]
+        end
+      end
+
+      # How far along a -> b it crosses the segment p -> q, or nil where the two are
+      # parallel or the crossing falls off the end of either.
+      def self.crossing(a, dx, dz, p, q)
+        sx, sz = q[0] - p[0], q[1] - p[1]
+        cross = dx * sz - dz * sx
+        return nil if cross.abs <= Interior::PARALLEL * Math.hypot(dx, dz) * Math.hypot(sx, sz)
+
+        ox, oz = p[0] - a[0], p[1] - a[1]
+        t = (ox * sz - oz * sx) / cross
+        u = (ox * dz - oz * dx) / cross
+        t.between?(0.0, 1.0) && u.between?(0.0, 1.0) ? t : nil
       end
 
       # A single-house Recipe over a rectangle of the row, so Interior and Roof can be
@@ -446,9 +538,14 @@ module Game
 
             kept << [ from, to, box.storeys * box.storey_height ]
             storeys.each do |s|
+              # `except` is this box itself: the probe that asks what stands against this
+              # wall is a centimetre outside its own skin, and a ring is not behind its own
+              # wall. Every OTHER box counts -- `covered_to` only drops a wall an EARLIER
+              # box swallows whole, so a later one lapping over part of this edge leaves it
+              # standing with its windows looking into that box's brick.
               built << wall(row, from, to, storey: s, openings: openings, edge: box.door && e.zero? ? 0 : 1 + e,
                             bay: box.bay, storeys: box.storeys, storey_height: box.storey_height, seed: row.seed + 100 + i,
-                            outward: out)
+                            outward: out, except: box)
             end
           end
           # Per box rather than per edge, so these are unchanged: a deck is void where it

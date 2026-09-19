@@ -551,22 +551,38 @@ how the pool's ONE material is dressed and how each instance is coloured.
   a roof would be the DRAWING mechanism the gutters and the caps use.
 - **No opening stands in a column another wall lands in.** Two walls meeting at a corner each
   straddle their own plane, so the perpendicular one eats half a thickness into the end cell;
-  an interior partition does the same in the middle of the wall it meets. Both put a wall a
-  hand's breadth behind the glass. `Openings#for_wall` takes **`reserved:`**, the columns its
-  CALLER knows are crossed, and keeps every window run, front window and glazed back out of
-  them — shortening a run to its longest clear stretch rather than dropping it where it can.
-  The caller works the list out because the caller is the only thing that knows the building:
-  `Walls` always adds `[0, cols - 1]`, `RowGenerator` adds the column its dwelling's partition
-  lands in, and `Interior.partition_reach` intersects the partition's own segment with every
-  footprint edge so an L-shaped ring is answered as generally as a rectangle. **A DOOR is
-  never reserved away** — a door in a corner is a detail, a door that vanishes is a house you
-  cannot enter — so thirteen corner doors stand, and the only corner GLASS left is the 58
-  cells of geleen's dakkapel fronts, which never pass through `Openings` at all and whose end
-  columns are the window. Measured across the five worlds: 102 corner panes from the opening
-  rules became 0, 44 row end walls and 26 dwelling faces had a partition behind their glass
-  and now none do, and a couple of dozen walls of about a thousand lost their last window —
-  nearly all of them faces two or three cells wide where every column is a corner. A blank
-  brick face there is honest in a way a pane with a wall behind it is not.
+  an interior partition does the same in the middle of the wall it meets; and a box — an
+  annexe, a shed, a church wing — built against a face covers it from outside. All three put
+  a wall a hand's breadth behind the glass. `Openings#for_wall` takes **`reserved:`**, the
+  columns its CALLER knows are crossed, and keeps every window run, front window and glazed
+  back out of them — shortening a run to its longest clear stretch rather than dropping it
+  where it can. The caller works the list out because the caller is the only thing that knows
+  the building, and **there is one answer to each question rather than one per caller**:
+  `Walls` always adds `[0, cols - 1]` and `RowGenerator` does the same; `Interior.partition_reach`
+  intersects the partition's own segment with every footprint edge, so an L-shaped ring is
+  answered as generally as a rectangle, and `Walls.columns` turns that fraction range into
+  columns against the wall's OWN grid. A row asks it too, of the very rectangle it hands
+  `Interior`: naming a single middle column instead left the neighbour glazed wherever the
+  crossing fell on a cell boundary, which is every EVEN column count — fifteen panes of
+  geleen. `RowGenerator.annexes` answers the boxes in the same currency, and `wall` asks for
+  them rather than being told, because a box is a fact about the ROW and every wall it puts
+  up stands in front of the same ones. Two things decide it: **against the face, never merely
+  overlapping the footprint** — the probe is a centimetre outside the wall's own outer skin,
+  so a shed lapping over the row and stopping short of it keeps the window, which two panes
+  of geleen are — and **only the storeys the box reaches, measured at the SILL**, so a
+  one-storey shed blanks the ground floor and the bedroom window over its roof stays a
+  window. **A DOOR is never reserved away** — a door in a corner is a detail, a door that
+  vanishes is a house you cannot enter — so thirteen corner doors stand, and the only corner
+  GLASS left is the 58 cells of geleen's dakkapel fronts, which never pass through `Openings`
+  at all and whose end columns are the window. Measured by a geometric sweep over all five
+  worlds that consults no reserved list and so cannot be circular with the rule: 102 corner
+  panes, then 15 with a partition behind them and 289 with a box (192 of them wholly behind
+  one, over 22 of geleen's 48 rows) are all nil now, and glass goes 2004 → 1710. 653 of 1204
+  walls carry none, fifty more than before — none of them a terrace's street front on the
+  estate, every ground floor still with its door, and the three dwellings of forty-nine now
+  blind on both their own faces are church-island rows with another part of the same pand
+  standing across the front and the back. A blank brick face there is honest in a way a pane
+  with a wall behind it is not.
 - **A hedge is pieces, a lawn is a picture.** A `row` with `gardens` appends one
   `kind: :hedge` surface per garden (storey −1, one row of cells, the path void) after
   the boxes and before the rubble; it is skipped by the collapse rule by storey, by name

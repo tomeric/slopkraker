@@ -35,6 +35,11 @@ class Game::Building::RowTest < ActiveSupport::TestCase
       "storeys" => 1, "roof" => "flat", "door" => false, "solid" => false, "bay" => 1, "name" => "annex" }.merge(overrides)
   end
 
+  # Which columns of a wall are glazed, which is the unit a reservation is made in.
+  def glass_columns(wall)
+    wall.patches.select { |p| p.material == :glass }.flat_map { |p| (p.col0..p.col1).to_a }.sort
+  end
+
   # THE CONTRACT. Offsets are handed out in this order; change the order and damage
   # recorded against one wall comes back on another.
   test "the worked example generates exactly what it is supposed to" do
@@ -705,21 +710,57 @@ class Game::Building::RowTest < ActiveSupport::TestCase
   end
 
   # And where a dwelling is WIDER than it is deep the partition turns and meets that
-  # dwelling's own front and back instead. Both readings come from `across_depth?`, which
-  # has to keep agreeing with `Recipe#ridge_along_z?` -- the thing Interior actually asks.
-  test "a dwelling wider than it is deep keeps its glass out of its own middle column" do
+  # dwelling's own front and back instead. WHICH walls and WHICH columns are both
+  # `Interior`'s answer now -- the one a free-standing house's `Walls` already asked for --
+  # rather than a middle column of the row's own reckoning. It matters because the crossing
+  # is a SLAB: where it falls on a cell boundary, which a 6 m face at 1 m cells is exactly,
+  # it lands in BOTH columns. Naming one left the neighbour glazed with 75 mm of plaster
+  # behind it, on fifteen panes of geleen.
+  test "a dwelling wider than it is deep keeps its glass out of both columns its partition lands in" do
     shallow = pair_recipe("band" => [ 0.0, 4.0 ], "footprint" => [ [ 0, 0 ], [ 12, 0 ], [ 12, 4 ], [ 0, 4 ] ])
     row = Game::Building::Row.from(shallow)
+    reach = Game::Building::Interior.partition_reach(Game::Building::RowGenerator.rectangle(row, 0.0, 6.0))
 
-    assert_not Game::Building::RowGenerator.across_depth?(row, row.dwellings.first),
-               "a 6 m dwelling in a 4 m band is wider than it is deep, so its partition turns"
-    assert_equal 3, Game::Building::RowGenerator.partition_column(row.dwellings.first.width, row.cell)
+    assert_equal [ 0, 2 ], reach.each_index.select { |i| reach[i] },
+                 "a 6 m dwelling in a 4 m band is wider than it is deep, so its partition turns and meets its own front and back"
+    assert_equal [ 2, 3 ], Game::Building::Walls.columns(reach[0], 6), "and lands on the boundary between two columns"
+    assert_equal [ 2, 3 ], Game::Building::Walls.columns(reach[2], 6)
 
     front = Game::Building::Generator.call(shallow).surfaces.first
     assert_equal 6, front.cols
     front.rows.times do |r|
-      assert_not_equal :glass, front.material_at(r, 3).name, "the partition lands in column 3 of a 6 m front"
+      [ 2, 3 ].each do |col|
+        assert_not_equal :glass, front.material_at(r, col).name, "the partition lands in column #{col} of a 6 m front"
+      end
     end
+    assert_equal [ 1 ], glass_columns(front), "the face keeps the window it has room for"
+  end
+
+  # THE SAME CROSSING ON A ROW'S END. A partition running ALONG the row meets the end wall,
+  # and an 8 m depth at 1 m cells puts that crossing exactly on the boundary between columns
+  # 3 and 4 -- the even-column case, which is the only one where naming a single middle
+  # column and reading the slab's own reach disagree. At this seed the upstairs end wall
+  # glazed column 3, a hand's breadth in front of the plaster.
+  test "a crossing on a cell boundary takes the glass out of both columns of an end wall" do
+    even = pair_recipe("band" => [ 0.0, 8.0 ], "footprint" => [ [ 0, 0 ], [ 12, 0 ], [ 12, 8 ], [ 0, 8 ] ])
+    row = Game::Building::Row.from(even)
+    first = Game::Building::Interior.partition_reach(Game::Building::RowGenerator.rectangle(row, 0.0, 6.0))
+    last = Game::Building::Interior.partition_reach(Game::Building::RowGenerator.rectangle(row, 6.0, 12.0))
+
+    assert_equal [ 3, 4 ], Game::Building::Walls.columns(first[3], 8), "the end wall at x0 is edge 3 of the first dwelling"
+    assert_equal [ 3, 4 ], Game::Building::Walls.columns(last[1], 8), "and the one at x1 is edge 1 of the last"
+
+    ends = Game::Building::Generator.call(even).surfaces.select { |s| s.kind == :wall }[8, 4]
+    assert_equal [ 8 ] * 4, ends.map(&:cols), "an end wall is the row's 8 m depth at 1 m cells"
+    ends.each do |wall|
+      wall.rows.times do |r|
+        [ 3, 4 ].each do |col|
+          assert_not_equal :glass, wall.material_at(r, col).name, "column #{col} of #{wall.cols} is where the partition lands"
+        end
+      end
+    end
+    assert_equal [ [ 2, 6 ], [ 1, 5 ], [ 2, 6 ], [ 1, 5, 6 ] ], ends.map { |w| glass_columns(w) },
+                 "and the ends keep their other windows"
   end
 
   test "no pane on a row stands in a corner column" do
@@ -736,6 +777,53 @@ class Game::Building::RowTest < ActiveSupport::TestCase
         end
       end
     end
+  end
+
+  # AN ANNEXE IS A WALL TOO. A box built against a row's front, back or end covers that
+  # part of the face, and a window there glazes straight into its brick -- 228 panes over
+  # 22 of geleen's 48 rows before this, 153 of them wholly behind a box. The row knows its
+  # boxes when it builds its walls, so `wall` asks rather than being told: a box is a fact
+  # about the ROW, and every wall the row puts up stands in front of the same ones.
+  test "an annexe takes the glass out of the columns of the face it stands against" do
+    row = Game::Building::Row.from(pair_recipe("boxes" => [ annex ]))
+    plain = pair.surfaces.select { |s| s.kind == :wall }
+    built = pair("boxes" => [ annex ]).surfaces.select { |s| s.kind == :wall }
+
+    # Walls 6 and 7 are the second dwelling's back, which the annex stands against over the
+    # 3 m from x = 6 to x = 9 -- the far half of a wall run from x = 12 back to x = 6.
+    assert_equal [ [ 0.5, 1.0 ] ],
+                 Game::Building::RowGenerator.annexes(row, [ 12.0, 9.0 ], [ 6.0, 9.0 ], storey: 0, storey_height: 3.0, rows: 3, outward: -1)
+    assert_equal [ 1, 2, 4 ], glass_columns(plain[6]), "with nothing behind it that back glazes three columns"
+    assert_equal [ 1, 2 ], glass_columns(built[6]), "and gives up the one standing inside the annex"
+  end
+
+  # ONLY THE STOREYS THE BOX REACHES. A one-storey annex hides the ground floor behind it
+  # and nothing above; the bedroom window over its flat roof is a window, not a fault. Give
+  # the same annex a second storey and that window is behind brick too.
+  test "an annexe covers the storeys it reaches and no others" do
+    plain = pair.surfaces.select { |s| s.kind == :wall }
+    low = pair("boxes" => [ annex ]).surfaces.select { |s| s.kind == :wall }
+    tall = pair("boxes" => [ annex("eaves" => 5.6, "ridge" => 5.6, "storeys" => 2) ]).surfaces.select { |s| s.kind == :wall }
+
+    assert_equal [ 2, 4 ], glass_columns(plain[7]), "the storey above the annex, with nothing behind it"
+    assert_equal [ 2, 4 ], glass_columns(low[7]), "a 2.8 m annex stops below the bedroom window"
+    assert_equal [ 2 ], glass_columns(tall[7]), "a 5.6 m one is behind it"
+    assert_equal glass_columns(low[6]), glass_columns(tall[6]), "and the ground floor is the same either way"
+  end
+
+  # A BOX THAT MERELY OVERLAPS THE ROW'S FOOTPRINT IS NOT ONE BUILT AGAINST ITS FACE. Both
+  # boxes below cover the same 3 m of the row in x, so a rule reading the box's span would
+  # treat them alike; one passes through the back wall and stands outside it, the other
+  # stops 100 mm short of that wall's own line and is inside the building. Only the first
+  # is in front of a window, and only the first takes one.
+  test "a box that laps over the row without reaching its face takes no glass" do
+    lapped = annex("ring" => [ [ 6.0, 6.0 ], [ 9.0, 6.0 ], [ 9.0, 8.9 ], [ 6.0, 8.9 ] ], "name" => "inside")
+    plain = pair.surfaces.select { |s| s.kind == :wall }
+    inside = pair("boxes" => [ lapped ]).surfaces.select { |s| s.kind == :wall }
+    through = pair("boxes" => [ annex ]).surfaces.select { |s| s.kind == :wall }
+
+    assert_equal glass_columns(plain[6]), glass_columns(inside[6]), "a box inside the row is behind no window"
+    assert_not_equal glass_columns(plain[6]), glass_columns(through[6]), "the same box pushed through the wall is"
   end
 
   test "the flags parse and are booleans" do
