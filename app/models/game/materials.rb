@@ -126,9 +126,13 @@ module Game
         fracture: { method: "voronoi", mode: "2.5D", fragments: 14, project_along_normal: true },
         friction: 0.4, restitution: 0.08,
         metalness: 0.3, roughness: 0.25,
-        # A panel LIES ON the tiles rather than replacing them, so it is the thinnest
-        # thing a building is made of: a sheet a quarter of the roof's own thickness.
-        depth: 0.25,
+        # NO depth, deliberately. A panel is a PATCH -- it replaces the tiles it covers
+        # rather than lying on them -- and a depth is centred on the plane, so it can only
+        # ever sink a cell, never stand it proud. At 0.25 a panel became a 50 mm sheet
+        # recessed 75 mm below the tiles, a dark rectangle in a well with a lip of roof
+        # round it, which is the opposite of an array bolted to a roof. A panel that
+        # genuinely stood on the tiles would be the DRAWING mechanism the gutters and the
+        # gable caps use, not this one, and that is a different change.
         chunk: { size: [ 0.45, 0.04, 0.35 ], vary: 0.40, jitter: 0.35 },
         # A near-black field divided into cells, with a lighter frame round each module.
         # `unit` is the cell and the module: 0.16 m cells inside a 1 m module.

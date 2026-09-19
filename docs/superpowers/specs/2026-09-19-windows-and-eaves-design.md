@@ -77,14 +77,32 @@ one number, so `gutters` reads the same constant the overhang does.
 ### 2. A pane is thinner than the wall that holds it: `Material#depth`
 
 `Game::Materials` gains **`depth`** -- the fraction of its surface's thickness a cell of
-this material is *drawn* at, centred on the plane, default `1.0`. `glass` is `0.35`,
-`door` `0.7`, `solar` `0.25`. It ships in the material table and the client scales the
-cell's instance matrix along the surface normal by it.
+this material occupies, centred on the plane, default `1.0`. `glass` is `0.35` and `door`
+is `0.7`. It ships in the material table and the client scales the cell's instance matrix
+along the surface normal by it.
 
-**It is drawing and nothing else.** `health_for`, mass, the collider and every number the
-server reasons about keep using the surface's own thickness, because what holds a wall up
-is the wall, not the pane in it. A thinner collider for glass would be defensible and is
-still not worth having two thicknesses in the physics.
+**Every number the server reasons about keeps using the surface's own thickness.**
+`health_for`, mass and the rubble `mix` are the wall's, because what holds a wall up is the
+wall and not the pane in it.
+
+**The collider is thinner too.** This was written the other way first, on the grounds that
+two thicknesses in the physics were not worth it -- but there are not two. There is one
+matrix per cell, and it feeds the instance and the cuboid alike; keeping the collider at
+full thickness means composing a second matrix for it and holding the pair in step forever,
+which is more machinery than the thing it protects. A 105 mm pane recessed 97.5 mm behind
+the brick face is also the better answer: a blade scraping a wall meets the brick before it
+meets the glass, which is what a wall does.
+
+**`solar` takes NO depth**, and the reason is worth keeping because the first draft of this
+document got it wrong. A panel is a PATCH: it replaces the tiles it covers rather than lying
+on them. A depth is centred on the plane, so it can only sink a cell and never stand it
+proud -- at `0.25` a panel came out as a 50 mm sheet 75 mm below the tiles, a dark rectangle
+in a well. A panel that genuinely stood on a roof would be the DRAWING mechanism the gutters
+and the gable caps use, which is section 1's machinery and a different change.
+
+**A falling slab takes its material's depth as well.** A slab is tiled from cells of one
+material, so `chunkMatrix` can scale by the same factor -- and must, or a pane that stood as
+105 mm falls as 300 mm and visibly fattens in the frame the house is condemned.
 
 ### 3. A dakkapel is a window
 
