@@ -1,0 +1,152 @@
+# Windows and eaves: panes that sit in a wall, and a roof that covers one
+
+Date: 2026-09-19
+Status: designed. Follows `2026-09-19-roof-fittings-design.md`, which put chimneys on the
+ridge, panels on the slope and rainwater goods down the wall. Judged from the same kerb,
+this is what the fittings made visible: the roof does not reach the edge of the wall it
+sits on, and the glass in that wall is in the way of things.
+
+## Why
+
+Four faults, named from the driver's seat and then measured:
+
+1. **A gutter on a flat deck is a kerb, not a gutter.** Already fixed, in the previous
+   phase's commit `75d6c81` -- 507 of geleen's 1,529 gutter boxes were a 120 mm bar along
+   one edge of a bounding box. It is listed here only so the set is complete.
+2. **The roof does not cover the wall.** A roof plane's lower edge sits at `row.z0` --
+   exactly the wall's own plane. A wall is `Walls::THICKNESS` (0.3 m) thick and straddles
+   that plane, so its outer face is 150 mm further out than the lowest tile. Every wall top
+   on the estate has a 150 mm ledge of open sky above it, and the gutter that was just hung
+   "outside and below the eaves line" hangs over that ledge rather than clear of the wall.
+   There is an `OVERHANG` constant (0.4 m) and it is spent entirely along the ridge, past
+   the gables; down the slope there is none.
+3. **A dakkapel is one third window.** Measured: 18 dormer fronts on geleen, every one of
+   them 3 columns by 2 rows with a plaster return in the first and last column -- 2 glass
+   cells out of 6. A dakkapel is a window with a roof over it; that is the whole point of
+   cutting one into a roof.
+4. **Walls run through windows**, in two distinct ways and one of them is the common case:
+   - **An interior partition lands mid-window on 63 of geleen's 94 end walls.** A partition
+     crosses the middle of its dwelling, so it meets the end wall at that wall's middle
+     column, and `annex` windows are free to be in it. From the end of a terrace you look
+     through the glass at a plaster wall a hand's breadth behind it.
+   - **113 openings stand in a corner column** -- 76 on the hand-made `classic` houses, 26
+     glass and 11 doors on rows. Two walls meeting at a corner each straddle their own
+     plane, so the perpendicular wall eats 150 mm into the end cell. On a 1 m cell that is
+     a sixth of the pane buried in brick.
+   - Separately, **the roof is still behind every dakkapel's glass**: nothing voids the roof
+     cells under a dormer, so the window looks into tiles.
+
+And one thing that is not a fault but is the reason the rest look wrong: **a pane is as
+thick as the wall around it**. A `Surface` has one thickness, so a glass cell fills the
+wall's full 300 mm and its face is flush with the brick. Real glass sits in a reveal.
+
+## Constraints carried over
+
+- **Every tuning number lives in Ruby.** Both new numbers here -- the eaves overhang and
+  each material's drawn depth -- are Ruby constants shipped in the spec.
+- **Piece indices are the contract.** Nothing in this phase moves an index: the overhang is
+  drawing, the reveal is drawing, and the opening rules change patches only. **No
+  re-import, and no `piece_count` moves.** Patches are derived from the seed at generation
+  time and are not stored in the fixtures, so a change to where a window goes reaches
+  geleen without the importer running.
+- **Draw calls track materials.** The overhang is instances in the roof material's existing
+  pool, through the attachment store the gable caps introduced.
+- The four hand-made worlds move for the first time, and only in section 4 below. That is a
+  deliberate, argued exception; see there.
+
+## Decisions
+
+### 1. The eaves overhang is drawing, like the gable caps
+
+A roof plane grows `Roof::EAVES_OVERHANG` (0.4 m) down its own slope, past the wall, as one
+instanced box per column of its bottom row -- same material, same thickness, same tint,
+keyed to that bottom-row cell and hidden and restored with it. It goes in the attachment
+store beside the caps, the gutters and the downpipes, and it has no collider, exactly as
+they have none.
+
+**Drawing rather than grid, and the reason is the same one the caps were built on.** Making
+the plane genuinely longer changes its `rows`, which changes every piece index after it,
+which means a re-import of geleen and a new `piece_count` on every fixture -- to move the
+bottom edge of a roof 40 cm. A cap taught this codebase that the fix for "the wall stops
+short of where the eye expects it" is an instance keyed to the cell that does stop there.
+
+**The gutter moves out with it.** `fittings.js` hangs a gutter on the eaves line; the eaves
+line is now the overhang's outer edge, not the wall's plane. The two must be computed from
+one number, so `gutters` reads the same constant the overhang does.
+
+### 2. A pane is thinner than the wall that holds it: `Material#depth`
+
+`Game::Materials` gains **`depth`** -- the fraction of its surface's thickness a cell of
+this material is *drawn* at, centred on the plane, default `1.0`. `glass` is `0.35`,
+`door` `0.7`, `solar` `0.25`. It ships in the material table and the client scales the
+cell's instance matrix along the surface normal by it.
+
+**It is drawing and nothing else.** `health_for`, mass, the collider and every number the
+server reasons about keep using the surface's own thickness, because what holds a wall up
+is the wall, not the pane in it. A thinner collider for glass would be defensible and is
+still not worth having two thicknesses in the physics.
+
+### 3. A dakkapel is a window
+
+Drop the plaster returns from `RowGenerator.dormer`: the front is glass in every cell, at
+every width. The comment that justifies the returns ("under three columns there is no
+middle left to be a window") is inverted by this -- there is no middle because the whole
+face is the window.
+
+And **void the roof cells under the dormer**, so the glass looks into the roof space rather
+than at tiles. The dormer's footprint on the plane is known where it is built; the void
+patch goes on the plane, costs no index, and is the same mechanism a doorway is.
+
+If the phase before this one has already voided them -- its `dormer_plan` was mid-flight
+when this was written -- this reduces to the returns alone. Check before implementing.
+
+### 4. No opening in a column another wall lands in
+
+`Openings#for_wall` gains **`reserved:`**, a list of columns the wall's owner knows are
+crossed. Every window run, front window, garage door and glazing patch is rejected or moved
+off a reserved column; a door is never reserved away, because a door in a corner is a
+detail and a door that vanishes is a house you cannot enter.
+
+The caller computes the list, because the caller is the only thing that knows the building:
+
+- **Always the first and last column**, for every wall of every recipe. Two walls meeting at
+  a corner always overlap by half a thickness; there is no building where this is not true.
+- **The column an interior partition lands in**, for the walls that partition meets. A
+  partition sits at mid-depth, so it is the middle column of each end wall.
+
+**This moves the hand-made worlds, and that is the argued exception.** `classic` has been
+byte-identical to its pre-styles self by rule since the styles arrived, and the rule is
+worth breaking exactly here: the defect is in `classic` too, four panes of the targets
+house are buried in their own corners, and a rule that keeps a known fault frozen is a rule
+that has stopped paying. No index moves -- only which cells are glass -- so the cost is
+`building_test`'s material census, which must be re-measured rather than guessed.
+
+### 5. What is not being done
+
+The wall itself is not shortened. Butting walls at a corner instead of overlapping them
+would change each wall's length, which changes `Walls.cells`, which moves piece indices for
+every building in every world. The overlap is how bricks actually meet; the fault was only
+ever the glass in it.
+
+## Testing
+
+**Ruby.** `materials_test`: every material carries a `depth`, it is in `(0, 1]`, and glass's
+is less than brick's. `openings_test`: a reserved column holds no glass in any style, a run
+that would have covered one is moved or dropped, and a door is placed in one regardless.
+`row_test`: a dormer front is glass in every cell at 2, 3 and 5 columns; the roof plane
+under it carries the void patch; the pinned offsets and the 840-piece count are unchanged.
+`generator_test`: the worked example's offsets and count are unchanged, and its census is
+re-measured.
+
+**Browser.** `fittings_test`: a gutter's outer face is clear of the wall below it, which is
+the assertion the overhang exists for. `eaves_test` (new, `targets` at low): every column of
+a pitched plane's bottom row carries an overhang instance; breaking that cell hides it;
+`__arenaDraws()` is unchanged, because it is the roof's own pool. `building_test`: the
+re-measured census. `shots_test`: re-shoot 20, 22, 25 and 27, and add one close shot of an
+eaves from below, which is the only way to see whether a roof covers a wall.
+
+## Out of scope
+
+Fascia and soffit boards, window frames as geometry, sills, lintels over ordinary windows,
+flashing where a box roof meets a wall, dormer gutters. Shortening walls at corners, per
+section 5.
