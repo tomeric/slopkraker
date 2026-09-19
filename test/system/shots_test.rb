@@ -218,6 +218,51 @@ class ShotsTest < ApplicationSystemTestCase
     Dir.children(SHOTS).sort.each { |f| puts "      #{f}" }
   end
 
+  # The roofs above, and the one shot that has to pick its row by what is ON it rather
+  # than by how long it is. "27-geleen-roofs" photographs a terrace of four, and every
+  # row on this estate carrying TWO stacks is a PAIR -- so the shot meant for looking at
+  # chimneys could not see the four rows that stood theirs 0.95 m apart, reading as one
+  # fat double stack. A pair is also the only shape where the rule has anything to prove:
+  # two dwellings are one party line and one end wall, which is both cases at once.
+  test "photograph a pair of stacks" do
+    skip "set SHOTS=1 to take screenshots" unless ENV["SHOTS"]
+
+    FileUtils.mkdir_p(SHOTS)
+    visit_world("geleen", vehicle: "buggy", quality: "high", match: "shots-geleen-stacks")
+    wait_for(timeout: 120, message: "geleen never booted") { page.evaluate_script("!!(window.__arena && window.__arena.ready)") }
+    wait_for(timeout: 120, message: "the world never stepped") { page.evaluate_script("window.__arena.steps").positive? }
+    sleep 2.0
+    press("g")
+    press("h")
+    sleep 0.6
+
+    # Asked of the generator rather than of the flags: a dwelling can be flagged for a
+    # chimney and still build none (a flat roof, or one narrower than its own stack).
+    pair = World.find_by!(slug: "geleen").world_objects.where(kind: "building").find do |o|
+      next false unless o.recipe["kind"] == "row"
+      row = Game::Building::Row.from(o.recipe)
+      row.dwellings.each_with_index.count { |d, i| Game::Building::RowGenerator.chimney(row, d, i).any? } >= 2
+    end
+    assert pair, "no row on geleen builds two stacks -- has the seed stopped flagging chimneys?"
+    puts "--- two stacks on #{pair.name}"
+
+    # From above the kerb: both stacks in one frame, which is the whole question.
+    park_in_front_of(pair.id, back: 16, y: 11.0, hold: true)
+    shot "28-geleen-paired-stacks"
+
+    # And at the far corner, where the last dwelling's stack now stands astride the gable
+    # and 50 mm proud of the verge -- the one thing here that no measurement settles.
+    # Square off the end (`park_beside`) does not work on this row: confirmed live, the
+    # frame was the return wall of the plot next door at arm's length, which is the same
+    # irregular-plot trap `park_off_wall` exists for. From the street off the corner the
+    # gable and the front are both in shot, which is what puts the stack on a roof.
+    park_at_corner(pair, back: 13, along: 9, y: 8.0)
+    shot "29-geleen-end-stack-on-the-gable"
+
+    puts "\n--- shots in #{SHOTS}"
+    Dir.children(SHOTS).sort.each { |f| puts "      #{f}" }
+  end
+
   private
     # A row is generated in a frame of its own -- local x along the terrace, local z
     # across it, the street at z = 0 -- and then set down at `o` and turned by `yaw`. So
@@ -235,6 +280,23 @@ class ShotsTest < ApplicationSystemTestCase
       park(ox + lx * Math.cos(yaw) - lz * Math.sin(yaw),
            oz + lx * Math.sin(yaw) + lz * Math.cos(yaw),
            yaw: Math.atan2(-Math.sin(yaw), Math.cos(yaw)), y: y, hold: hold)
+    end
+
+    # Out in the street and past the row's far end, looking diagonally back into the
+    # corner where the gable meets the front. The local heading is the same convention
+    # park_beside uses -- world yaw is -(row yaw + local angle), with local +z at 0 and
+    # the angle running toward local -x -- so a quarter turn between the two is pi / 4.
+    def park_at_corner(object, back:, along:, y:)
+      spec = page.evaluate_script("window.__arenaBuildingSpec(arguments[0])", object.id)
+      ring = object.recipe.fetch("footprint")
+      lx = ring.map(&:first).max + along
+      lz = -back
+      ox, _, oz = spec.fetch("o")
+      yaw = spec.fetch("yaw")
+
+      park(ox + lx * Math.cos(yaw) - lz * Math.sin(yaw),
+           oz + lx * Math.sin(yaw) + lz * Math.cos(yaw),
+           yaw: -(yaw + Math::PI / 4), y: y, hold: true)
     end
 
     # Beside a row, off one end, looking along it at its gable end.

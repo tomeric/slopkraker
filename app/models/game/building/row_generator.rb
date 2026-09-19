@@ -349,9 +349,9 @@ module Game
         [ front, *cheeks, top ]
       end
 
-      # A chimney: a square brick stack on the ridge, at the dwelling's party-line end --
-      # which is where a terrace's flues actually run, and why the chimneys of a real row
-      # come in pairs down the roof.
+      # A chimney: a square brick stack on the ridge, standing on the wall at the dwelling's
+      # own x1 -- which is where a terrace's flues actually run, and why the stacks of a
+      # real row march down the roof a dwelling apart.
       CHIMNEY_SIDE = 0.9
       CHIMNEY_RISE = 1.2
       # A flue is SINGLE-LEAF brick, not the 0.3 m of a cavity wall. At Walls::THICKNESS and
@@ -374,13 +374,22 @@ module Game
 
         half = CHIMNEY_SIDE / 2.0
         run = row.depth / 2.0
-        # The party-line end for every dwelling but the last, which has no party line of its
-        # own at x1 and puts its stack just past the one at x0 -- where an end terrace's flue
-        # actually runs, beside its neighbour's. Pulling it inward from x1 instead put it in
-        # the middle of the slope: measured, a 0.74-0.81 m overlap with the solar array's
-        # columns on every last bay that could carry both.
-        last = i == row.dwellings.length - 1
-        cx = last ? d.x0 + half + 0.5 : d.x1
+        # The wall at the dwelling's own x1, and NO last case: a party line for every dwelling
+        # but the last, and the row's own END WALL for the last -- the wall an end terrace's
+        # flue runs in. N dwellings have N-1 party lines, so one stack always has to stand
+        # somewhere that is not a party line whatever the rule is, and the end wall is the
+        # only other wall there is; a one-dwelling row is that same case rather than a third.
+        #
+        # The last dwelling used to go half a metre past the party line at x0 instead. On a
+        # pair with both flagged that is two 0.9 m stacks 0.95 m apart centre to centre --
+        # 50 mm between their brickwork, one fat double stack, on four of geleen's rows --
+        # and it was already 0.40 m into its own solar array and 0.09 m into its own dakkapel
+        # while it was at it. Here the closest pair measures 5.62 m and both overlaps are nil.
+        # Neither widening that offset nor pulling inward from x1 gets away from the array,
+        # because the array is CENTRED on the plane: at x0 + half + 1.6 the stack eats 0.90 m
+        # of it (and 0.90 m of the dakkapel), pulled in from x1, 0.74-0.81 m. Only a wall at
+        # one END of the dwelling is clear of it, and x1 is the end its neighbour is not on.
+        cx = d.x1
         cz = (row.z0 + row.z1) / 2.0
         base = row.ridge - half * row.rise / run
         height = row.ridge + CHIMNEY_RISE - base

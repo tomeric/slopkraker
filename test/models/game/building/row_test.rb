@@ -1034,22 +1034,49 @@ class Game::Building::RowTest < ActiveSupport::TestCase
     assert_in_delta 1409.4, mass, 0.1
   end
 
-  # Every dwelling but the last stands its stack on the party line at its x1. The last has
-  # no party line there, so it goes just past the one at x0 -- beside its neighbour's, where
-  # an end terrace's flue runs. Pulled inward from x1 instead, it stood in the middle of the
-  # slope: measured over geleen with both flags forced on, a 0.74-0.81 m overlap with the
-  # solar array's columns on every last bay that could carry both, and 0 after.
-  test "the last dwelling's stack goes to the party end, not into the middle of its slope" do
+  # ONE RULE, NO LAST CASE: every dwelling stands its stack on the wall at its own x1 --
+  # a party line for every dwelling but the last, and the row's OWN END WALL for the last,
+  # which is the wall an end terrace's flue actually runs in. N dwellings have N-1 party
+  # lines, so a stack per dwelling must put one of them somewhere that is not a party line
+  # whatever the rule says; the end wall is the only other wall there is. A one-dwelling
+  # row has no party line at all and is the same case, not a further one.
+  #
+  # It used to go just past the party line at x0, half a metre clear of its neighbour's.
+  # On a pair where BOTH are flagged that is two 0.9 m stacks 0.95 m apart centre to
+  # centre -- 50 mm of daylight between their brickwork, reading as one fat double stack.
+  # Measured on geleen: four rows did it, and that position was already 0.40 m into its
+  # own solar array and 0.09 m into its own dakkapel. On the end wall the closest pair is
+  # 5.62 m -- a dwelling apart -- and the overlap with both is nil. Widening the old offset
+  # walks into the same trap pulling inward from x1 did: at x0 + half + 1.6 the gap is only
+  # 2.05 m and the stack eats 0.90 m of the array AND 0.90 m of the dakkapel.
+  test "every dwelling stands its stack on the wall at its own x1" do
     row = Game::Building::Row.from(pair_recipe("dwellings" => [
       { "x0" => 0.0, "x1" => 6.0, "chimney" => true }, { "x0" => 6.0, "x1" => 12.0, "chimney" => true }
     ]))
     centre = ->(i) { Game::Building::RowGenerator.chimney(row, row.dwellings[i], i).sum { |s| s.origin.x } / 4 }
+    half = Game::Building::RowGenerator::CHIMNEY_SIDE / 2
 
     assert_in_delta 6.0, centre.call(0), 1e-9, "on the party line"
-    assert_in_delta 6.95, centre.call(1), 1e-9, "half the side plus half a metre past the same party line"
-    assert_operator centre.call(1) + Game::Building::RowGenerator::CHIMNEY_SIDE / 2, :<, 12.0, "clear of the row's end wall"
-    assert_operator centre.call(1) - Game::Building::RowGenerator::CHIMNEY_SIDE / 2, :>,
-                    centre.call(0) + Game::Building::RowGenerator::CHIMNEY_SIDE / 2, "clear of its neighbour's"
+    assert_in_delta row.x1, centre.call(1), 1e-9, "on the row's own end wall, having no party line of its own"
+    assert_operator centre.call(1) - half, :<, row.x1, "astride that wall, rising out of the gable rather than beside it"
+    assert_operator centre.call(1) + half, :>, row.x1
+    assert_in_delta 0.05, centre.call(1) + half - (row.x1 + Game::Building::Roof::OVERHANG), 1e-9,
+                    "and all but flush with the verge the tiles stop at"
+    assert_in_delta 6.0, centre.call(1) - centre.call(0), 1e-9, "a whole dwelling from its neighbour's, not 0.95 m"
+  end
+
+  # A stack's four walls are CHIMNEY_SIDE square and as tall as the ridge wants wherever
+  # they stand, so WHICH wall a dwelling stands its stack on is not something any cell
+  # count can see. Moving one renumbers nothing -- which is why this is a fix and not a
+  # re-import. 844 is the one-chimney worked example above; the second stack is four more.
+  test "where a stack stands moves no index" do
+    both = pair("dwellings" => [ { "x0" => 0.0, "x1" => 6.0, "chimney" => true }, { "x0" => 6.0, "x1" => 12.0, "chimney" => true } ])
+    stacks = both.surfaces.select { |s| s.kind == :wall && s.storey == 2 }
+
+    assert_equal 848, both.piece_count
+    assert_equal 8, stacks.length
+    assert_equal [ 1 ] * 8, stacks.map(&:cols)
+    assert_equal [ 1 ] * 8, stacks.map(&:rows)
   end
 
   test "no chimney on a flat roof, on a narrow dwelling, or on an unflagged one" do
