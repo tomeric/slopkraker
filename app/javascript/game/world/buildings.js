@@ -51,17 +51,13 @@ export class Buildings {
     for (let variant = 0; variant < shapes; variant += 1) {
       this.meshes.useShape(`rubble#${variant}`, lumpGeometry(variant))
     }
-    // One chunk shape per material that any building's wreckage is made of. The pool is
-    // named for the material, so its colour, opacity and health are the material's; only
-    // the shape is this file's.
+    // One shape for every pool that is not drawn from a plain material's own geometry: a
+    // chunk for wreckage (named for the material, so its colour, opacity and health are the
+    // material's; only the shape is this file's) and a wedge for every material that has a
+    // gable (the cap that makes the stair meet the roof; only the shape is gables.js's).
     for (const pool of counts.keys()) {
       if (isFragmentPool(pool)) this.meshes.useShape(pool, chunkGeometry(materials[baseMaterial(pool)]?.chunk))
-    }
-    // One wedge shape for every material that has a gable: the cap that makes the stair
-    // meet the roof. Named for the material like a chunk pool, so its colour and look are
-    // the material's; only the shape is gables.js's.
-    for (const pool of counts.keys()) {
-      if (isWedgePool(pool)) this.meshes.useShape(pool, wedgeGeometry())
+      else if (isWedgePool(pool)) this.meshes.useShape(pool, wedgeGeometry())
     }
     this.meshes.allocate(counts)
     // Before the loop starts, so the first explosion is not also the first tessellation.

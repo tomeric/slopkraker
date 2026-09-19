@@ -3,7 +3,7 @@ import { PROP_GROUPS, RUBBLE_GROUPS } from "game/physics/groups"
 import { eachBuildingCell, materialAt, chunkMatrix, cellSize } from "game/world/surface"
 import { tileSurface } from "game/world/chunking"
 import { heapMatrix, heapFrame, heapFragments, fragmentMaterial, fragmentPool, shapeFor, pileOrder, SHAPES } from "game/world/rubble"
-import { gableCaps, wedgePool, WEDGE_SUFFIX } from "game/world/gables"
+import { gableCaps, wedgePool, isWedgePool } from "game/world/gables"
 import { baseMaterial } from "game/render/piece_meshes"
 import { absorb } from "game/damage"
 
@@ -265,15 +265,26 @@ export class Building {
         place(name, CAP_MATRIX, cap.col * cellW, cap.box.y0)
       }
       for (const wedge of cap.wedges) {
-        // High on the right: the unit wedge as it is, from the column's left edge. High on
-        // the left: the same shape turned half a turn about v, from the right edge -- never
-        // a negative scale, which would mirror the winding and invert every normal.
+        // High on the right: the unit wedge as it is. High on the left: the same shape
+        // turned half a turn about v -- never a negative scale, which would mirror the
+        // winding and invert every normal. The geometry is CENTRED like the unit cube, so
+        // both handednesses place at the same point: the footprint's own centre.
         if (wedge.high > 0) CAP_MATRIX.makeBasis(u, v, n)
         else CAP_MATRIX.makeBasis(CAP_U.copy(u).negate(), v, CAP_N.copy(n).negate())
         CAP_MATRIX.scale(CAP_SCALE.set(wedge.width, wedge.height, surface.t))
-        const edge = wedge.high > 0 ? wedge.x0 : wedge.x0 + wedge.width
-        CAP_MATRIX.setPosition(CAP_POSITION.copy(origin).addScaledVector(u, edge).addScaledVector(v, wedge.y0))
-        place(wedgePool(name), CAP_MATRIX, cap.col * cellW, wedge.y0)
+        CAP_MATRIX.setPosition(CAP_POSITION.copy(origin).addScaledVector(u, wedge.x0 + wedge.width / 2).addScaledVector(v, wedge.y0 + wedge.height / 2))
+        // The chunk maps metres.x = (position.x + 0.5) * width + cellU. Unmirrored, local
+        // x = -0.5 (the slope's zero-height corner) sits at world x = wedge.x0 and x = +0.5
+        // (the front face's other corner) at wedge.x0 + width -- same as the box -- so
+        // cellU = wedge.x0 makes metres.x equal the world x everywhere on the face,
+        // continuous with the wall on both sides. Mirrored, negating u swaps those two
+        // corners, so the same cellU would run metres.x backwards across the face; no single
+        // offset fixes both ends of a reflection. cellU = wedge.x0 + width instead matches
+        // the corner at wedge.x0 + width -- metres.x is 0 there, so this cellU puts it back
+        // at wedge.x0 + width -- which is the seam this wedge shares with the column beside
+        // it, at the cost of the bond reading right to left across the wedge's own width.
+        const cellU = wedge.high > 0 ? wedge.x0 : wedge.x0 + wedge.width
+        place(wedgePool(name), CAP_MATRIX, cellU, wedge.y0)
       }
     }
   }
@@ -289,7 +300,8 @@ export class Building {
     }
   }
 
-  // For the tests: how many caps this building placed and how many are showing.
+  // For the tests: how many caps this building placed, how many are showing, and how many
+  // of the gable's columns received at least one.
   capReadout() {
     let boxes = 0
     let wedges = 0
@@ -299,13 +311,26 @@ export class Building {
       if (!entry) continue
 
       for (let k = 0; k < entry.pools.length; k += 1) {
-        if (entry.pools[k].endsWith(WEDGE_SUFFIX)) wedges += 1
+        if (isWedgePool(entry.pools[k])) wedges += 1
         else boxes += 1
         if (this.meshes.isVisible(entry.pools[k], entry.slots[k])) shown += 1
       }
     }
-    const columns = this.spec.surfaces.filter((s) => s.kind === "gable").reduce((sum, s) => sum + s.cols, 0)
-    return { columns, boxes, wedges, shown }
+
+    let columns = 0
+    let capped = 0
+    for (const surface of this.spec.surfaces) {
+      if (surface.kind !== "gable") continue
+      columns += surface.cols
+      // Recomputed from gableCaps rather than read off `this.caps`, which is keyed by the
+      // ANCHOR cell a cap is drawn against -- an eaves column with no standing cell of its
+      // own shares its neighbour's entry there, so counting entries would misattribute
+      // columns that collapsed onto a shared anchor.
+      for (const cap of gableCaps(surface)) {
+        if (cap.box || cap.wedges.length) capped += 1
+      }
+    }
+    return { columns, boxes, wedges, shown, capped }
   }
 
   createCollider(RAPIER, matrix, surface, name, index, colliderIndex) {

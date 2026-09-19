@@ -24,6 +24,11 @@ class GablesTest < ApplicationSystemTestCase
     assert_operator readout["wedges"], :>=, 24, "at least one wedge per column"
     assert_operator readout["boxes"], :>, 0, "some columns need a box under their wedge"
     assert_equal readout["boxes"] + readout["wedges"], readout["shown"], "everything is showing on an intact house"
+    # Every one of the 24 columns gets a cap here -- columns 0 and 11 have no standing cell
+    # of their own and anchor to their neighbour, but still carry a real box/wedge. This can
+    # legitimately be less than `columns` on a gable whose apex column (odd column count) is
+    # kept whole by Roof.clip and so needs no cap at all -- targets has none, so it doesn't.
+    assert_equal readout["columns"], readout["capped"], "every column should have at least one cap"
   end
 
   # Break the top standing cell of one gable column: its caps go; restore it: they return.
