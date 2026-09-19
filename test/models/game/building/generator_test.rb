@@ -3,12 +3,20 @@ require "test_helper"
 class Game::Building::GeneratorTest < ActiveSupport::TestCase
   # The worked example, and deliberately the same building the targets fixture seeds: one
   # canonical house rather than a test house and a real house that can drift apart.
-  def house(**overrides)
-    Game::Building::Generator.call({
+  def attributes(**overrides)
+    {
       footprint: [ [ 0, 0 ], [ 12, 0 ], [ 12, 15 ], [ 0, 15 ] ],
       storeys: 3, storey_height: 3.0, eaves: 9.0, ridge: 12.75,
       roof: "gable", cell: 1.0, seed: 7
-    }.merge(overrides))
+    }.merge(overrides)
+  end
+
+  def house(**overrides)
+    Game::Building::Generator.call(attributes(**overrides))
+  end
+
+  def recipe(**overrides)
+    Game::Building::Recipe.from(attributes(**overrides))
   end
 
   # This is the regression net for "the order is part of the contract". Offsets are handed
@@ -172,29 +180,45 @@ class Game::Building::GeneratorTest < ActiveSupport::TestCase
   # A footprint is a closed ring, so both ends of every edge meet another edge, and two
   # walls at a corner each straddle their own plane -- the perpendicular one eats half of
   # Walls::THICKNESS, 150 mm, into the end cell. On a 1 m cell that is a sixth of the pane
-  # buried in brick, and four panes of this house were.
+  # buried in brick, and four panes of this house were. The interior partition is the same
+  # fault in the middle of a wall rather than at its end, and this house had four of those
+  # too -- one per storey on each of the two walls the partition runs between.
   #
-  # This is where `classic` moves for the first time since the styles arrived, and only in
-  # which cells are glass: the offsets and the 1553-piece count pinned above are untouched,
-  # because a patch never changes a grid. The material census is the cost, and it is
-  # re-measured rather than reasoned about -- here and in `building_test`, which reads the
-  # same house out of the browser.
+  # This is where `classic` moves, and only in which cells are glass: the offsets and the
+  # 1553-piece count pinned above are untouched, because a patch never changes a grid. The
+  # material census is the cost, and it is re-measured rather than reasoned about -- here
+  # and in `building_test`, which reads the same house out of the browser. It went glass 72
+  # -> 68 -> 64 and brick 445 -> 449 -> 453 over the two halves of this rule.
   test "no pane of the worked example stands in a column another wall lands in" do
     set = house
     census = Hash.new(0)
     set.piece_count.times { |i| census[set.material_at(i).name] += 1 }
 
-    assert_equal 68, census[:glass]
-    assert_equal 449, census[:brick]
+    assert_equal 64, census[:glass]
+    assert_equal 453, census[:brick]
+    assert_equal 1553, census.values.sum
 
-    set.surfaces.select { |s| s.kind == :wall }.each do |wall|
-      [ 0, wall.cols - 1 ].each do |col|
+    reach = Game::Building::Interior.partition_reach(recipe)
+    walls = set.surfaces.select { |s| s.kind == :wall }
+    # Walls come out edge by edge, every storey of one edge before the next -- so the edge
+    # a wall belongs to, and with it the partition's reach along it, is its position over
+    # the storey count. Asserted rather than assumed, because the whole point is that the
+    # reserved column and the drawn wall are the same wall.
+    assert_equal 12, walls.length
+    landed = 0
+
+    walls.each_with_index do |wall, i|
+      columns = [ 0, wall.cols - 1 ] | Game::Building::Walls.columns(reach[i / 3], wall.cols)
+      landed += 1 if columns.length > 2
+      columns.each do |col|
         wall.rows.times do |row|
           assert_not_equal :glass, wall.material_at(row, col).name,
                            "a pane in column #{col} of #{wall.cols} has a wall through it"
         end
       end
     end
+
+    assert_equal 6, landed, "the partition runs between two of the four walls, on every storey"
   end
 
   # A window on the floor is what a two-row storey forces. Three rows is what buys it a

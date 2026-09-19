@@ -11,14 +11,19 @@ module Game
 
       def self.build(recipe, openings:)
         out = outward(recipe.footprint)
+        # Every storey of a free-standing building has a partition across it, so the walls
+        # it lands on are a fact about the recipe rather than something a caller supplies --
+        # the same standing as the corner rule below, and it is asked here for the same
+        # reason: there is nowhere a caller could opt out of it that would be right.
+        reach = Interior.partition_reach(recipe)
         recipe.edges.each_with_index.flat_map do |(from, to), edge|
           recipe.storeys.times.map do |storey|
-            wall(recipe, from, to, edge: edge, storey: storey, openings: openings, outward: out)
+            wall(recipe, from, to, edge: edge, storey: storey, openings: openings, outward: out, reach: reach[edge])
           end
         end
       end
 
-      def self.wall(recipe, from, to, edge:, storey:, openings:, outward: -1)
+      def self.wall(recipe, from, to, edge:, storey:, openings:, outward: -1, reach: nil)
         along = Vector3.new(to[0] - from[0], 0.0, to[1] - from[1])
         length = along.length
         cols = cells(length, recipe.cell)
@@ -40,10 +45,29 @@ module Game
           # ring, so both ends of every edge meet another edge, and two walls at a corner
           # each straddle their own plane -- the perpendicular one eats half of THICKNESS
           # into the end cell whatever the building is. No caller can opt out of this one.
-          patches: openings.for_wall(edge: edge, storey: storey, cols: cols, rows: rows, reserved: [ 0, cols - 1 ]),
+          # And the columns the interior partition lands in, which is the same fault in the
+          # middle of a wall instead of at its end. Measured over the three hand-made worlds
+          # before this: of the 76 walls a partition reaches, 38 had glass in the column its
+          # centre line falls in and 46 in a column its thickness reaches.
+          patches: openings.for_wall(edge: edge, storey: storey, cols: cols, rows: rows, reserved: [ 0, cols - 1 ] | columns(reach, cols)),
           seed: recipe.seed,
           outward: outward
         )
+      end
+
+      # The columns a stretch of this wall covers, from the fraction range
+      # `Interior.partition_reach` gives it. Turned into columns HERE rather than there
+      # because a column is this grid's unit: `cols` is rounded off the wall's own length,
+      # and a second module rounding a second length is how two answers to one question
+      # start disagreeing by a cell. A crossing within half a cell of either end comes back
+      # as column 0 or cols - 1, which the corner rule has already reserved -- the union
+      # above is what makes that a no-op rather than a case to detect.
+      def self.columns(reach, cols)
+        return [] unless reach
+
+        first = (reach.first * cols).floor.clamp(0, cols - 1)
+        last = (reach.last * cols).floor.clamp(0, cols - 1)
+        (first..last).to_a
       end
 
       # At least one cell, and the actual cell size is the extent divided by however many

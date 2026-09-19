@@ -29,12 +29,14 @@ class BuildingTest < ApplicationSystemTestCase
     assert_equal 0, telemetry["piecesBroken"]
   end
 
-  # Re-measured, never reasoned about. glass went 72 -> 68 and brick 445 -> 449 when
-  # openings stopped standing in the columns other walls land in: four panes of this house
-  # were in a corner column, where the perpendicular wall straddles its own plane and eats
-  # 150 mm -- a sixth of a 1 m pane -- into the end cell. That is `classic` moving for the
-  # first time since the styles arrived, deliberately: the fault was in it too, and a rule
-  # that freezes a known fault has stopped paying.
+  # Re-measured, never reasoned about. glass went 72 -> 68 -> 64 and brick 445 -> 449 ->
+  # 453 over the two halves of one rule: no opening in a column another wall lands in.
+  # Four panes of this house were in a CORNER column, where the perpendicular wall
+  # straddles its own plane and eats 150 mm -- a sixth of a 1 m pane -- into the end cell;
+  # four more were in the column the INTERIOR PARTITION lands in, one per storey on each of
+  # the two walls it runs between, which is the same 150 mm of plaster in the middle of the
+  # wall instead of at its end. That is `classic` moving, deliberately: the fault was in it
+  # too, and a rule that freezes a known fault has stopped paying.
   #
   # The total is unchanged at 1553 and every other material is unchanged, which is the
   # other half of the claim: a patch decides what a cell is MADE of and never renumbers one.
@@ -51,8 +53,8 @@ class BuildingTest < ApplicationSystemTestCase
     JS
 
     assert_equal({
-      "brick" => 449, "timber" => 366, "roof_tile" => 224, "concrete" => 180,
-      "plaster" => 108, "glass" => 68, "void" => 80, "steel" => 3, "rubble" => 75
+      "brick" => 453, "timber" => 366, "roof_tile" => 224, "concrete" => 180,
+      "plaster" => 108, "glass" => 64, "void" => 80, "steel" => 3, "rubble" => 75
     }, materials)
     assert_equal 1553, materials.values.sum
   end
