@@ -4,7 +4,7 @@ import { eachBuildingCell, materialAt, cellMatrix, chunkMatrix, cellSize } from 
 import { tileSurface } from "game/world/chunking"
 import { heapMatrix, heapFrame, heapFragments, fragmentMaterial, fragmentPool, shapeFor, pileOrder, SHAPES } from "game/world/rubble"
 import { gableCaps, wedgePool, isWedgePool } from "game/world/gables"
-import { fittingsFor, gutters, downpipes, FITTING_MATERIAL } from "game/world/fittings"
+import { fittingsFor, eaves, gutters, downpipes, FITTING_MATERIAL } from "game/world/fittings"
 import { baseMaterial } from "game/render/piece_meshes"
 import { absorb } from "game/damage"
 
@@ -36,7 +36,7 @@ const ABSENT = 2
 const DORMANT = 3
 
 export class Building {
-  constructor({ RAPIER, world, spec, materials, meshes, colliderIndex, contactThreshold, spread = 0, debris = null, falling = null, grid = null, rules = {}, chunk = null, rubbleRules = null, remnants = null, ground = null, palettes = {}, lookRules = {}, onDamage = null }) {
+  constructor({ RAPIER, world, spec, materials, meshes, colliderIndex, contactThreshold, spread = 0, debris = null, falling = null, grid = null, rules = {}, chunk = null, rubbleRules = null, roofRules = null, remnants = null, ground = null, palettes = {}, lookRules = {}, onDamage = null }) {
     this.spec = spec
     this.materials = materials
     this.meshes = meshes
@@ -54,6 +54,11 @@ export class Building {
     this.jitter = lookRules.jitter ?? 0
     this.chunkSize = chunk
     this.rubbleRules = rubbleRules || {}
+    // How far the tiles reach past the wall, and so where the gutter hangs. Ruby's
+    // (Game::Building::Roof::EAVES_OVERHANG); this side holds no copy. It has to be the
+    // SAME object countMaterials was handed, because the pool is sized by counting what
+    // this places and an InstancedMesh cannot grow.
+    this.roofRules = roofRules || {}
     this.remnants = remnants
     // "The ground here", for laying heaps on. Null on a flat world, where the rubble
     // surface's own plane says where the ground is.
@@ -112,7 +117,7 @@ export class Building {
   // Tallied first, because an InstancedMesh cannot grow once allocated. A heap counts its
   // base lump AND every chunk sitting in it, each against the pool it will be drawn from,
   // by running exactly the material draw the builder runs.
-  static countMaterials(spec, into = new Map(), rubbleRules = {}) {
+  static countMaterials(spec, into = new Map(), rubbleRules = {}, roofRules = {}) {
     const shapes = rubbleRules.shapes ?? SHAPES
     const fragments = rubbleRules.fragments ?? 0
 
@@ -143,16 +148,21 @@ export class Building {
         }
       }
 
-      // The rainwater goods hang on the cells of roofs and walls. Counted here exactly as
-      // buildFittings places them, because an InstancedMesh cannot grow and a short pool
-      // drops instances without a word.
+      // The eaves overhang and the rainwater goods hang on the cells of roofs and walls.
+      // Counted here exactly as buildFittings places them -- through the same call, with
+      // the same rules, box for box, taking each one's own pool -- because an InstancedMesh
+      // cannot grow and a short pool drops instances without a word. An overhang draws from
+      // the ROOF's pool and a gutter from zinc's, so a single hardcoded pool here would
+      // undercount one of them by a plane's whole bottom row.
       //
       // Not QUITE exactly: buildFittings skips a fitting whose cell is ABSENT -- a void
       // doorway, a clipped corner -- and this counts it anyway, because the state array it
       // would have to ask does not exist yet. The pool comes out a little large, which is
       // the safe direction and the same asymmetry the caps already have.
-      const fittings = fittingsFor(surface).length
-      if (fittings) into.set(FITTING_MATERIAL, (into.get(FITTING_MATERIAL) || 0) + fittings)
+      for (const box of fittingsFor(surface, roofRules)) {
+        const pool = box.pool ?? FITTING_MATERIAL
+        into.set(pool, (into.get(pool) || 0) + 1)
+      }
     }
     return into
   }
@@ -315,7 +325,7 @@ export class Building {
   // A box per fitting, in the surface's own frame, keyed to the cell it hangs on. Composed
   // T * R * S exactly as cellMatrix composes a cell, for the shear reason set out there.
   buildFittings(surface) {
-    const boxes = fittingsFor(surface)
+    const boxes = fittingsFor(surface, this.roofRules)
     if (boxes.length === 0) return
 
     const u = new THREE.Vector3().fromArray(surface.u)
@@ -335,8 +345,13 @@ export class Building {
         CAP_POSITION.copy(origin).addScaledVector(u, box.u0).addScaledVector(v, box.v0).addScaledVector(n, box.n0)
       )
       const entry = this.attachments[index] || (this.attachments[index] = { pools: [], slots: [], matrices: [], fittings: 0 })
-      entry.pools.push(FITTING_MATERIAL)
-      entry.slots.push(this.meshes.add(FITTING_MATERIAL, CAP_MATRIX, this.tintFor(FITTING_MATERIAL, index), 0, 0))
+      // Its own pool: zinc for the rainwater goods, the roof's own material for the eaves
+      // overhang, which is the same tiles carrying on past the wall and so costs no draw
+      // call of its own. And its own cellUV, so the overhang's bond runs on from the cell
+      // above it; the goods are unpatterned and ask for nothing.
+      const pool = box.pool ?? FITTING_MATERIAL
+      entry.pools.push(pool)
+      entry.slots.push(this.meshes.add(pool, CAP_MATRIX, this.tintFor(pool, index), box.cellU ?? 0, box.cellV ?? 0))
       entry.matrices.push(CAP_MATRIX.clone())
       // Always pushed AFTER any cap on the same index, which is what lets the readout tell
       // the two apart by counting caps from the front and fittings from the back.
@@ -395,10 +410,12 @@ export class Building {
     // Recomputed from the modules rather than read off the attachments, for the reason the
     // gable's columns are: an index that was never built carries no entry, so counting
     // entries would report a building's fittings short by however many the generator voided.
+    let eavesCount = 0
     let gutterCount = 0
     let downpipeCount = 0
     for (const surface of this.spec.surfaces) {
-      gutterCount += gutters(surface).length
+      eavesCount += eaves(surface, this.roofRules).length
+      gutterCount += gutters(surface, this.roofRules).length
       downpipeCount += downpipes(surface).length
     }
 
@@ -417,6 +434,7 @@ export class Building {
     }
     return {
       columns, boxes, wedges, wedgePools: wedgeNames.size, shown, capped,
+      eaves: eavesCount,
       gutters: gutterCount, downpipes: downpipeCount, fittingPools: fittingPools.size, shownFittings: fittingsShown
     }
   }

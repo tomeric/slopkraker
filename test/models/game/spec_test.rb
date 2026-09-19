@@ -342,6 +342,22 @@ class Game::SpecTest < ActiveSupport::TestCase
                  Game::Spec.default_rules.dig(:damage, :max_hits_per_batch)
   end
 
+  # The eaves overhang is a tuning number, so it lives in Ruby and ships; the client must
+  # hold no copy of it. It draws the overhang from this AND hangs the gutter off the
+  # overhang's outer edge, so one number decides where the eaves line is for both.
+  test "the client is told how far the tiles reach past the wall" do
+    roof = Game::Spec.default_rules.fetch(:roof)
+
+    assert roof, "the roof drawing rules never shipped"
+    assert_equal Game::Building::Roof::EAVES_OVERHANG, roof.fetch(:eaves_overhang)
+    # A wall STRADDLES its own plane and a roof plane starts on that plane, so the tiles
+    # have to reach past half a wall before they cover anything at all. They reach down
+    # the SLOPE, so what covers the wall is the overhang's horizontal component --
+    # overhang * cos(pitch) -- and the bar here is the flat-out length, which must beat
+    # half a wall by enough margin to survive the cosine of any pitch a world has.
+    assert_operator roof.fetch(:eaves_overhang), :>, Game::Building::Walls::THICKNESS
+  end
+
   # Only the LOOK ships. The grid, the density and the height of a heap are constants in
   # Building::Rubble because they decide piece_count, and a client that disagreed about
   # those would be addressing different pieces than the server.

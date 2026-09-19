@@ -16,6 +16,20 @@ module Game
       # Real eaves hang past the wall, and here it does a second job: the gable behind is
       # a stair of whole cells, and an overhang is what hides the last step of it.
       OVERHANG = 0.4
+      # How far the tiles reach DOWN the slope, past the wall. OVERHANG above is spent
+      # along the ridge, past the gables; this is the other direction, and they are not
+      # the same number just because they are the same size today.
+      #
+      # A wall straddles its own plane and a roof plane STARTS on it, so without this the
+      # outer half of every wall top -- Walls::THICKNESS / 2, 150 mm -- is open sky, and
+      # the gutter that hangs at the eaves hangs over that gap rather than clear of the
+      # wall. It has to beat half a wall HORIZONTALLY, and it runs down the slope, so what
+      # covers the wall is EAVES_OVERHANG * cos(pitch) -- about 350 mm on the pitches the
+      # worlds have, which is why 0.4 rather than 0.2.
+      #
+      # DRAWING, like the gable caps, and never a longer plane: more rows is more cells,
+      # and more cells is every piece index after it.
+      EAVES_OVERHANG = 0.4
       EAST = Vector3.new(1, 0, 0)
       SOUTH = Vector3.new(0, 0, 1)
       UP = Vector3.new(0, 1, 0)

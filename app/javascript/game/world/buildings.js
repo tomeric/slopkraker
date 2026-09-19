@@ -5,6 +5,7 @@ import { Debris } from "game/render/debris"
 import { FallingPieces } from "game/world/falling_pieces"
 import { lumpGeometry, chunkGeometry, isFragmentPool, pileOrder, SHAPES } from "game/world/rubble"
 import { isWedgePool, wedgeGeometry } from "game/world/gables"
+import { eaves, PITCHED } from "game/world/fittings"
 import { Remnants } from "game/render/remnants"
 import { baseMaterial } from "game/render/piece_meshes"
 
@@ -36,6 +37,9 @@ export class Buildings {
       rules: spec.rules.collapse?.fall, looks
     })
     const rubbleRules = spec.rules.collapse?.rubble || {}
+    // How far the tiles reach past the wall. Held on the instance as well as passed down,
+    // because the eaves probe needs the same number the buildings were built with.
+    this.roofRules = spec.rules.roof || {}
     // Built whether or not there are buildings, for the same reason the falling pool is.
     this.remnants = new Remnants({ scene, materials, rules: rubbleRules.remnants, sweep: debrisRules, ground })
     if (specs.length === 0) return
@@ -44,7 +48,7 @@ export class Buildings {
     // its final capacity and cannot grow afterwards. A heap counts its lump and every
     // chunk in it.
     const counts = new Map()
-    for (const building of specs) Building.countMaterials(building, counts, rubbleRules)
+    for (const building of specs) Building.countMaterials(building, counts, rubbleRules, this.roofRules)
     // Before allocate, and that ordering is the contract: a pool is handed its geometry
     // when its InstancedMesh is built and cannot be given a different one afterwards.
     const shapes = rubbleRules.shapes ?? SHAPES
@@ -75,6 +79,9 @@ export class Buildings {
         falling: this.falling,
         chunk: spec.rules.collapse?.fall?.chunk,
         rubbleRules,
+        // The SAME object countMaterials was handed above: the eaves pool was sized by
+        // counting what these rules place, and PieceMeshes.add does not bounds-check.
+        roofRules: this.roofRules,
         remnants: this.remnants,
         grid,
         rules: spec.rules.damage,
@@ -95,6 +102,84 @@ export class Buildings {
     this.falling.update(dt)
     this.remnants.update(dt)
     for (const building of this.list) building.update(dt)
+  }
+
+  // For the tests: does the roof actually cover the wall it sits on?
+  //
+  // The claim worth asserting is a HORIZONTAL reach, and nothing weaker. A wall straddles
+  // its own plane, so half its thickness stands outside the line a roof plane starts on;
+  // the overhang runs DOWN THE SLOPE, so what covers that half is only its horizontal
+  // component -- EAVES_OVERHANG * cos(pitch), and v is a unit vector up the slope, so the
+  // cosine is the length of v's own horizontal part. Counting instances instead would go
+  // green on a one-millimetre lip, which is the fault this whole thing exists to fix.
+  //
+  // HALF THE THICKEST WALL OF THE SAME BUILDING IS A STAND-IN for the particular wall
+  // under a particular plane, deliberately. Matching the two means intersecting a sloped
+  // rectangle against a ring of walls at a dozen bearings, for a bar that could only ever
+  // get easier: every wall of the building is at most this thick, so an overhang clearing
+  // half of the thickest clears half of any of them. It is sufficient, and it is honest
+  // about being the strict end of the range.
+  //
+  // Per-plane detail comes back with it, so a failure says WHICH plane fell short.
+  eavesReach() {
+    let planes = 0
+    let boxes = 0
+    let short = 0
+    let reach = Infinity
+    let drop = Infinity
+    let need = 0
+    const shortest = []
+
+    for (const building of this.list) {
+      let half = 0
+      for (const surface of building.spec.surfaces) {
+        if (surface.kind === "wall") half = Math.max(half, surface.t / 2)
+      }
+
+      for (const surface of building.spec.surfaces) {
+        // Every PITCHED plane is in scope, whatever the overhang did about it -- a plane
+        // that got none is short by definition, since the sky over its wall is the fault
+        // being measured. That includes one Ruby flagged `fittings: false`, of which no
+        // pitched plane exists today; if one ever does, this says so rather than quietly
+        // exempting it.
+        if (surface.kind !== "roof") continue
+        if (Math.abs(surface.v[1]) < PITCHED) continue
+        planes += 1
+        need = Math.max(need, half)
+
+        // Read off the boxes that were actually BUILT, not re-derived from the constant:
+        // every column of the plane gets the same v0 and sv, so the first says it. A v0
+        // of the wrong sign would put the tiles up by the ridge, and comes out at zero
+        // here rather than passing on the constant's own magnitude.
+        const built = eaves(surface, this.roofRules)
+        boxes += built.length
+        // How far past the plane's bottom edge (v = 0) its far edge reaches, down the
+        // slope. Clamped at zero: an overhang pointing the wrong way covers nothing, it
+        // does not cover a negative amount.
+        const along = built.length ? Math.max(0, -(built[0].v0 - built[0].sv / 2)) : 0
+        // v is a unit vector up the slope, so its horizontal part is cos(pitch) and its y
+        // is sin(pitch). Only the horizontal covers the wall; the vertical is carried too
+        // because it is what says the tiles went DOWN rather than up.
+        const horizontal = along * Math.hypot(surface.v[0], surface.v[2])
+        reach = Math.min(reach, horizontal)
+        drop = Math.min(drop, along * Math.abs(surface.v[1]))
+        if (horizontal > half) continue
+
+        short += 1
+        // Capped: a world of forty-eight rows that regressed would otherwise return a
+        // list nobody can read in a failure message.
+        if (shortest.length < 8) {
+          shortest.push({ building: building.id, off: surface.off, reach: horizontal, need: half })
+        }
+      }
+    }
+
+    return {
+      planes, boxes, short, need, shortest,
+      overhang: this.roofRules?.eaves_overhang ?? 0,
+      reach: planes ? reach : 0,
+      drop: planes ? drop : 0
+    }
   }
 
   // Bodies, so their meshes are read back like any other simulated thing. Called from the

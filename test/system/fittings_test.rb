@@ -18,9 +18,39 @@ class FittingsTest < ApplicationSystemTestCase
     readout = fittings(building)
 
     assert_equal 32, readout["gutters"], "one per column of each plane's bottom row"
+    assert_equal 32, readout["eaves"], "and one overhang per column of the same row"
     assert_equal 12, readout["downpipes"], "one per storey at the last column of each of the four walls"
-    assert_equal 1, readout["fittingPools"], "zinc is steel's pool, and there is only the one"
-    assert_equal readout["gutters"] + readout["downpipes"], readout["shownFittings"]
+    # Two now: zinc for the rainwater goods, and the ROOF's own pool for the overhang,
+    # which is the same tiles carrying on past the wall and so costs no draw call of its
+    # own -- which is what the draw-count test below still holds.
+    assert_equal 2, readout["fittingPools"], "zinc, and the roof's own tiles"
+    assert_equal readout["eaves"] + readout["gutters"] + readout["downpipes"], readout["shownFittings"]
+  end
+
+  # A roof plane's lower edge sits on the wall's own plane, and a wall straddles that plane
+  # -- so without an overhang the outer 150 mm of every wall top has open sky above it, and
+  # the gutter hangs over the gap rather than clear of the wall. The assertion is that the
+  # eaves reach PAST the wall, which is the whole of what an overhang is for.
+  #
+  # Measured HORIZONTALLY, and that is the point of the probe. The overhang runs down the
+  # slope, so only its horizontal component -- overhang * cos(pitch) -- covers anything;
+  # asserting that the instances merely exist would go green on a one-millimetre lip.
+  test "the roof reaches past the wall it sits on" do
+    visit_world("targets", match: "eaves-reach")
+    wait_for(message: "engine never booted") { page.evaluate_script("!!(window.__arena && window.__arena.ready)") }
+
+    reach = page.evaluate_script("window.__arenaEavesReach()")
+    assert_operator reach["planes"], :>, 0, "the house has no pitched roof plane"
+    assert_equal 0, reach["short"], "planes whose eaves stop short of the wall: #{reach["shortest"]}"
+    assert_operator reach["overhang"], :>, 0.3
+    assert_equal 2 * 16, reach["boxes"], "one overhang per column of each plane's bottom row"
+    # Half a wall, which is what the roof has to clear, and the horizontal reach it has to
+    # clear it by. Read out rather than hard-coded: the bar is the building's own walls.
+    assert_operator reach["reach"], :>, reach["need"], "the shallowest plane: #{reach["shortest"]}"
+    # And the tiles hang BELOW the plane's bottom edge rather than up toward the ridge. A
+    # v0 of the wrong sign reaches zero past that edge, not a negative amount, so the
+    # probe clamps at zero and both numbers come out flat.
+    assert_operator reach["drop"], :>, 0.0
   end
 
   test "a fitting goes with the cell it hangs on and comes back with it" do

@@ -392,6 +392,15 @@ module Game
           look: { base: "#e2ead8", variation: 0.18 },
           jitter: 0.12
         },
+        # How the roof meets the wall it sits on. DRAWING, like the gable caps: the plane
+        # itself is never made longer, because more rows is every piece index after it.
+        roof: {
+          # Read from the constant rather than written again, for the reason rubble's
+          # `scale` is: the client draws the overhang from this AND hangs the gutter off
+          # its outer edge, so a second copy that drifted would leave the rainwater goods
+          # somewhere the tiles are not.
+          eaves_overhang: Building::Roof::EAVES_OVERHANG
+        },
         # How much one cell's colour may differ from the next, as a share of lightness. A
         # wall of one flat value reads as paint; a few percent, seeded per cell, reads as
         # brick that was fired in a kiln.

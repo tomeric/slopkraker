@@ -59,17 +59,40 @@ export function outward(surface) {
 // no float error reaches.
 export const PITCHED = 0.02
 
-// One gutter box per column of a roof plane's bottom row, hung just below the eaves edge
-// and just outside it, so it sits under the tiles' lip rather than in them.
+// How far the tiles reach down the slope, past the wall. RUBY'S NUMBER
+// (Game::Building::Roof::EAVES_OVERHANG), read off the rules the client is handed -- this
+// side holds no tuning constant of its own. Zero when a caller has none to pass, which
+// draws no overhang rather than inventing a length; the count and the placement both go
+// through here, so they cannot disagree about it.
+function overhangOf(rules) {
+  return rules?.eaves_overhang ?? 0
+}
+
+// The tiles carrying on PAST the wall, as one box per column of a roof plane's bottom row,
+// running EAVES_OVERHANG down the slope from that row's lower edge.
 //
-// ONLY on a pitched plane. A deck has no eaves: water does not run off one edge of it, and
-// a 12 cm bar laid along whichever edge the grid happened to call row 0 is a kerb round part
-// of a bounding box rather than a gutter -- 507 of geleen's 1,529 gutter boxes were exactly
-// that. Nothing here touches DOWNPIPES: those hang on walls, and a flat-roofed annexe still
-// drains down its own wall like every other box, so its pipes stay.
-export function gutters(surface) {
+// DRAWING, like the gable caps and for the same reason: a plane that genuinely reached
+// further would be another row of cells, and another row is every piece index after it
+// moving -- a re-import of geleen and a new piece_count on every fixture, to shift the
+// bottom edge of a roof 40 cm. So it is an instance keyed to the cell that does stop
+// short, in that cell's own material and pool, hidden and restored with it, no collider.
+//
+// It is what makes the roof cover the wall at all: a wall straddles its own plane and the
+// plane of a roof starts on it, so before this the outer 150 mm of every wall top had open
+// sky above it. What has to clear the wall is the HORIZONTAL component, overhang *
+// cos(pitch), since the overhang runs down the slope -- see __arenaEavesReach.
+//
+// Pitched planes only, by the same guard the gutter uses and for the same reason: a deck
+// has no eaves, and tiles hanging off whichever edge the grid called row 0 is a lip round
+// part of a bounding box. And nothing on a surface Ruby flagged `fittings: false` -- a
+// dakkapel's top and a chimney's walls -- so `entry.fittings` keeps meaning exactly "what
+// this module hung here".
+export function eaves(surface, rules) {
   if (surface.kind !== "roof" || surface.fittings === false) return []
   if (Math.abs(surface.v[1]) < PITCHED) return []
+
+  const overhang = overhangOf(rules)
+  if (overhang <= 0) return []
 
   const width = surface.w / surface.cols
   const out = []
@@ -77,10 +100,57 @@ export function gutters(surface) {
     out.push({
       anchorRow: 0,
       anchorCol: col,
-      // Centred on its column, half a section below the plane's lower edge, and half a
-      // section proud of the plane's own OUTWARD face.
+      // Centred on its column, and hanging off the plane's lower edge: v runs UP the
+      // slope, so the overhang occupies v = -overhang .. 0 and its middle is halfway down
+      // that. Flush on the normal, at the plane's own thickness, because a cell straddles
+      // the plane and these are the same tiles continuing.
       u0: (col + 0.5) * width,
-      v0: -GUTTER_SIDE / 2,
+      v0: -overhang / 2,
+      n0: 0,
+      su: width,
+      sv: overhang,
+      sn: surface.t,
+      // The ROOF's own pool, not the zinc one -- same material, same tint, and no draw
+      // call of its own, because the tiles it continues are already drawn from it.
+      pool: surface.mat,
+      // Where its texture starts along the surface, in metres, so the bond runs on from
+      // the cell above rather than restarting. The row-0 cell starts at v = 0, and this
+      // sits the whole overhang below it.
+      cellU: col * width,
+      cellV: -overhang
+    })
+  }
+  return out
+}
+
+// One gutter box per column of a roof plane's bottom row, hung just below the eaves edge
+// and just outside it, so it sits under the tiles' lip rather than in them.
+//
+// THE EAVES LINE IS THE OVERHANG'S OUTER EDGE, not the plane's bottom row. Both are
+// computed from the one number above, so the gutter cannot end up hanging where the tiles
+// are not -- which is exactly what it did before the overhang existed: over the 150 mm
+// gap between the lowest tile and the outer face of the wall.
+//
+// ONLY on a pitched plane. A deck has no eaves: water does not run off one edge of it, and
+// a 12 cm bar laid along whichever edge the grid happened to call row 0 is a kerb round part
+// of a bounding box rather than a gutter -- 507 of geleen's 1,529 gutter boxes were exactly
+// that. Nothing here touches DOWNPIPES: those hang on walls, and a flat-roofed annexe still
+// drains down its own wall like every other box, so its pipes stay.
+export function gutters(surface, rules) {
+  if (surface.kind !== "roof" || surface.fittings === false) return []
+  if (Math.abs(surface.v[1]) < PITCHED) return []
+
+  const width = surface.w / surface.cols
+  const overhang = overhangOf(rules)
+  const out = []
+  for (let col = 0; col < surface.cols; col += 1) {
+    out.push({
+      anchorRow: 0,
+      anchorCol: col,
+      // Centred on its column, half a section below the EAVES edge -- the overhang's
+      // lower end -- and half a section proud of the plane's own OUTWARD face.
+      u0: (col + 0.5) * width,
+      v0: -(overhang + GUTTER_SIDE / 2),
       n0: outward(surface) * (GUTTER_SIDE / 2 + surface.t / 2),
       su: width,
       sv: GUTTER_SIDE,
@@ -110,7 +180,8 @@ export function downpipes(surface) {
   } ]
 }
 
-// Every fitting of a surface, whatever kind it is.
-export function fittingsFor(surface) {
-  return [ ...gutters(surface), ...downpipes(surface) ]
+// Every fitting of a surface, whatever kind it is. `rules` is `spec.rules.roof`; the only
+// thing that reads it is the overhang, and the gutter that has to agree with it.
+export function fittingsFor(surface, rules) {
+  return [ ...eaves(surface, rules), ...gutters(surface, rules), ...downpipes(surface) ]
 }

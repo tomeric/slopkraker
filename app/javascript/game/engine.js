@@ -375,6 +375,11 @@ export class GameEngine {
     // fitting landed on NEITHER a dakkapel's NOR a chimney's cells, rather than merely
     // lowering some building-wide total that a different bug could also lower.
     window.__arenaFittingIndices = (buildingId) => this.buildings?.find(buildingId)?.fittingIndices() ?? []
+    // Whether the roof covers the wall it sits on, measured HORIZONTALLY across every
+    // pitched plane in the world -- the overhang runs down the slope, so its horizontal
+    // component is what has to beat half a wall. Per-plane detail comes back too, so a
+    // failure names the plane that fell short.
+    window.__arenaEavesReach = () => this.buildings?.eavesReach() ?? null
 
     this.running = true
     this.lastFrame = performance.now()
