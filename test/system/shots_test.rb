@@ -161,6 +161,11 @@ class ShotsTest < ApplicationSystemTestCase
     park_beside(row, side: 1, out: 9)
     shot "25-geleen-gable-end"
 
+    # From above the kerb, where a roof is actually visible: the panels, the chimneys and
+    # the gutter line all live up there and none of them shows from the driver's seat.
+    park_in_front_of(row, back: 14, y: 9.0)
+    shot "27-geleen-roofs"
+
     # The back of a glazed dwelling, from its back garden. Finds the WALL, not just the
     # building: without the category check this found estate-shed-18 first -- a shed with
     # its own, unrelated floor-to-ceiling glass patch -- because a shed's name also starts
@@ -219,7 +224,7 @@ class ShotsTest < ApplicationSystemTestCase
     # "stand in front of it" is a point in THAT frame carried out to the world, and the
     # car has to be turned back down the local +z axis or it photographs the far side of
     # the road.
-    def park_in_front_of(id, back:)
+    def park_in_front_of(id, back:, y: 2.0)
       spec = page.evaluate_script("window.__arenaBuildingSpec(arguments[0])", id)
       ring = WorldObject.find(id).recipe.fetch("footprint")
       lx = (ring.map(&:first).min + ring.map(&:first).max) / 2.0
@@ -229,7 +234,7 @@ class ShotsTest < ApplicationSystemTestCase
 
       park(ox + lx * Math.cos(yaw) - lz * Math.sin(yaw),
            oz + lx * Math.sin(yaw) + lz * Math.cos(yaw),
-           yaw: Math.atan2(-Math.sin(yaw), Math.cos(yaw)))
+           yaw: Math.atan2(-Math.sin(yaw), Math.cos(yaw)), y: y)
     end
 
     # Beside a row, off one end, looking along it at its gable end.
