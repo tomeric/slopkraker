@@ -35,6 +35,16 @@ class Game::Building::RowTest < ActiveSupport::TestCase
       "storeys" => 1, "roof" => "flat", "door" => false, "solid" => false, "bay" => 1, "name" => "annex" }.merge(overrides)
   end
 
+  # A box BESIDE the row rather than behind it: 4 x 9 m against the terrace's east end,
+  # running from z = 4 out to z = 13. Its west wall laps the row over five of its nine
+  # metres and sticks out past the back over the other four -- one end inside the row's
+  # rectangle and one outside, which is the one shape `covered_to` cannot drop, because it
+  # drops an edge only where the row swallows it WHOLE. Geleen has ten of these.
+  def flank(**overrides)
+    { "ring" => [ [ 12.0, 4.0 ], [ 16.0, 4.0 ], [ 16.0, 13.0 ], [ 12.0, 13.0 ] ], "eaves" => 2.8, "ridge" => 2.8,
+      "storeys" => 1, "roof" => "flat", "door" => false, "solid" => false, "bay" => 1, "name" => "flank" }.merge(overrides)
+  end
+
   # Which columns of a wall are glazed, which is the unit a reservation is made in.
   def glass_columns(wall)
     wall.patches.select { |p| p.material == :glass }.flat_map { |p| (p.col0..p.col1).to_a }.sort
@@ -792,7 +802,7 @@ class Game::Building::RowTest < ActiveSupport::TestCase
     # Walls 6 and 7 are the second dwelling's back, which the annex stands against over the
     # 3 m from x = 6 to x = 9 -- the far half of a wall run from x = 12 back to x = 6.
     assert_equal [ [ 0.5, 1.0 ] ],
-                 Game::Building::RowGenerator.annexes(row, [ 12.0, 9.0 ], [ 6.0, 9.0 ], storey: 0, storey_height: 3.0, rows: 3, outward: -1)
+                 Game::Building::RowGenerator.behind(row, [ 12.0, 9.0 ], [ 6.0, 9.0 ], storey: 0, storey_height: 3.0, rows: 3, outward: -1)
     assert_equal [ 1, 2, 4 ], glass_columns(plain[6]), "with nothing behind it that back glazes three columns"
     assert_equal [ 1, 2 ], glass_columns(built[6]), "and gives up the one standing inside the annex"
   end
@@ -824,6 +834,71 @@ class Game::Building::RowTest < ActiveSupport::TestCase
 
     assert_equal glass_columns(plain[6]), glass_columns(inside[6]), "a box inside the row is behind no window"
     assert_not_equal glass_columns(plain[6]), glass_columns(through[6]), "the same box pushed through the wall is"
+  end
+
+  # AND THE TERRACE IS A WALL TOO. The mirror of the three tests above, and the direction
+  # 496c1a7 left unmeasured: a box wall standing against the ROW has the row's own brick
+  # behind its glass, exactly as a row wall standing against a box has the box's. It is the
+  # same fault in `covered_to` that the `except:` above closes for a later box -- an edge is
+  # dropped only where the row swallows it whole, so an edge with one end inside the row's
+  # rectangle and one outside keeps its whole wall, and the stretch of it lying against the
+  # terrace keeps its windows. Measured over all five worlds by a sweep that reads where the
+  # walls actually are: 26 panes on 10 of geleen's 48 rows, 20 of them wholly behind the row.
+  #
+  # The flank's west wall runs from z = 13 back to z = 4, so its column c covers z 13 - c to
+  # 12 - c and columns 4 to 8 are the five that lie against the 9 m terrace.
+  test "the terrace takes the glass out of a box wall standing against it" do
+    row = Game::Building::Row.from(pair_recipe("boxes" => [ flank ]))
+    built = pair("boxes" => [ flank ]).surfaces.select { |s| s.kind == :wall }
+    west = built[17]
+
+    assert_equal [ 12.0, 13.0 ], [ west.origin.x, west.origin.z ], "the flank's fourth edge, which faces the row"
+    assert_equal [ [ 4 / 9.0, 1.0 ] ],
+                 Game::Building::RowGenerator.behind(row, [ 12.0, 13.0 ], [ 12.0, 4.0 ], storey: 0, storey_height: 2.8, rows: 3, outward: -1)
+    assert_equal [ 2 ], glass_columns(west), "only the column out past the terrace's back keeps its glass"
+  end
+
+  # ONLY THE STOREYS THE TERRACE REACHES, on the same bar: a box storey whose sill stands
+  # above the row's own wall top looks over it, not into it. Three storeys of 3 m against a
+  # 6 m terrace -- the first two are behind it, the third is above it.
+  test "the terrace covers the storeys it reaches and no others" do
+    tall = flank("eaves" => 9.0, "ridge" => 9.0, "storeys" => 3)
+    built = pair("boxes" => [ tall ]).surfaces.select { |s| s.kind == :wall && s.origin.x == 12.0 && s.origin.z == 13.0 }
+
+    assert_equal 3, built.length, "one wall per storey of the flank"
+    assert_equal [ 0, 1, 2 ], built.map(&:storey)
+    assert_equal [ [ 2 ], [ 1, 2 ] ], built.first(2).map { |w| glass_columns(w) },
+                 "the two storeys behind the terrace keep only what lies past its back"
+    assert_equal [ 2, 4, 6, 7 ], glass_columns(built.last),
+                 "and the one whose sill stands above the 6 m terrace glazes 4, 6 and 7 -- columns it reserves below"
+  end
+
+  # AGAINST THE FACE, never merely beside the building -- the same judgement the boxes are
+  # held to, read the other way round. The probe is a centimetre outside the box wall's own
+  # skin, so a flank set half a metre off the terrace's end has daylight between the two and
+  # keeps its windows; slid onto the row's own line it does not.
+  test "a box standing clear of the terrace keeps its glass" do
+    clear = flank("ring" => [ [ 12.5, 4.0 ], [ 16.5, 4.0 ], [ 16.5, 13.0 ], [ 12.5, 13.0 ] ])
+    off = pair("boxes" => [ clear ]).surfaces.select { |s| s.kind == :wall }
+    on = pair("boxes" => [ flank ]).surfaces.select { |s| s.kind == :wall }
+
+    assert_equal [ 2, 4, 5, 7 ], glass_columns(off[17]), "half a metre of air is not a wall behind a window"
+    assert_not_equal glass_columns(off[17]), glass_columns(on[17]), "the same box on the terrace's own line is"
+  end
+
+  # NO INDEX MOVES. This changes which cells are glass and nothing else -- a patch, never a
+  # grid -- so the flanked row generates the same surfaces, the same offsets and the same
+  # piece count it did before the terrace was allowed to reserve a column.
+  test "reserving a box wall's columns moves no index" do
+    set = pair("boxes" => [ flank ])
+
+    assert_equal 35, set.surfaces.length
+    assert_equal 990, set.piece_count
+    assert_equal %i[wall] * 14 + %i[floor floor partition partition floor floor partition partition
+                                    roof roof gable roof roof gable] + %i[wall] * 4 + %i[floor roof rubble],
+                 set.surfaces.map(&:kind)
+    assert_equal [ 9, 9, 9, 9 ], set.surfaces.select { |s| s.kind == :wall }.last(4).map(&:cols).map { |c| c == 4 ? 9 : c },
+                 "the flank's four walls keep their grids"
   end
 
   test "the flags parse and are booleans" do

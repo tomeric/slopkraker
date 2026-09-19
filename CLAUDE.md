@@ -564,25 +564,36 @@ how the pool's ONE material is dressed and how each instance is coloured.
   columns against the wall's OWN grid. A row asks it too, of the very rectangle it hands
   `Interior`: naming a single middle column instead left the neighbour glazed wherever the
   crossing fell on a cell boundary, which is every EVEN column count — fifteen panes of
-  geleen. `RowGenerator.annexes` answers the boxes in the same currency, and `wall` asks for
-  them rather than being told, because a box is a fact about the ROW and every wall it puts
-  up stands in front of the same ones. Two things decide it: **against the face, never merely
-  overlapping the footprint** — the probe is a centimetre outside the wall's own outer skin,
-  so a shed lapping over the row and stopping short of it keeps the window, which two panes
-  of geleen are — and **only the storeys the box reaches, measured at the SILL**, so a
-  one-storey shed blanks the ground floor and the bedroom window over its roof stays a
-  window. **A DOOR is never reserved away** — a door in a corner is a detail, a door that
-  vanishes is a house you cannot enter — so thirteen corner doors stand, and the only corner
-  GLASS left is the 58 cells of geleen's dakkapel fronts, which never pass through `Openings`
-  at all and whose end columns are the window. Measured by a geometric sweep over all five
-  worlds that consults no reserved list and so cannot be circular with the rule: 102 corner
-  panes, then 15 with a partition behind them and 289 with a box (192 of them wholly behind
-  one, over 22 of geleen's 48 rows) are all nil now, and glass goes 2004 → 1710. 653 of 1204
-  walls carry none, fifty more than before — none of them a terrace's street front on the
-  estate, every ground floor still with its door, and the three dwellings of forty-nine now
-  blind on both their own faces are church-island rows with another part of the same pand
-  standing across the front and the back. A blank brick face there is honest in a way a pane
-  with a wall behind it is not.
+  geleen. `RowGenerator.behind` answers the SOLIDS in the same currency, and `wall` asks for
+  them rather than being told, because a box and a terrace are both facts about the ROW and
+  every wall it puts up stands in front of the same ones. Two things decide it: **against the
+  face, never merely overlapping the footprint** — the probe is a centimetre outside the
+  wall's own outer skin, so a shed lapping over the row and stopping short of it keeps the
+  window, which two panes of geleen are — and **only the storeys it reaches, measured at the
+  SILL**, so a one-storey shed blanks the ground floor and the bedroom window over its roof
+  stays a window. **The TERRACE is one of those solids and not just the boxes**, because it is
+  the same question whichever of the row's walls is asking: a box wall standing against the
+  terrace has the terrace's brick behind its glass exactly as a terrace wall standing against a
+  box has the box's. Nothing but `covered_to` said so before, and `covered_to` drops a box's
+  edge only where the row swallows it WHOLE — so an edge with one end inside the row's
+  rectangle and one outside kept its whole wall, and the stretch of it lying against the
+  terrace kept its windows: 26 panes over 10 of geleen's 48 rows, 20 of them wholly behind two
+  storeys of it. The terrace needs no `except` of its own, and that is geometry rather than
+  luck — a row's rectangle is CONVEX and every wall the row puts up is one of its four sides
+  with `outward` pointing away from it, so the probe can never land back inside the rectangle
+  it started on, which an imported box ring promises nothing of. **A DOOR is never reserved
+  away** — a door in a corner is a detail, a door that vanishes is a house you cannot enter —
+  so thirteen corner doors stand, and the only corner GLASS left is the 58 cells of geleen's
+  dakkapel fronts, which never pass through `Openings` at all and whose end columns are the
+  window. Measured by a geometric sweep over all five worlds that consults no reserved list and
+  so cannot be circular with the rule: 102 corner panes, then 15 with a partition behind them,
+  289 with a box (192 of them wholly behind one, over 22 of geleen's 48 rows) and 26 with the
+  terrace are all nil now, and glass goes 2004 → 1710 → 1684. 658 of 1204 walls carry none,
+  fifty-five more than before — none of them a terrace's street front on the estate, every
+  ground floor still with its door, and the three dwellings of forty-nine now blind on both
+  their own faces are church-island rows with another part of the same pand standing across the
+  front and the back. A blank brick face there is honest in a way a pane with a wall behind it
+  is not.
 - **A hedge is pieces, a lawn is a picture.** A `row` with `gardens` appends one
   `kind: :hedge` surface per garden (storey −1, one row of cells, the path void) after
   the boxes and before the rubble; it is skipped by the collapse rule by storey, by name

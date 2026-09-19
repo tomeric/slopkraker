@@ -74,15 +74,15 @@ module Game
         rows = Walls.cells(storey_height, row.cell)
         # The corners always, because a ring closes and every edge meets another at both
         # ends. Then every other stretch of this wall something lands on: the partition the
-        # caller hands down, and the boxes, which are asked for here rather than passed in
-        # because a box is a fact about the ROW and every wall the row builds is behind the
-        # same ones. Both arrive as fraction ranges and `Walls.columns` turns them into
-        # columns against THIS grid -- `cols` is rounded off the wall's own length, and a
-        # second place rounding a second length is how two answers to one question start
-        # disagreeing by a cell.
+        # caller hands down, and everything else this row has standing, which is asked for
+        # here rather than passed in because a box and a terrace are both facts about the
+        # ROW and every wall the row builds is behind the same ones. Both arrive as fraction
+        # ranges and `Walls.columns` turns them into columns against THIS grid -- `cols` is
+        # rounded off the wall's own length, and a second place rounding a second length is
+        # how two answers to one question start disagreeing by a cell.
         reserved = [ 0, cols - 1 ]
         if openings
-          spans = crossed + annexes(row, from, to, storey: storey, storey_height: storey_height, rows: rows, outward: outward, except: except)
+          spans = crossed + behind(row, from, to, storey: storey, storey_height: storey_height, rows: rows, outward: outward, except: except)
           spans.each { |span| reserved |= Walls.columns(span, cols) }
         end
         Surface.new(
@@ -94,24 +94,35 @@ module Game
         )
       end
 
-      # How far past a wall's own outer face a box has to reach to be standing against it:
-      # half the wall, and a centimetre more so that a ring laid flush with the wall's line
-      # -- which is how the importer writes an annexe that touches the house -- comes out
-      # inside the ring rather than exactly on its boundary.
+      # How far past a wall's own outer face something else of the row -- a box, or the
+      # terrace -- has to reach to be standing against it: half the wall, and a centimetre
+      # more so that a ring laid flush with the wall's line, which is how the importer
+      # writes an annexe that touches the house, comes out inside the ring rather than
+      # exactly on its boundary.
       AGAINST = Walls::THICKNESS / 2 + 0.01
-      # Two rings grazing each other at a corner is not a box in front of a window, and a
+      # Two rings grazing each other at a corner is not a wall in front of a window, and a
       # crossing of a few microns rounds down into a column all the same. Shorter than this
-      # and the box is not standing against anything.
+      # and nothing is standing against anything.
       GRAZE = 0.05
 
-      # WHICH STRETCHES OF THIS WALL A BOX STANDS AGAINST, as fraction ranges along it --
-      # the same currency `Interior.partition_reach` answers in, so `wall` turns the two
-      # into columns the one way. An annexe, a shed or a church wing built against a row's
-      # front, back or end covers that part of the face, and a window there glazes into its
-      # brick. Measured over every world before this: 228 panes on a row's own faces had a
-      # box behind them, 153 of them wholly behind one, over 22 of the 48 rows -- worst
-      # church-row-10 at 31 and church-row-6 at 28. The hand-made worlds have no boxes and
-      # no row recipes, so none of this reaches them.
+      # WHICH STRETCHES OF THIS WALL SOMETHING ELSE OF THIS ROW STANDS BEHIND, as fraction
+      # ranges along it -- the same currency `Interior.partition_reach` answers in, so
+      # `wall` turns the two into columns the one way. An annexe, a shed or a church wing
+      # built against a row's front, back or end covers that part of the face, and a window
+      # there glazes into its brick. Measured over every world before this: 228 panes on a
+      # row's own faces had a box behind them, 153 of them wholly behind one, over 22 of the
+      # 48 rows -- worst church-row-10 at 31 and church-row-6 at 28. The hand-made worlds
+      # have no boxes and no row recipes, so none of this reaches them.
+      #
+      # AND THE TERRACE IS ONE OF THE SOLIDS, not just the boxes. The question is about the
+      # space immediately outside a wall, and it is the same question whichever of this
+      # row's walls is asking: a box wall standing against the terrace has the terrace's
+      # brick behind its glass exactly as a terrace wall standing against a box has the
+      # box's. Nothing but `covered_to` said so before, and `covered_to` drops an edge only
+      # where the row swallows it WHOLE -- so an edge with one end inside the row's
+      # rectangle and one outside kept its whole wall, and the stretch of it lying against
+      # the terrace kept its windows. Measured over all five worlds: 26 panes on 10 of
+      # geleen's 48 rows, 20 of them wholly behind two storeys of terrace.
       #
       # BUILT AGAINST THE FACE, never merely overlapping the footprint. The question asked
       # is whether the box occupies the space immediately OUTSIDE this wall, so the wall's
@@ -131,8 +142,9 @@ module Game
       # course is the line and not the middle of the storey: measured with the middle, four
       # panes of geleen kept their glass with a flat annexe roof across the bottom third of
       # them.
-      def self.annexes(row, from, to, storey:, storey_height:, rows:, outward:, except: nil)
-        return [] if row.boxes.empty?
+      def self.behind(row, from, to, storey:, storey_height:, rows:, outward:, except: nil)
+        solids = standing(row, except)
+        return [] if solids.empty?
 
         dx, dz = to[0] - from[0], to[1] - from[1]
         length = Math.hypot(dx, dz)
@@ -148,15 +160,34 @@ module Game
         b = [ to[0] + nx, to[1] + nz ]
         sill = (storey + [ Openings::SILL_ROW, rows - 1 ].min.fdiv(rows)) * storey_height
 
-        row.boxes.flat_map do |box|
-          next [] if box.equal?(except) || box.eaves <= sill
-
-          x0, z0, x1, z1 = box.bounds
+        solids.flat_map do |ring, top, (x0, z0, x1, z1)|
+          next [] if top <= sill
           next [] if [ a[0], b[0] ].min > x1 || [ a[0], b[0] ].max < x0
           next [] if [ a[1], b[1] ].min > z1 || [ a[1], b[1] ].max < z0
 
-          spans_inside(a, b, box.ring, length)
+          spans_inside(a, b, ring, length)
         end
+      end
+
+      # EVERYTHING THIS ROW HAS STANDING that a wall of it could be built in front of, as
+      # `[ring, the top of its walls, its bounds]`: every box but the one this wall belongs
+      # to, and the terrace itself.
+      #
+      # The terrace needs no `except` of its own, and that is geometry rather than luck. A
+      # row's rectangle is CONVEX and every wall the row puts up -- a dwelling's front or
+      # back, either end -- is one of its four sides with `outward` pointing away from it,
+      # so the probe below can never land back inside the rectangle it started on. A box's
+      # ring promises neither: it is imported, it can be concave, and a probe a hand's
+      # breadth outside one of its edges can land inside another part of the same ring,
+      # which is what `except:` is for. A party wall stands INSIDE the rectangle and would
+      # reserve every column of itself -- correctly, it has a dwelling on both sides -- but
+      # it is built with no openings at all and never reaches here.
+      def self.standing(row, except)
+        solids = row.boxes.reject { |box| box.equal?(except) }.map { |box| [ box.ring, box.eaves, box.bounds ] }
+        return solids unless row.rect
+
+        x0, z0, x1, z1 = row.rect
+        solids << [ [ [ x0, z0 ], [ x1, z0 ], [ x1, z1 ], [ x0, z1 ] ], row.storeys * row.storey_height, row.rect ]
       end
 
       # The stretches of the segment a -> b that lie inside the ring, as fraction ranges.
