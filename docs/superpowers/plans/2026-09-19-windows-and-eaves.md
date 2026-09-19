@@ -119,7 +119,7 @@ pass `this.materials[name]?.depth ?? 1`. Do NOT change `heapMatrix` or the slab 
 
 - [ ] **Step 7: Check the JS parses**
 
-Run: `~/.local/share/mise/shims/node --check app/javascript/game/world/surface.js && ~/.local/share/mise/shims/node --check app/javascript/game/world/building.js`
+Run: `~/.local/share/mise/installs/node/lts/bin/node --check app/javascript/game/world/surface.js && ~/.local/share/mise/installs/node/lts/bin/node --check app/javascript/game/world/building.js`
 Expected: no output.
 
 - [ ] **Step 8: Run the browser test that renders a window**
