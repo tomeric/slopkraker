@@ -635,6 +635,15 @@ class Game::Building::RowTest < ActiveSupport::TestCase
     assert_equal :steel, top.material.name
     assert_in_delta front.origin.y + 1.5, top.origin.y, 1e-9
     assert_equal [ 3, 3 ], [ top.cols, top.rows ]
+    # The top is zinc sheet on boards. At Roof::THICKNESS it was the heaviest thing on the
+    # house -- heavier per cell than the tiled roof it stands on, which is what makes a
+    # flagged dwelling condemn earlier than its neighbour for the same damage.
+    assert_equal Game::Building::RowGenerator::DORMER_TOP_THICKNESS, top.thickness
+    plane = set.surfaces.find { |s| s.kind == :roof }
+    top_kg = top.to_spec[:kg].fetch("steel")
+    plane_kg = plane.to_spec[:kg].fetch("roof_tile")
+    assert_operator top_kg, :<, plane_kg,
+                    "a zinc deck weighs #{top_kg} kg a cell against the roof plane's #{plane_kg}; at Roof::THICKNESS it was 1404"
   end
 
   test "a dormer needs a roof with room under the ridge, and an unflagged dwelling gets none" do

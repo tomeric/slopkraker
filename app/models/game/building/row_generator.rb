@@ -133,6 +133,11 @@ module Game
       # ridge. The importer checks the same sum before it flags a dwelling.
       DORMER_CLEARANCE = 0.5
       DORMER_MIN_WIDTH = 1.5
+      # Zinc sheet on boards, not a steel slab: at Roof::THICKNESS the deck weighs 1560
+      # kg/m2 against the main roof's 380, which makes a dakkapel the heaviest thing on the
+      # house -- it would condemn a flagged dwelling earlier than its neighbour and fall as
+      # one eight-tonne body.
+      DORMER_TOP_THICKNESS = 0.05
 
       # 5b. Four surfaces, or none: the front (glass, a plaster return at each end column),
       # two cheeks (plaster, rectangles whose lower rear corner lies inside the roof and is
@@ -159,6 +164,8 @@ module Game
         cols = Walls.cells(width, row.cell)
         rows = [ Walls.cells(DORMER_HEIGHT, row.cell), 1 ].max
         deep = Walls.cells(depth, row.cell)
+        # Under three columns there is no middle left to be a window, so the returns are
+        # skipped and the face is all glass: a two-column dormer front is all window.
         returns = cols >= 3 ? [ 0, cols - 1 ].map { |c| Surface::Patch.new(col0: c, row0: 0, col1: c, row1: rows - 1, material: :plaster) } : []
 
         front = Surface.new(kind: :wall, storey: row.storeys, material: Materials.fetch(:glass), origin: Vector3.new(x0, y_base, z_front),
@@ -170,7 +177,7 @@ module Game
                       seed: row.seed + 300 + i, bay: i)
         end
         top = Surface.new(kind: :roof, storey: row.storeys, material: Materials.fetch(:steel), origin: Vector3.new(x0, y_top, z_front),
-                          u: EAST, v: SOUTH, width: width, height: depth, cols: cols, rows: deep, thickness: Roof::THICKNESS, bay: i)
+                          u: EAST, v: SOUTH, width: width, height: depth, cols: cols, rows: deep, thickness: DORMER_TOP_THICKNESS, bay: i)
         [ front, *cheeks, top ]
       end
 
