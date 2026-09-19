@@ -209,4 +209,36 @@ class Game::Import::RowsTest < ActiveSupport::TestCase
       assert_operator set.surfaces.count { |s| s.material.name == :steel && s.kind == :roof }, :>=, dormers, "#{o[:name]}: a flagged dormer was not generated"
     end
   end
+
+  test "dwellings are flagged for panels and chimneys by seed, where the roof allows" do
+    dwellings = (rows.objects + church_rows.objects).flat_map { |o| o[:recipe]["dwellings"].map { |d| [ o, d ] } }
+    %w[solar chimney].each do |flag|
+      flagged = dwellings.count { |_, d| d[flag] }
+      assert_operator flagged, :>, 0, "no dwelling has #{flag}"
+      assert_operator flagged, :<, dwellings.length, "every dwelling has #{flag}"
+    end
+    dwellings.each do |o, d|
+      next unless d["solar"] || d["chimney"]
+
+      assert_equal "gable", o[:recipe]["roof"], "#{o[:name]}: fittings on a flat roof"
+      assert_includes %w[house apartments], o[:category], "#{o[:name]}: fittings on a #{o[:category]}"
+      assert_operator d["x1"] - d["x0"], :>=, 1.8, "#{o[:name]}: a chimney on a dwelling narrower than its stack" if d["chimney"]
+    end
+  end
+
+  test "every flagged recipe generates its fittings" do
+    (rows.objects + church_rows.objects).each do |o|
+      set = Game::Building::Generator.call(o[:recipe])
+      chimneys = o[:recipe]["dwellings"].count { |d| d["chimney"] }
+      # Brick, because a dormer's front and cheeks land on this same kind and storey --
+      # `row.storeys`, above every real storey -- and glass/plaster, never brick, is what
+      # tells a stack's four walls apart from a dakkapel that happens to share a dwelling.
+      stacks = set.surfaces.count { |s| s.kind == :wall && s.storey == o[:recipe]["storeys"] && s.material.name == :brick }
+      assert_equal chimneys * 4, stacks, "#{o[:name]}: a flagged chimney was not generated"
+      panels = o[:recipe]["dwellings"].count { |d| d["solar"] }
+      next if panels.zero?
+
+      assert_operator set.surfaces.count { |s| s.patches.any? { |p| p.material == :solar } }, :>, 0, "#{o[:name]}: no panels"
+    end
+  end
 end

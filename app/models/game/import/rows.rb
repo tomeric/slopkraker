@@ -34,6 +34,10 @@ module Game
       DORMER_SHARE = 45
       DORMER_MIN_RISE = 2.5
       DORMER_MIN_WIDTH = 4.5
+      # Panels went up across estates like this one through the 2010s; chimneys were built
+      # with the houses, so nearly every party line has one.
+      SOLAR_SHARE = 30
+      CHIMNEY_SHARE = 55
 
       # A cluster's own axes, not the world's. Named Frame because that is what it is, and
       # deliberately never confused with Terrain::Frame: that one maps survey metres to
@@ -265,12 +269,14 @@ module Game
             # the generator realises them and never guesses. Each is gated by the room it
             # needs -- a garage by a front of six cells and no garage box beside the house,
             # a dormer by a roof with room under the ridge (the same sum the generator
-            # checks), glazing by nothing but the draw.
+            # checks), glazing by nothing but the draw. Solar and chimney both need a gable
+            # roof -- a flat deck has no sun-facing slope and no ridge to stand a stack on --
+            # and a chimney further needs a dwelling at least as wide as its own stack.
             #
-            # And all three by the CATEGORY. A dakkapel and a wall of glass are things
-            # people live behind: a shed tall enough to be sliced into a dwelling is still a
-            # shed from the kerb, and one with a dormer over a glazed back reads as a
-            # mistake rather than as a house.
+            # And all five by the CATEGORY. A dakkapel, a glass wall, a panelled roof and a
+            # chimney are things people live behind: a shed tall enough to be sliced into a
+            # dwelling is still a shed from the kerb, and one with a dormer over a glazed back
+            # reads as a mistake rather than as a house.
             lived_in = %w[house apartments].include?(category)
             garage_box = recipe["boxes"].any? { |b| b["door"] == "garage" }
             run = (band_z1 - band_z0) / 2.0
@@ -283,6 +289,8 @@ module Game
               d["garage"] = true if category == "house" && !garage_box && cols >= Building::Openings::GARAGE_MIN_COLS && self.class.detail?(seed, i, 1, GARAGE_SHARE)
               d["glazing"] = true if lived_in && self.class.detail?(seed, i, 2, GLAZING_SHARE)
               d["dormer"] = true if lived_in && room && width >= DORMER_MIN_WIDTH && self.class.detail?(seed, i, 3, DORMER_SHARE)
+              d["solar"] = true if lived_in && recipe["roof"] == "gable" && self.class.detail?(seed, i, 4, SOLAR_SHARE)
+              d["chimney"] = true if lived_in && recipe["roof"] == "gable" && width >= 2 * Building::RowGenerator::CHIMNEY_SIDE && self.class.detail?(seed, i, 5, CHIMNEY_SHARE)
             end
           else
             recipe.merge!("band" => [ 0.0, 0.0 ], "storeys" => [ mains.map { |m| ((m["eaves"] || m["h70"]) / 4.0).round }.max, 1 ].max,
