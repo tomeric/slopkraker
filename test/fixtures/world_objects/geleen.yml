@@ -1292,7 +1292,7 @@ geleen_estate_shed_18:
   z: -2294.073
   yaw: 0.806
   radius: 22.3
-  piece_count: 1207
+  piece_count: 1187
   storey_count: 2
   recipe:
     kind: row
@@ -1304,10 +1304,8 @@ geleen_estate_shed_18:
     dwellings:
     - x0: -0.03
       x1: 5.83
-      dormer: true
     - x0: 5.83
       x1: 11.81
-      glazing: true
     boxes:
     - ring:
       - [11.56, 2.55]

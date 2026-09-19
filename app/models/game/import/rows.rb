@@ -266,6 +266,12 @@ module Game
             # needs -- a garage by a front of six cells and no garage box beside the house,
             # a dormer by a roof with room under the ridge (the same sum the generator
             # checks), glazing by nothing but the draw.
+            #
+            # And all three by the CATEGORY. A dakkapel and a wall of glass are things
+            # people live behind: a shed tall enough to be sliced into a dwelling is still a
+            # shed from the kerb, and one with a dormer over a glazed back reads as a
+            # mistake rather than as a house.
+            lived_in = %w[house apartments].include?(category)
             garage_box = recipe["boxes"].any? { |b| b["door"] == "garage" }
             run = (band_z1 - band_z0) / 2.0
             rise = recipe["ridge"] - recipe["eaves"]
@@ -275,8 +281,8 @@ module Game
               width = d["x1"] - d["x0"]
               cols = (width / recipe["cell"]).round
               d["garage"] = true if category == "house" && !garage_box && cols >= Building::Openings::GARAGE_MIN_COLS && self.class.detail?(seed, i, 1, GARAGE_SHARE)
-              d["glazing"] = true if self.class.detail?(seed, i, 2, GLAZING_SHARE)
-              d["dormer"] = true if room && width >= DORMER_MIN_WIDTH && self.class.detail?(seed, i, 3, DORMER_SHARE)
+              d["glazing"] = true if lived_in && self.class.detail?(seed, i, 2, GLAZING_SHARE)
+              d["dormer"] = true if lived_in && room && width >= DORMER_MIN_WIDTH && self.class.detail?(seed, i, 3, DORMER_SHARE)
             end
           else
             recipe.merge!("band" => [ 0.0, 0.0 ], "storeys" => [ mains.map { |m| ((m["eaves"] || m["h70"]) / 4.0).round }.max, 1 ].max,

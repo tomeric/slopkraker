@@ -38,16 +38,18 @@ Currently:
   buildings — an estate of terraces 50 m around RD (186330, 332234), and the church with
   its hall and apartments 60 m around RD (187006, 331447), a kilometre apart with nothing
   in between — on nine 500 m heightfield tiles resampled from the DEM, with 266 roads
-  drawn on the ground as ribbons. Those forty-eight rows are **44,483 pieces in 659 KB of
+  drawn on the ground as ribbons. Those forty-eight rows are **44,463 pieces in 676 KB of
   building spec and 38 KB of roads**, against `street`'s twelve houses at 6692 pieces and
-  103 KB: six and a half times the world for six times the bytes, which is the row recipe
-  paying for itself and still the reason the next window wants streaming rather than a
-  third island. The importer also gives each row a palette, a garage where one of its
+  103 KB: six and a half times the world for six and a half times the bytes — the spec
+  carries SURFACES rather than pieces, which is the only reason forty-eight buildings fit
+  in a `<script>` tag at all, and still the reason the next window wants streaming rather
+  than a third island. The importer also gives each row a palette, a garage where one of its
   boxes faces the street at a car's width, and a front garden where a road runs across a
   dwelling's own front — measured on this town: three garages, and thirty-one gardens,
   twenty-nine of them on the estate's thirty-one dwellings and two more on the church
   island. The same importer flags dwellings for the details below from the seed, where
-  the geometry allows: fourteen integrated garages, fourteen glazed backs and twenty-two
+  the geometry allows and only where people live — a shed sliced into dwellings is still a
+  shed from the kerb: fourteen integrated garages, thirteen glazed backs and twenty-one
   dakkapellen. `?spawn=1` starts beside the church instead of on the estate. Every
   building is a `row` rather than a house, and a terrace comes down one dwelling at a
   time. **A church or a hall is a row of ZERO dwellings and one bay per part**, decided by
@@ -434,7 +436,9 @@ how the pool's ONE material is dressed and how each instance is coloured.
   ceiling at the back; four dormer surfaces (glass front with plaster returns, plaster
   cheeks, steel top) generated right after the dwelling's roof section, **step 5b of the
   order**, so an unflagged row keeps its numbering. Windows elsewhere come in runs of one
-  or two cells; `classic` is untouched.
+  or two cells **in the `house` and `annex` styles**; `classic` and the church's rhythms are
+  untouched. A dwelling with a dakkapel puts `steel` (its top) and more `plaster` and
+  `glass` into its rubble mix, so `steel#rubble` is a pool geleen now allocates.
 - **Gable ends meet the roof by drawing, not by pieces.** The stair is the index space;
   the client fills each column's tooth with a box in the material's pool and a wedge in a
   `<material>#wedge` shape pool, keyed to the cell they stand on (`Building#buildCaps`),

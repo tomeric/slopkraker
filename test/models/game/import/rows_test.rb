@@ -191,8 +191,13 @@ class Game::Import::RowsTest < ActiveSupport::TestCase
   end
 
   test "the same seed always flags the same dwellings" do
-    assert_equal Game::Import::Rows.detail?(227, 0, 1, 33), Game::Import::Rows.detail?(227, 0, 1, 33)
-    assert_equal (0...100).count { |i| Game::Import::Rows.detail?(5, i, 2, 50) }.between?(30, 70), true, "a fifty percent share should flag about half"
+    # Pinned literally, because "the same seed flags the same dwellings" compared against
+    # itself cannot fail. Two of the eight dwellings of seed 227 get the detail with salt 1
+    # at a third; change the hash and this array moves, which is the point of pinning it.
+    assert_equal [ false, true, false, false, false, true, false, false ],
+                 (0...8).map { |i| Game::Import::Rows.detail?(227, i, 1, 33) }
+    assert_equal true, (0...100).count { |i| Game::Import::Rows.detail?(5, i, 2, 50) }.between?(30, 70),
+                 "a fifty percent share should flag about half"
     refute Game::Import::Rows.detail?(5, 0, 2, 0)
     assert Game::Import::Rows.detail?(5, 0, 2, 100)
   end
