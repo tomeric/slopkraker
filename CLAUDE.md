@@ -24,7 +24,7 @@ Currently:
   call per material across all buildings, one shared spatial grid, one shared pool of
   falling slabs, collapses that stay independent — was asserted for years against a world
   containing exactly one house, where the shared thing and the per-building thing are the
-  same thing. Twelve houses is 6692 pieces in 103 KB of spec and **thirty-two draw calls,
+  same thing. Twelve houses is 7205 pieces in 94 KB of spec and **thirty-two draw calls,
   fewer than the one-house world's thirty-four**. It is deliberately not a city: past
   roughly a hundred buildings the inline spec and the up-front `InstancedMesh` allocation
   both want streaming, which is its own design.
@@ -39,9 +39,11 @@ Currently:
   its hall and apartments 60 m around RD (187006, 331447), a kilometre apart with nothing
   in between — on nine 500 m heightfield tiles resampled from the DEM, with 266 roads
   drawn on the ground as ribbons. Those forty-eight rows are **44,463 pieces in 676 KB of
-  building spec and 38 KB of roads**, against `street`'s twelve houses at 6692 pieces and
-  103 KB: six and a half times the world for six and a half times the bytes — the spec
-  carries SURFACES rather than pieces, which is the only reason forty-eight buildings fit
+  building spec and 38 KB of roads**, against `street`'s twelve houses at 7205 pieces and
+  94 KB: six times the world for seven times the bytes — a row's spec carries more
+  surfaces per piece than a hand-made house does, because a terrace is walls cut at every
+  party line and a dormer is four surfaces of a few cells each. The spec still carries
+  SURFACES rather than pieces, which is the only reason forty-eight buildings fit
   in a `<script>` tag at all, and still the reason the next window wants streaming rather
   than a third island. The importer also gives each row a palette, a garage where one of its
   boxes faces the street at a car's width, and a front garden where a road runs across a
@@ -465,7 +467,11 @@ how the pool's ONE material is dressed and how each instance is coloured.
   the wrong heaps, and there is no `geleen` in production — so a dev database that has
   played it wants its geleen matches cleared rather than migrated. Everything else is
   untouched: a `building` recipe has no gardens, and the three hand-made worlds have no
-  `row` recipes at all.
+  `row` recipes at all. **Adding or removing a dormer does the same thing to one row**:
+  the four surfaces sit in step 5b, so every index after them moves. Keeping sheds out of
+  the dakkapel rule took twenty pieces off `estate-shed-18`, which is a renumbering of
+  exactly that kind — one more reason the answer to a stale geleen is to clear its
+  matches, never to reconcile them.
 - **Daylight is the default.** `rules.sky.{day,night}`; `?time=night` is the sky the game
   was lit for until now. At high quality the sky is a gradient texture filtered once
   into an environment map so steel reflects something; at low it is the horizon colour.

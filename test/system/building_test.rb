@@ -121,7 +121,7 @@ class BuildingTest < ApplicationSystemTestCase
     assert_operator healths["concrete"], :<, healths["steel"]
   end
 
-  # One draw call per material rather than one per piece. 1502 pieces rendering as eight
+  # One draw call per material rather than one per piece. 1553 pieces rendering as eight
   # draws is the thing that makes a city conceivable at all.
   #
   # The number is a ceiling with room in it rather than a budget: what this catches is the

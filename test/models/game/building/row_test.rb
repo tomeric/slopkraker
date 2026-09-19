@@ -546,8 +546,10 @@ class Game::Building::RowTest < ActiveSupport::TestCase
 
   # A MIX, not a second fixed rhythm. `draw`'s low bit used to flip on every run, so a face
   # went 2, 1, 2, 1 as reliably as the every-other-column rhythm the runs replaced -- and a
-  # strict alternation never puts two runs of the same width side by side. Over forty seeds
-  # of the pair's front upstairs face, a good few should.
+  # strict alternation only ever puts two runs of the same width side by side when the
+  # end-clamp cuts the last one short, which it did on 9 of forty seeds. Measured over two
+  # hundred seeds of the pair's front upstairs face the mix gives 37.5%, so a quarter of
+  # forty is a floor with room in it rather than a coin toss away from the old hash.
   test "the run widths are mixed rather than alternating" do
     faces = (1..40).map do |seed|
       wall = pair("seed" => seed).surfaces.select { |s| s.kind == :wall }[1]

@@ -64,8 +64,8 @@ class StreetTest < ApplicationSystemTestCase
   end
 
   # The claim that makes a city conceivable, and the reason the meshes are shared across
-  # buildings rather than owned by them. Twelve houses and 6692 pieces must not cost more
-  # draw calls than one house and 1502 -- if the render plan ever regressed to a pool per
+  # buildings rather than owned by them. Twelve houses and 7205 pieces must not cost more
+  # draw calls than one house and 1553 -- if the render plan ever regressed to a pool per
   # building, this is where it would show up, as roughly a hundred draws instead of thirty.
   #
   # Measured against the one-house world rather than a written-down number, because the

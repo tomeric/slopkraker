@@ -70,8 +70,10 @@ module Game
         (path + openings.garage_columns(cols)).select { |c| c.between?(0, cols - 1) }.uniq.sort
       end
 
-      # Contiguous columns as `[first, last]` pairs. A garaged front's voids are two runs --
-      # the path and the drive, one pier apart -- and the lawn is what lies between them.
+      # Contiguous columns as `[first, last]` pairs. On every garaged front the estate has,
+      # the path's widening meets the drive and the two come out as ONE run; the pairs are
+      # here because nothing guarantees that -- a wider dwelling puts a pier between them,
+      # and then the lawn has a strip in the middle to keep.
       def self.runs(columns)
         columns.chunk_while { |a, b| b == a + 1 }.map { |g| [ g.first, g.last ] }
       end
@@ -90,8 +92,8 @@ module Game
           z1 = row.z0
           # The lawn is what the hedge's voids leave: the strips between the ends of the
           # dwelling, the path and -- on a garaged front -- the drive. The edges alternate
-          # lawn-start, lawn-end all the way across, so a garden with no voids is one rect
-          # and a garaged one is three.
+          # lawn-start, lawn-end all the way across, so a garden with no voids is one rect,
+          # and every garden the estate actually has is one or two.
           edges = [ 0, *runs(path_columns(row, garden.bay, cols)).flat_map { |a, b| [ a, b + 1 ] }, cols ]
           edges.each_slice(2).map { |a, b| rect(d.x0 + a * cell, z0, d.x0 + b * cell, z1) }.compact
         end
