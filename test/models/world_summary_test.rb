@@ -60,4 +60,42 @@ class WorldSummaryTest < ActiveSupport::TestCase
     assert_equal 6, houses.count { |house| house.x.positive? }, "the east side"
     assert_equal 6, houses.count { |house| house.x.negative? }, "the west side"
   end
+
+  # THE EAVES CLEAR THE WALL, on every pitched plane in every world.
+  #
+  # `spec_test` pins `EAVES_OVERHANG > Walls::THICKNESS`, which is not the property. The
+  # overhang runs DOWN THE SLOPE, so what has to beat half a wall is its horizontal
+  # component, `EAVES_OVERHANG × cos(pitch)` -- and the flat-out bar implies that only
+  # while `cos(pitch) > 0.5`, which is a pitch under 60°. Sint-Marcellinus is 66° and
+  # clears by about 12 mm. So any value between roughly 0.31 and 0.36 would pass the pinned
+  # bar and the browser test (which visits `targets`, where the margin is 2.3×) while
+  # leaving the church's tiles short of its own wall. This is the assertion that would
+  # catch it, and it is here rather than in `spec_test` because it needs every world's
+  # buildings rather than one number.
+  test "the tiles reach past the wall on every pitched plane in every world" do
+    overhang = Game::Building::Roof::EAVES_OVERHANG
+    need = Game::Building::Walls::THICKNESS / 2.0
+    # A roof plane's v runs up the slope, so v.y is the sine of the pitch: zero on anything
+    # that is really a deck. The same test the client makes before hanging a gutter, and the
+    # same tolerance -- a pitch of just over one degree, which no roof has and no float
+    # error reaches.
+    pitched = 0.02
+    planes = 0
+    short = []
+
+    World.find_each do |world|
+      world.world_objects.where(kind: "building").each do |object|
+        object.surface_set.surfaces.each do |surface|
+          next unless surface.kind == :roof && surface.v.y.abs > pitched
+
+          planes += 1
+          reach = overhang * Math.hypot(surface.v.x, surface.v.z)
+          short << [ world.slug, object.name, reach.round(4) ] if reach <= need
+        end
+      end
+    end
+
+    assert_operator planes, :>, 0, "no world has a pitched roof -- has the sweep stopped finding them?"
+    assert_empty short, "these planes do not reach past the wall they sit on"
+  end
 end
