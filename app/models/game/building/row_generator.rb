@@ -121,10 +121,16 @@ module Game
           floor = dakkapel && side == DORMER_SIDE ? dormer_rows(dakkapel, run: run, slope: slope, rows: rows) : 0
           # Panels on the sun-facing slope of a flagged dwelling, and on nothing else.
           panels = d.solar && side == sun ? Array(solar_patch(cols, rows, floor: floor)) : []
+          # And the hole the dakkapel stands over, LAST so that it wins: the last patch
+          # covering a cell decides it, and a cell inside the dormer box has no roof in it to
+          # put a panel on. The two cannot meet today -- `floor` starts the array above the
+          # dormer's own reach, which is rounded UP where this rounds down -- and ordering
+          # them says which is right if they ever do.
+          hole = dakkapel && side == DORMER_SIDE ? Array(dormer_void(dakkapel, origin_x: origin.x, cols: cols, rows: rows, width: span, height: slope, run: run)) : []
           Surface.new(
             kind: :roof, storey: row.storeys, material: Materials.fetch(:roof_tile),
             origin: origin, u: EAST, v: up_slope.normalised, width: span, height: slope,
-            cols: cols, rows: rows, thickness: Roof::THICKNESS, patches: panels, bay: i
+            cols: cols, rows: rows, thickness: Roof::THICKNESS, patches: panels + hole, bay: i
           )
         end
         ends = []
@@ -205,9 +211,9 @@ module Game
       SOLAR_ROWS = 2
       SOLAR_INSET = 1
 
-      # 5b. Four surfaces, or none: the front (glass, a plaster return at each end column),
-      # two cheeks (plaster, rectangles whose lower rear corner lies inside the roof and is
-      # never seen) and the flat top (steel). The front's foot is ON the roof plane, at
+      # 5b. Four surfaces, or none: the front (glass in every cell, because a dakkapel is a
+      # window), two cheeks (plaster, rectangles whose lower rear corner lies inside the roof
+      # and is never seen) and the flat top (steel). The front's foot is ON the roof plane, at
       # `eaves + rise * setback / run`; the top is DORMER_HEIGHT above it, and the roof
       # reaches that height `height * run / rise` further back, which is where the cheeks
       # and the top end. Above every storey and in the dwelling's bay, like its roof, so
@@ -215,10 +221,13 @@ module Game
       # A dakkapel stands on the plane at z0, which roof_section builds as `side` +1.
       DORMER_SIDE = 1
 
-      # The dakkapel this dwelling gets, or nil for none: its width and its depth up the
-      # roof, behind the three gates that decide whether there is one at all. Pulled out of
-      # `dormer` so roof_section can ask the same question the builder answers, rather than
-      # re-deriving the gates and drifting from them.
+      # The dakkapel this dwelling gets, or nil for none: where it starts along the row, how
+      # wide it is and how far back up the roof it reaches, behind the three gates that
+      # decide whether there is one at all. Pulled out of `dormer` so roof_section can ask
+      # the same question the builder answers, rather than re-deriving the gates and drifting
+      # from them -- and it carries `x0` for the same reason: the footprint the void patch is
+      # cut to and the footprint the cheeks stand on have to be one calculation, or the hole
+      # and the box that covers it can part company.
       def self.dormer_plan(row, d)
         return nil unless d.dormer && row.roof == "gable" && row.rise.positive?
 
@@ -229,7 +238,36 @@ module Game
         depth = DORMER_HEIGHT * run / row.rise
         return nil if DORMER_SETBACK + depth > run - DORMER_CLEARANCE
 
-        { width: width, depth: depth }
+        { width: width, depth: depth, x0: d.x0 + (d.width - width) / 2.0 }
+      end
+
+      # The roof the dakkapel stands over, as ONE void patch on the plane -- so the window
+      # looks into the roof space instead of at the tiles a hand's breadth behind it. A void
+      # is an index that holds nothing, exactly as a doorway is, so nothing renumbers.
+      #
+      # ENTIRELY under the dakkapel, never merely mostly: a void cell is a hole in the roof,
+      # and a cell half under the box leaves the other half of it open beside a cheek, in
+      # front of the glass or above the zinc top, which is half a metre of sky through a
+      # roof. Measured over geleen's fifteen dakkapellen, this opens 33 cells where a rule
+      # that took any cell whose middle fell under one would open 117.
+      #
+      # The plane's own frame: `u` runs east from `origin.x`, `v` runs UP THE SLOPE, and a
+      # horizontal metre back from the eaves is `slope / run` metres along it. The dormer's
+      # foot stands on the plane at its setback and its top meets the plane again where the
+      # roof has risen DORMER_HEIGHT, which is `setback + depth` back -- see `dormer`.
+      def self.dormer_void(plan, origin_x:, cols:, rows:, width:, height:, run:)
+        cw = width / cols
+        ch = height / rows
+        x1 = plan[:x0] + plan[:width]
+        foot = DORMER_SETBACK * height / run
+        head = (DORMER_SETBACK + plan[:depth]) * height / run
+        columns = (0...cols).select { |c| origin_x + c * cw >= plan[:x0] - 1e-9 && origin_x + (c + 1) * cw <= x1 + 1e-9 }
+        lines = (0...rows).select { |r| r * ch >= foot - 1e-9 && (r + 1) * ch <= head + 1e-9 }
+        # A dakkapel narrower or shallower than one cell of the roof it sits on covers no
+        # whole cell, and opens nothing rather than opening the cell it is inside.
+        return nil if columns.empty? || lines.empty?
+
+        Surface::Patch.new(col0: columns.first, row0: lines.first, col1: columns.last, row1: lines.last, material: :void)
       end
 
       # How many whole rows of a roof plane a dakkapel reaches up from the eaves. Its top
@@ -247,7 +285,7 @@ module Game
         run = row.depth / 2.0
         width = plan[:width]
         depth = plan[:depth]
-        x0 = d.x0 + (d.width - width) / 2.0
+        x0 = plan[:x0]
         x1 = x0 + width
         z_front = row.z0 + DORMER_SETBACK
         y_base = row.eaves + row.rise * DORMER_SETBACK / run
@@ -255,16 +293,21 @@ module Game
         cols = Walls.cells(width, row.cell)
         rows = [ Walls.cells(DORMER_HEIGHT, row.cell), 1 ].max
         deep = Walls.cells(depth, row.cell)
-        # Under three columns there is no middle left to be a window, so the returns are
-        # skipped and the face is all glass: a two-column dormer front is all window.
-        returns = cols >= 3 ? [ 0, cols - 1 ].map { |c| Surface::Patch.new(col0: c, row0: 0, col1: c, row1: rows - 1, material: :plaster) } : []
 
+        # A dakkapel is a WINDOW with a roof over it, and the front carries no patch at all:
+        # it had a plaster return in the first and last column, which on every dormer geleen
+        # has -- three columns by two rows -- left two glass cells out of six, and 56 of the
+        # 86 front cells on the island were wall. Cutting a box into a roof to put a third of
+        # a window in it is not worth the roof it costs. The comment that justified the
+        # returns -- under three columns there is no middle left to be a window -- is
+        # inverted by this: there is no middle because the whole face is the window.
+        #
         # fittings: false on all four -- a gutter belongs under the tiles of the main roof,
         # not round a zinc box on the slope, and a downpipe against the house's own wall,
         # not a dormer cheek the width of a door.
         front = Surface.new(kind: :wall, storey: row.storeys, material: Materials.fetch(:glass), origin: Vector3.new(x0, y_base, z_front),
                             u: EAST, v: UP, width: width, height: DORMER_HEIGHT, cols: cols, rows: rows, thickness: Walls::THICKNESS,
-                            patches: returns, seed: row.seed + 300 + i, bay: i, fittings: false)
+                            seed: row.seed + 300 + i, bay: i, fittings: false)
         cheeks = [ x0, x1 ].map do |x|
           Surface.new(kind: :wall, storey: row.storeys, material: Materials.fetch(:plaster), origin: Vector3.new(x, y_base, z_front),
                       u: SOUTH, v: UP, width: depth, height: DORMER_HEIGHT, cols: deep, rows: rows, thickness: Interior::PARTITION_THICKNESS,

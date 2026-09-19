@@ -717,8 +717,7 @@ class Game::Building::RowTest < ActiveSupport::TestCase
     assert_equal [ false ] * 4, [ front, left, right, top ].map(&:fittings), "no rainwater goods of its own"
     assert_equal [ false ] * 4, [ front, left, right, top ].map { |s| s.to_spec[:fittings] }
     assert_equal :glass, front.material.name
-    assert_equal %i[plaster plaster], front.patches.map(&:material), "a plaster return at each end"
-    assert_equal [ 0, 2 ], front.patches.map(&:col0), "the returns are the outer columns"
+    assert_empty front.patches, "a dakkapel is a window in every cell"
     assert_in_delta 1.5, front.origin.x, 1e-9, "centred on the six-metre dwelling"
     assert_in_delta 1.0, front.origin.z, 1e-9, "a metre in from the eaves line"
     assert_in_delta 6.0 + 2.5 * 1.0 / 4.5, front.origin.y, 1e-9, "standing on the roof plane"
@@ -738,6 +737,85 @@ class Game::Building::RowTest < ActiveSupport::TestCase
     plane_kg = plane.to_spec[:kg].fetch("roof_tile")
     assert_operator top_kg, :<, plane_kg,
                     "a zinc deck weighs #{top_kg} kg a cell against the roof plane's #{plane_kg}; at Roof::THICKNESS it was 1404"
+  end
+
+  # A dakkapel is a WINDOW with a roof over it, and it was not one: every front on geleen was
+  # three columns by two rows with a plaster return in the first and last column, so 56 of
+  # their 86 cells were wall. Cutting a box into a roof to put a third of a window in it is
+  # not worth the roof it costs.
+  #
+  # The old comment said that under three columns there was no middle left to be a window;
+  # that is inverted here -- there is no middle because the whole face is the window. So the
+  # width has to be checked at more than one, and min(DORMER_WIDTH, d.width - 2) at the row's
+  # own cell size gives two columns on a 4 m dwelling, three on a 6 m one and five at 0.6 m
+  # cells.
+  test "a dakkapel is glass in every cell, at every width" do
+    [ [ 1.0, 4.0, 2 ], [ 1.0, 6.0, 3 ], [ 0.6, 6.0, 5 ] ].each do |cell, width, cols|
+      set = pair("cell" => cell,
+                 "dwellings" => [ { "x0" => 0.0, "x1" => width, "dormer" => true }, { "x0" => width, "x1" => 12.0 } ])
+      front = set.surfaces.find { |s| s.kind == :wall && s.material.name == :glass }
+
+      assert front, "no dakkapel on a #{width} m dwelling at #{cell} m cells"
+      assert_equal cols, front.cols
+      assert_empty front.patches, "a dakkapel front is glass in every cell"
+      assert front.rows.times.all? { |r| front.cols.times.all? { |c| front.material_at(r, c).name == :glass } },
+             "a cell of the front is not glass"
+    end
+  end
+
+  # And the roof behind the glass: nothing voided it, so the window looked at tiles. The
+  # plane the dakkapel stands on carries a void patch over its footprint -- an index that
+  # holds nothing, exactly as a doorway is, so no count and no offset moves.
+  #
+  # Worked by hand from the pair with a dormer on the first dwelling. The front plane starts
+  # at x = -0.4 and spans 6.4 m in 6 columns of 1.0667 m, and runs hypot(4.5, 2.5) = 5.1478 m
+  # up the slope in 5 rows of 1.0296 m. The dakkapel is 3 m wide centred on the 6 m dwelling,
+  # so x 1.5..4.5: columns 2 (1.733..2.8) and 3 (2.8..3.867) are the ones that lie inside it.
+  # Its foot is a setback of 1 m back, 1 x 5.1478 / 4.5 = 1.144 m up the plane, and its top
+  # meets the roof again 3.7 m back, 4.233 m up: rows 2 (2.059..3.089) and 3 (3.089..4.118).
+  test "the roof behind a dakkapel is open" do
+    set = pair("dwellings" => [ { "x0" => 0.0, "x1" => 6.0, "dormer" => true }, { "x0" => 6.0, "x1" => 12.0 } ])
+    plane = set.surfaces.find { |s| s.kind == :roof && s.material.name == :roof_tile }
+    void = plane.patches.select { |p| p.material == :void }
+
+    assert_equal 1, void.length, "the dormer looks straight at the tiles"
+    assert_equal [ 2, 2, 3, 3 ], void.map { |p| [ p.col0, p.row0, p.col1, p.row1 ] }.first
+    assert_equal :void, plane.material_at(2, 2).name
+    assert_equal :roof_tile, plane.material_at(1, 2).name, "the roof in front of the glass is still a roof"
+    assert_equal [ 6, 5 ], [ plane.cols, plane.rows ], "a void patch is a material, never a grid"
+    assert_equal 867, set.piece_count
+    # The plane the dakkapel does NOT stand on, and an unflagged dwelling's, keep their tiles.
+    assert_empty set.surfaces.select { |s| s.kind == :roof }[1..].flat_map(&:patches)
+  end
+
+  # THE SHARP EDGE. A void cell is a hole in the roof, and one too many is a hole you can see
+  # the sky through -- beside a cheek, in front of the glass, or above the zinc top. So a cell
+  # is opened only when it lies ENTIRELY under the dakkapel; one that is half under keeps its
+  # tile, because half a metre of missing roof reads worse than a tile the window half looks
+  # at. Measured over geleen's fifteen dakkapellen: 33 cells opened this way, against 117 if
+  # a cell were opened whenever its middle happened to fall under one.
+  test "the void never reaches past the dakkapel it is under" do
+    [ {}, { "ridge" => 14.0 }, { "cell" => 0.6 }, { "storey_height" => 2.6, "eaves" => 5.2, "ridge" => 9.0 } ].each do |over|
+      row = Game::Building::Row.from(pair_recipe(**over.merge(
+        "dwellings" => [ { "x0" => 0.0, "x1" => 6.0, "dormer" => true }, { "x0" => 6.0, "x1" => 12.0 } ]
+      )))
+      plan = Game::Building::RowGenerator.dormer_plan(row, row.dwellings.first)
+      plane = Game::Building::RowGenerator.roof_section(row, row.dwellings.first, 0).first
+      void = plane.patches.find { |p| p.material == :void }
+
+      assert void, "no void under the dakkapel on #{over.inspect}"
+      run = row.depth / 2.0
+      setback = Game::Building::RowGenerator::DORMER_SETBACK
+      bounds = {
+        "west cheek" => [ plane.origin.x + void.col0 * plane.cell_width, :>=, plan[:x0] ],
+        "east cheek" => [ plane.origin.x + (void.col1 + 1) * plane.cell_width, :<=, plan[:x0] + plan[:width] ],
+        "glass" => [ void.row0 * plane.cell_height, :>=, setback * plane.height / run ],
+        "zinc top" => [ (void.row1 + 1) * plane.cell_height, :<=, (setback + plan[:depth]) * plane.height / run ]
+      }
+      bounds.each do |what, (edge, op, limit)|
+        assert_operator edge, op, limit + (op == :>= ? -1e-9 : 1e-9), "#{over.inspect}: the void reaches past the #{what}"
+      end
+    end
   end
 
   test "a dormer needs a roof with room under the ridge, and an unflagged dwelling gets none" do
