@@ -479,9 +479,22 @@ how the pool's ONE material is dressed and how each instance is coloured.
   and the sun is on the front whenever `cos(yaw)` is not positive, so the array starts
   above the dormer's up-slope reach — and is dropped, not shrunk, when fewer than three
   clear rows are left above it. Drawn without that rule, estate-row-1 bay 0 had 72 % of
-  its array under its dakkapel. The LAST dwelling's stack goes to its x0 end rather than
-  being pulled inward from x1, which is where an end terrace's flue runs and also the only
-  position that keeps it out of the array's columns. A gutter and a downpipe are DRAWING, instanced boxes in `steel`'s pool
+  its array under its dakkapel.
+  **Every dwelling stands its stack on the wall at its own x1** — a party line for every
+  dwelling but the last, and the row's own END WALL for the last, which is the wall an end
+  terrace's flue runs in. N dwellings have N−1 party lines, so one stack always has to
+  stand somewhere that is not a party line whatever the rule is, and a one-dwelling row is
+  that same case rather than a third. The last dwelling used to go half a metre past the
+  party line at x0 instead: on a pair with both flagged that is two 0.9 m stacks 0.95 m
+  apart, 50 mm of daylight between their brickwork and one fat double stack, on four of
+  geleen's rows — and it was already 0.40 m into its own array and 0.09 m into its own
+  dakkapel. Neither widening that offset nor pulling inward from x1 escapes the array,
+  because the array is CENTRED on the plane; only a wall at one END of the dwelling is
+  clear of it. Measured after: the closest two stacks anywhere in the world are 5.30 m
+  apart, both overlaps are nil, and `piece_count` over geleen is unchanged at 44,497,
+  because four walls `CHIMNEY_SIDE` square cost the same wherever they stand — which is
+  why this needed no re-import.
+  A gutter and a downpipe are DRAWING, instanced boxes in `steel`'s pool
   keyed to the cell they hang on and hidden with it, through the same attachment store the
   gable caps use (`Building#buildFittings`) — 120 mm of folded zinc is not worth an index.
   Which slope faces the sun comes from the row's yaw and never from the plane's own normal:
