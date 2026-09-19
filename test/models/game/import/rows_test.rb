@@ -164,4 +164,44 @@ class Game::Import::RowsTest < ActiveSupport::TestCase
       end
     end
   end
+
+  # The details a dwelling gets are decided here from the seed, never by the generator:
+  # a garage in the front, glass at the back, a dakkapel on the roof. Some but not all,
+  # and never where the geometry has no room.
+  test "dwellings are flagged for garages, glazing and dormers by seed, where there is room" do
+    houses = rows.objects.select { |o| o[:category] == "house" }
+    dwellings = houses.flat_map { |o| o[:recipe]["dwellings"].map { |d| [ o, d ] } }
+    %w[garage glazing dormer].each do |flag|
+      flagged = dwellings.count { |_, d| d[flag] }
+      assert_operator flagged, :>, 0, "no dwelling has a #{flag}"
+      assert_operator flagged, :<, dwellings.length, "every dwelling has a #{flag}"
+    end
+    dwellings.each do |o, d|
+      cols = ((d["x1"] - d["x0"]) / o[:recipe]["cell"]).round
+      refute d["garage"] && cols < 6, "#{o[:name]}: a garage on a #{cols}-column front"
+      refute d["garage"] && o[:recipe]["boxes"].any? { |b| b["door"] == "garage" }, "#{o[:name]}: a garage in the house AND beside it"
+      if d["dormer"]
+        run = (o[:recipe]["band"][1] - o[:recipe]["band"][0]) / 2.0
+        rise = o[:recipe]["ridge"] - o[:recipe]["eaves"]
+        assert_operator rise, :>=, 2.5, "#{o[:name]}: a dormer on a shallow roof"
+        assert_operator 1.0 + 1.5 * run / rise, :<=, run - 0.5, "#{o[:name]}: a dormer with no room under the ridge"
+        assert_operator d["x1"] - d["x0"], :>=, 4.5
+      end
+    end
+  end
+
+  test "the same seed always flags the same dwellings" do
+    assert_equal Game::Import::Rows.detail?(227, 0, 1, 33), Game::Import::Rows.detail?(227, 0, 1, 33)
+    assert_equal (0...100).count { |i| Game::Import::Rows.detail?(5, i, 2, 50) }.between?(30, 70), true, "a fifty percent share should flag about half"
+    refute Game::Import::Rows.detail?(5, 0, 2, 0)
+    assert Game::Import::Rows.detail?(5, 0, 2, 100)
+  end
+
+  test "every flagged recipe generates" do
+    (rows.objects + church_rows.objects).each do |o|
+      set = Game::Building::Generator.call(o[:recipe])
+      dormers = o[:recipe]["dwellings"].count { |d| d["dormer"] }
+      assert_operator set.surfaces.count { |s| s.material.name == :steel && s.kind == :roof }, :>=, dormers, "#{o[:name]}: a flagged dormer was not generated"
+    end
+  end
 end

@@ -26,6 +26,14 @@ module Game
       # is a pavement; deeper is not this dwelling's garden.
       GARDEN_MIN = 1.5
       GARDEN_MAX = 25.0
+      # What share of dwellings gets each detail, in percent, and the room a dormer needs.
+      # A 1987 estate: about half the roofs carry a dakkapel, a third of the houses have
+      # the garage under the first floor, a third have opened the back up.
+      GARAGE_SHARE = 33
+      GLAZING_SHARE = 35
+      DORMER_SHARE = 45
+      DORMER_MIN_RISE = 2.5
+      DORMER_MIN_WIDTH = 4.5
 
       # A cluster's own axes, not the world's. Named Frame because that is what it is, and
       # deliberately never confused with Terrain::Frame: that one maps survey metres to
@@ -95,6 +103,13 @@ module Game
         return nil if candidates.empty?
 
         ring.rotate(candidates.min.last)
+      end
+
+      # Whether dwelling `index` of a row with `seed` gets the detail with `salt`, at
+      # `share` percent. A small integer hash rather than Random, so the same recipe is
+      # produced by every import.
+      def self.detail?(seed, index, salt, share)
+        ((seed * 7919 + index * 104_729 + salt * 15_485_863) % 100) < share
       end
 
       private
@@ -245,6 +260,23 @@ module Game
               next if recipe["boxes"].any? { |b| b["bay"] == i && b["ring"].map(&:last).min < band_z0 - 0.3 }
 
               { "bay" => i, "depth" => depth.round(2) }
+            end
+            # The details, decided per dwelling from the seed and written into the recipe:
+            # the generator realises them and never guesses. Each is gated by the room it
+            # needs -- a garage by a front of six cells and no garage box beside the house,
+            # a dormer by a roof with room under the ridge (the same sum the generator
+            # checks), glazing by nothing but the draw.
+            garage_box = recipe["boxes"].any? { |b| b["door"] == "garage" }
+            run = (band_z1 - band_z0) / 2.0
+            rise = recipe["ridge"] - recipe["eaves"]
+            room = recipe["roof"] == "gable" && rise >= DORMER_MIN_RISE &&
+                   Building::RowGenerator::DORMER_SETBACK + Building::RowGenerator::DORMER_HEIGHT * run / rise <= run - Building::RowGenerator::DORMER_CLEARANCE
+            recipe["dwellings"].each_with_index do |d, i|
+              width = d["x1"] - d["x0"]
+              cols = (width / recipe["cell"]).round
+              d["garage"] = true if category == "house" && !garage_box && cols >= Building::Openings::GARAGE_MIN_COLS && self.class.detail?(seed, i, 1, GARAGE_SHARE)
+              d["glazing"] = true if self.class.detail?(seed, i, 2, GLAZING_SHARE)
+              d["dormer"] = true if room && width >= DORMER_MIN_WIDTH && self.class.detail?(seed, i, 3, DORMER_SHARE)
             end
           else
             recipe.merge!("band" => [ 0.0, 0.0 ], "storeys" => [ mains.map { |m| ((m["eaves"] || m["h70"]) / 4.0).round }.max, 1 ].max,
